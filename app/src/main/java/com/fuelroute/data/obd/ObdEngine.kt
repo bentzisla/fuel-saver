@@ -1,5 +1,6 @@
 package com.fuelroute.data.obd
 
+import android.util.Log
 import com.fuelroute.data.db.ObdSampleDao
 import com.fuelroute.data.db.ObdSampleEntity
 import com.fuelroute.data.db.SpeedBinDao
@@ -42,6 +43,8 @@ data class LiveObdState(
     val bins: List<SpeedBinStats> = emptyList(),
     val totalDistanceKm: Double = 0.0,
     val sampleCount: Int = 0,
+    val lastRawReply: String? = null,
+    val lastError: String? = null,
 )
 
 @Singleton
@@ -70,13 +73,35 @@ class ObdEngine @Inject constructor(
             mutableLive.update { it.copy(status = ObdStatus.Connecting) }
             val connected = transport.connect()
             if (connected.isFailure) {
-                mutableLive.update { it.copy(status = ObdStatus.Error) }
+                mutableLive.update { it.copy(status = ObdStatus.Error, lastError = "CONNECT") }
                 return@launch
             }
+
+            val replies = mutableMapOf<String, String>()
             for (command in ElmProtocol.initializationCommands) {
-                transport.sendCommand(command)
+                val reply = transport.sendCommand(command)
+                replies[command] = reply
+                Log.d(TAG, "ELM init $command -> ${reply.trim()}")
             }
-            mutableLive.update { it.copy(status = ObdStatus.Connected, deviceName = transport.deviceName) }
+
+            val atz = replies["ATZ"].orEmpty()
+            if (!atz.contains("ELM327", ignoreCase = true)) {
+                Log.e(TAG, "ATZ did not return ELM327 banner: \"$atz\"")
+                transport.disconnect()
+                mutableLive.update {
+                    it.copy(
+                        status = ObdStatus.Error,
+                        deviceName = transport.deviceName,
+                        lastError = "bad ATZ: ${atz.trim()}",
+                    )
+                }
+                return@launch
+            }
+
+            mutableLive.update {
+                it.copy(status = ObdStatus.Connected, deviceName = transport.deviceName)
+            }
+            settleProtocol(transport)
             runLoop(transport, vehicle, vehicleId)
         }
     }
@@ -85,6 +110,22 @@ class ObdEngine @Inject constructor(
         job?.cancel()
         job = null
         mutableLive.update { it.copy(status = ObdStatus.Disconnected) }
+    }
+
+    /**
+     * After `ATSP0` some adapters keep answering `SEARCHING...` while they auto-detect the
+     * bus protocol. Give them up to [PROTOCOL_LOCK_TIMEOUT_MS] to settle (first real data
+     * PID that is no longer SEARCHING wins). If it never settles we keep going — the run
+     * loop surfaces SEARCHING via `lastError` instead of crashing.
+     */
+    private suspend fun settleProtocol(transport: ObdTransport) {
+        val deadline = System.currentTimeMillis() + PROTOCOL_LOCK_TIMEOUT_MS
+        while (System.currentTimeMillis() < deadline) {
+            val raw = transport.sendCommand(ElmProtocol.command(ElmProtocol.PID_SPEED))
+            if (!raw.contains("SEARCHING", ignoreCase = true)) return
+            delay(PROTOCOL_LOCK_RETRY_MS)
+        }
+        Log.w(TAG, "protocol still SEARCHING after ${PROTOCOL_LOCK_TIMEOUT_MS}ms")
     }
 
     private suspend fun runLoop(transport: ObdTransport, vehicle: VehicleProfile, vehicleId: String) {
@@ -111,15 +152,22 @@ class ObdEngine @Inject constructor(
         var tripIdleSeconds = 0.0
         var tripMaxSpeed = 0.0
         var lastPersistMs = 0L
+        var consecutiveBad = 0
 
         try {
             while (true) {
                 val now = System.currentTimeMillis()
-                val speed = ElmProtocol.speed(transport.sendCommand(ElmProtocol.command(ElmProtocol.PID_SPEED)))
-                val rpm = ElmProtocol.rpm(transport.sendCommand(ElmProtocol.command(ElmProtocol.PID_RPM)))
-                val coolant = ElmProtocol.coolantTempC(transport.sendCommand(ElmProtocol.command(ElmProtocol.PID_COOLANT_TEMP)))
-                val maf = ElmProtocol.mafGps(transport.sendCommand(ElmProtocol.command(ElmProtocol.PID_MAF)))
-                val fuelRateRaw = ElmProtocol.fuelRateLph(transport.sendCommand(ElmProtocol.command(ElmProtocol.PID_FUEL_RATE)))
+                val rawSpeed = transport.sendCommand(ElmProtocol.command(ElmProtocol.PID_SPEED))
+                val rawRpm = transport.sendCommand(ElmProtocol.command(ElmProtocol.PID_RPM))
+                val rawCoolant = transport.sendCommand(ElmProtocol.command(ElmProtocol.PID_COOLANT_TEMP))
+                val rawMaf = transport.sendCommand(ElmProtocol.command(ElmProtocol.PID_MAF))
+                val rawFuelRate = transport.sendCommand(ElmProtocol.command(ElmProtocol.PID_FUEL_RATE))
+
+                val speed = ElmProtocol.speed(rawSpeed)
+                val rpm = ElmProtocol.rpm(rawRpm)
+                val coolant = ElmProtocol.coolantTempC(rawCoolant)
+                val maf = ElmProtocol.mafGps(rawMaf)
+                val fuelRateRaw = ElmProtocol.fuelRateLph(rawFuelRate)
 
                 val sample = ObdSample(
                     timestampMs = now,
@@ -176,6 +224,18 @@ class ObdEngine @Inject constructor(
 
                 val speedKmh = speed ?: 0.0
                 val instantL100 = if (speedKmh > 1.0 && fuelRate != null) fuelRate / speedKmh * 100.0 else null
+
+                val badReason = when {
+                    rawSpeed.contains("SEARCHING", ignoreCase = true) -> "SEARCHING"
+                    rawSpeed.contains("NO DATA", ignoreCase = true) ||
+                        rawSpeed.contains("NODATA", ignoreCase = true) -> "NO DATA"
+                    speed == null && rawSpeed.isNotBlank() -> "PARSE"
+                    rawSpeed.isBlank() -> "TIMEOUT"
+                    else -> null
+                }
+                if (badReason != null) consecutiveBad++ else consecutiveBad = 0
+                val diagError = if (consecutiveBad >= CONSECUTIVE_ERROR_THRESHOLD) badReason else null
+
                 mutableLive.update {
                     it.copy(
                         speedKmh = speed,
@@ -189,6 +249,8 @@ class ObdEngine @Inject constructor(
                         bins = bins.values.sortedBy { bin -> bin.binIndex },
                         totalDistanceKm = bins.values.sumOf { bin -> bin.distanceKm },
                         sampleCount = sampleCount,
+                        lastRawReply = rawSpeed.take(MAX_RAW_REPLY_CHARS),
+                        lastError = diagError,
                     )
                 }
 
@@ -245,5 +307,10 @@ class ObdEngine @Inject constructor(
         const val SAMPLE_PERSIST_INTERVAL_MS = 1_000L
         const val SAMPLE_RETENTION_MS = 90L * 24 * 60 * 60 * 1000
         const val DEFAULT_VEHICLE_ID = "default"
+        private const val TAG = "FuelRoute"
+        private const val MAX_RAW_REPLY_CHARS = 160
+        private const val CONSECUTIVE_ERROR_THRESHOLD = 10
+        private const val PROTOCOL_LOCK_TIMEOUT_MS = 3_000L
+        private const val PROTOCOL_LOCK_RETRY_MS = 250L
     }
 }

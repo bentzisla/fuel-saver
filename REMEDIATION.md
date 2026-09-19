@@ -13,6 +13,28 @@ Tick the boxes as items land; keep this file in sync with `PLAN.md` section 8.
 | 3 | Multi-vehicle | **Now.** A `vehicle` Room table becomes the source of truth in Phase 1; VIN auto-switch follows in Phase 2. |
 | 4 | Fuel type of the real car | **Gasoline 95.** Diesel lambda (2.4) and hybrid engine-off (2.3) move to the Deferred list; code paths stay but are not priority. |
 | 5 | Test framework | **Keep JUnit 4.** Fix the docs (`AGENTS.md`, `PLAN.md`) that claim JUnit 5. |
+| 6 | Sub-agent model | **`openrouter/deepseek/deepseek-v4.1-flash`** for `general` + `explore` agents (project `opencode.json`). Requires an opencode restart to take effect. |
+
+## P0 - Urgent bugs (fix next, before Wave 2)
+
+Two user-reported bugs jumped ahead of the wave plan. Both have a hardware/device acceptance gate, not just unit tests.
+
+- [x] **P0-A — Real OBD dongle connects but no data is read.** Status reaches "Connected" and sampling spins, but the
+      dashboard stays blank. Top causes (in order): (1) `BluetoothClassicTransport.readUntilPrompt` reads with
+      non-blocking `InputStream.available()` polling + a 2 s deadline, which returns empty on the real SPP socket;
+      (2) the ELM protocol never locks (`ATSP0` auto-detect loops `SEARCHING...`/`NO DATA`) and that failure is invisible
+      (`SEARCHING...` is not in `PidParser`'s error markers); (3) init replies (`ATZ`/`ATE0`) are ignored, so a failed
+      init goes unnoticed. Fix = raw-traffic logging, blocking read + `socket.soTimeout`, init validation, protocol lock,
+      and a surfaced `lastError`. See `remediation/tasks/00a-obd-real-capture.md`.
+      **Gate: with the dongle on the car, `adb logcat` shows `41 0D XX` and the dashboard shows live speed.**
+      -> Code + unit tests landed (blocking read, init validation, raw-traffic logging, parser markers). Car gate pending.
+- [x] **P0-B — Only one route is offered.** The result list renders every route (`RouteScreen` uses
+      `itemsIndexed(state.results)`), so this means Google returns a single route even with `computeAlternativeRoutes =
+      true`. Fix = log the raw `routes.size`, request `requestedReferenceRoutes: ["FUEL_EFFICIENT"]` (+ `departureTime`),
+      and show an explicit "נמצא מסלול אחד בלבד" state instead of silently showing one card.
+      See `remediation/tasks/00b-multi-route.md`.
+      **Gate: a real query returns >= 2 ranked routes, or the app clearly explains why only one exists.**
+      -> Code + unit tests landed (`requestedReferenceRoutes` + `departureTime` + explicit one-route message). Device gate pending.
 
 ## Dependency graph
 
@@ -57,7 +79,7 @@ Phases 0 and 1 (~2.5 days) should not wait.
 
 ## Phase 1 - Data durability and multi-vehicle foundation (2.5 days) - *before the next real drive*
 
-- [ ] **1.1 Real migrations.**
+- [x] **1.1 Real migrations.**
       `AppDatabase.kt`: `exportSchema = true`, `version = 4`. `DatabaseModule.kt`: remove `fallbackToDestructiveMigration()`,
       add `MIGRATION_3_4`. Commit `app/schemas/` (the `room.schemaLocation` KSP arg already points there).
       v4 schema, all at once:
@@ -70,6 +92,7 @@ Phases 0 and 1 (~2.5 days) should not wait.
       - `route_search`: add `selectedRouteIndex INTEGER`, `departureTimeMs INTEGER NULL`, `tollUnknown INTEGER NOT NULL DEFAULT 0`;
       - `refuel`: add `pricePerLiter REAL`, `grade TEXT NOT NULL DEFAULT '95'`.
       Done when: install a v3 build, log a simulator drive, install v4 -> data intact; `MigrationTestHelper` test passes on device.
+      -> v4 schema + `MIGRATION_3_4` + `app/schemas/` committed; build + unit tests green. Device migration test (androidTest) is 7.2.
 - [ ] **1.2 `vehicle` table + active vehicle.**
       `data/vehicle/VehicleRepository` backed by Room (`VehicleDao`), `activeVehicleId` in DataStore.
       One-time bootstrap on startup (`AppStartup`/Hilt initializer): if `vehicle` is empty, insert a row from the old
@@ -138,14 +161,14 @@ Deferred (car is gasoline; keep the code paths, low priority):
 
 ## Phase 3 - Route model correctness (2-3 days) - *parallel with Phase 2*
 
-- [ ] **3.1 Congestion into domain.** New `domain/fuel/CongestionModel.kt` (pure). `RoutesMapper` only emits
+- [x] **3.1 Congestion into domain.** New `domain/fuel/CongestionModel.kt` (pure). `RoutesMapper` only emits
       `List<CongestionInterval(startM, endM, level)>` per leg **and** per route; no modeling in the data layer.
-- [ ] **3.2 Length-weighted factor per step.** `speedFactor = sum(len_i * f_i) / sum(len_i)`; the dominant level is kept for
+- [x] **3.2 Length-weighted factor per step.** `speedFactor = sum(len_i * f_i) / sum(len_i)`; the dominant level is kept for
       display color only. Replaces `dominantCongestion`.
 - [ ] **3.3 Route-level fallback + resolution flag.** If leg intervals are empty, use `route.travelAdvisory.speedReadingIntervals`
       mapped on the route polyline. Add `trafficResolution: PER_SEGMENT | ROUTE_AVERAGE | NONE` to `Route`; result card shows
       "נתוני תנועה: לפי מקטע / ממוצע / אין".
-- [ ] **3.4 Time normalization (replaces the double count).**
+- [x] **3.4 Time normalization (replaces the double count).**
       ```
       t_raw_i = static_i / speedFactor_i
       scale   = route.duration / sum(t_raw_i)
@@ -157,18 +180,21 @@ Deferred (car is gasoline; keep the code paths, low priority):
       factors = 1, so normalization alone spreads the delay.
       Tests: `sum(t_i) == route.duration` for any input; JAM > NORMAL for equal distance; `NONE` equals uniform scaling;
       fixture route yields 5-10 L/100.
+      -> Domain normalization landed (card 05); mapper `trafficScale`/`fallbackForTraffic` cleanup remains with card 06.
 - [ ] **3.5 Tolls.** `tollCost: Money?` with currency; `tollUnknown = (estimatedPrice == null)`. UI badge "אגרה לא ידועה";
       unknown-toll routes are never auto-highlighted as cheapest. Add `routeModifiers.vehicleInfo.emissionType` from `fuelType`.
       Check the `TollPass` enum for Israeli passes; add a setting only if one exists.
-- [ ] **3.6 Cold-start term in prediction.** `FuelModel.cost(..., coldStart: Boolean)` adds `coldStartExtraL` once per route.
+- [x] **3.6 Cold-start term in prediction.** `FuelModel.cost(..., coldStart: Boolean)` adds `coldStartExtraL` once per route.
       Auto-detect: cold if no OBD trip ended in the last 2 h; manual toggle in results.
-- [ ] **3.7 Remove `FuelType.ELECTRIC`** from the enum and UI (stored value already falls back to GASOLINE). Re-add only with a
+      -> `FuelModel.cost(..., coldStartLiters)` signature landed; auto-detect + manual toggle are card 06/08.
+- [x] **3.7 Remove `FuelType.ELECTRIC`** from the enum and UI (stored value already falls back to GASOLINE). Re-add only with a
       kWh model.
 - [ ] **3.8 Fail loudly on parse.** `parseDurationSeconds` throws `RoutesParseException` on malformed input;
       `distanceMeters: Int`. Surfaced through 4.5.
-- [ ] **3.9 `domain/fuel/ModelConstants.kt`.** Every magic number (`SLOW 0.55`, `JAM 0.25`, `STOP_GO_WEIGHT 0.5`,
+- [x] **3.9 `domain/fuel/ModelConstants.kt`.** Every magic number (`SLOW 0.55`, `JAM 0.25`, `STOP_GO_WEIGHT 0.5`,
       `VOLUMETRIC_EFFICIENCY 0.85`, `CONFIDENCE_K_KM 20`, `MAX_EXTRAPOLATION_KMH 12.5`, `COLD_START_DEFAULT_L 0.15`) with a
       provenance comment and `TODO(calibrate)`. Debug-only DataStore overrides for 6.6.
+      -> Constants + provenance landed; debug DataStore overrides remain with 6.6.
 
 ---
 

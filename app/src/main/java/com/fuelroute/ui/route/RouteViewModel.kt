@@ -2,6 +2,7 @@ package com.fuelroute.ui.route
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.fuelroute.R
 import com.fuelroute.data.location.Coordinates
 import com.fuelroute.data.location.LocationRepository
 import com.fuelroute.data.location.ReverseGeocoder
@@ -62,7 +63,16 @@ data class RouteUiState(
     val fuelPricePerLiter: Double = DEFAULT_FUEL_PRICE,
     val learnedKm: Double = 0.0,
     val navigationApp: String = NAV_GOOGLE,
+    val routeCountMessage: Int? = null,
 )
+
+object RouteCountMessages {
+    fun message(count: Int): Int? = when {
+        count <= 0 -> R.string.route_no_routes
+        count == 1 -> R.string.route_single
+        else -> null
+    }
+}
 
 @OptIn(FlowPreview::class)
 @HiltViewModel
@@ -247,12 +257,12 @@ class RouteViewModel @Inject constructor(
         val destination = state.destination.trim()
         val originSet = state.originIsCurrentLocation || origin.isNotBlank()
         if (!originSet || destination.isBlank()) {
-            _uiState.update { it.copy(results = emptyList()) }
+            _uiState.update { it.copy(results = emptyList(), routeCountMessage = null) }
             return
         }
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null, results = emptyList()) }
+            _uiState.update { it.copy(isLoading = true, error = null, results = emptyList(), routeCountMessage = null) }
             try {
                 val vehicle = vehicleRepository.profile.first()
                 val settings = settingsRepository.settings.first()
@@ -288,6 +298,7 @@ class RouteViewModel @Inject constructor(
                         selectedIndex = 0,
                         learnedKm = learned.totalDistanceKm,
                         fuelPricePerLiter = fuelPrice,
+                        routeCountMessage = RouteCountMessages.message(ranked.size),
                     )
                 }
 

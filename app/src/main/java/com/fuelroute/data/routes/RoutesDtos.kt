@@ -1,5 +1,6 @@
 package com.fuelroute.data.routes
 
+import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.Serializable
 
 const val ROUTES_FIELD_MASK = "routes.routeLabels,routes.description,routes.distanceMeters," +
@@ -17,6 +18,9 @@ data class ComputeRoutesRequest(
     val travelMode: String = "DRIVE",
     val routingPreference: String = "TRAFFIC_AWARE_OPTIMAL",
     val computeAlternativeRoutes: Boolean = true,
+    @EncodeDefault
+    val requestedReferenceRoutes: List<String> = listOf("FUEL_EFFICIENT"),
+    val departureTime: String? = null,
     val languageCode: String = "he",
     val units: String = "METRIC",
     val extraComputations: List<String> = listOf("TRAFFIC_ON_POLYLINE", "TOLLS"),

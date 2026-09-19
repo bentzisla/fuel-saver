@@ -2,41 +2,37 @@ package com.fuelroute.domain.fuel
 
 import com.fuelroute.domain.model.Route
 import com.fuelroute.domain.model.RouteCost
+import com.fuelroute.domain.model.RouteSegment
 import com.fuelroute.domain.model.SegmentCost
+import com.fuelroute.domain.model.TrafficResolution
 import kotlin.math.max
 
-/**
- * Turns a route (already split into segments with free-flow and traffic times)
- * into a fuel cost using the effective consumption curve.
- */
 class FuelModel(
     private val curve: ConsumptionCurve,
     private val idleLitersPerHour: Double,
-    private val stopGoWeight: Double = 0.5,
+    private val stopGoWeight: Double = ModelConstants.STOP_GO_WEIGHT,
 ) {
 
-    fun cost(route: Route, pricePerLiter: Double): RouteCost {
-        var fuelLiters = 0.0
+    fun cost(
+        route: Route,
+        pricePerLiter: Double,
+        coldStartLiters: Double = 0.0,
+    ): RouteCost {
+        val scale = timeScale(route)
+        // No congestion data = pure uniform time scaling; the extra delay is already
+        // reflected in a lower effective speed, so do not pile a stop-go idle term on top.
+        val applyStopGo = route.trafficResolution != TrafficResolution.NONE
+        var fuelLiters = coldStartLiters
         val segmentCosts = mutableListOf<SegmentCost>()
 
         for (segment in route.segments) {
             val distanceKm = segment.distanceMeters / 1000.0
-            if (distanceKm <= 0.0) continue
-
-            val freeFlowHours = segment.staticDurationSeconds / 3600.0
-            val effectiveSpeed = if (freeFlowHours > 0.0) {
-                (distanceKm / freeFlowHours) * segment.congestion.speedFactor
-            } else {
-                0.0
-            }
-
+            val t = rawSeconds(segment) * scale
+            val effectiveSpeed = if (t > 0.0) distanceKm / (t / 3600.0) else 0.0
             val litersPer100 = curve.litersPer100Km(effectiveSpeed)
             val baseLiters = distanceKm * litersPer100 / 100.0
-
-            val trafficHours = (segment.trafficDurationSeconds ?: segment.staticDurationSeconds) / 3600.0
-            val extraHours = max(0.0, trafficHours - freeFlowHours)
-            val stopGoLiters = idleLitersPerHour * extraHours * stopGoWeight
-
+            val extraHours = max(0.0, (t - segment.staticDurationSeconds) / 3600.0)
+            val stopGoLiters = if (applyStopGo) idleLitersPerHour * extraHours * stopGoWeight else 0.0
             val segmentLiters = baseLiters + stopGoLiters
             fuelLiters += segmentLiters
             segmentCosts += SegmentCost(
@@ -65,5 +61,21 @@ class FuelModel(
             avgSpeedKmh = avgSpeed,
             segments = segmentCosts,
         )
+    }
+
+    internal fun normalizedSegmentsSeconds(route: Route): List<Double> {
+        val scale = timeScale(route)
+        return route.segments.map { rawSeconds(it) * scale }
+    }
+
+    private fun timeScale(route: Route): Double {
+        val sumRaw = route.segments.sumOf { rawSeconds(it) }
+        if (sumRaw <= 0.0) return 1.0
+        return route.durationSeconds / sumRaw
+    }
+
+    private fun rawSeconds(segment: RouteSegment): Double {
+        val factor = segment.congestionFactor.coerceIn(ModelConstants.JAM_FACTOR, ModelConstants.NORMAL_FACTOR)
+        return segment.staticDurationSeconds / factor
     }
 }

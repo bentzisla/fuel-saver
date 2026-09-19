@@ -5,14 +5,16 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [
+        VehicleEntity::class,
+        LearningExtrasEntity::class,
         ObdSampleEntity::class,
         SpeedBinStatsEntity::class,
         TripEntity::class,
         RefuelEntity::class,
         RouteSearchEntity::class,
     ],
-    version = 3,
-    exportSchema = false,
+    version = 4,
+    exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun obdSampleDao(): ObdSampleDao
@@ -20,4 +22,6 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun tripDao(): TripDao
     abstract fun refuelDao(): RefuelDao
     abstract fun routeSearchDao(): RouteSearchDao
+    abstract fun vehicleDao(): VehicleDao
+    abstract fun learningExtrasDao(): LearningExtrasDao
 }

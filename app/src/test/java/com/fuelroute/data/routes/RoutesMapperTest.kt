@@ -50,7 +50,7 @@ class RoutesMapperTest {
         assertEquals(12_000.0, segment.distanceMeters, 1e-9)
         assertEquals(1200.0, segment.staticDurationSeconds, 1e-9)
         assertEquals(CongestionLevel.SLOW, segment.congestion)
-        assertEquals(1500.0, segment.trafficDurationSeconds!!, 1e-9)
+        assertEquals(1.0, segment.congestionFactor, 1e-9)
     }
 
     @Test

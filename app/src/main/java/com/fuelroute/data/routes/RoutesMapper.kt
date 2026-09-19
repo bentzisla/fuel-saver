@@ -1,8 +1,11 @@
 package com.fuelroute.data.routes
 
+import com.fuelroute.domain.fuel.CongestionInterval
+import com.fuelroute.domain.fuel.CongestionModel
 import com.fuelroute.domain.model.CongestionLevel
 import com.fuelroute.domain.model.Route
 import com.fuelroute.domain.model.RouteSegment
+import com.fuelroute.domain.model.TrafficResolution
 
 object RoutesMapper {
 
@@ -18,6 +21,7 @@ object RoutesMapper {
             ?.estimatedPrice
             ?.firstOrNull()
             ?.let { it.units + it.nanos / 1e9 }
+        val hasPerSegment = segments.any { it.congestionFactor != 1.0 }
 
         return Route(
             id = "route-$index",
@@ -27,6 +31,11 @@ object RoutesMapper {
             durationSeconds = durationSec,
             segments = segments,
             tollCost = toll,
+            trafficResolution = if (hasPerSegment) {
+                TrafficResolution.PER_SEGMENT
+            } else {
+                TrafficResolution.ROUTE_AVERAGE
+            },
             encodedPolyline = dto.polyline?.encodedPolyline,
         )
     }
@@ -40,20 +49,28 @@ object RoutesMapper {
         for (step in leg.steps) {
             val staticSec = step.staticDuration?.parseDurationSeconds() ?: 0.0
             val end = cursor + step.distanceMeters
+            val factor = if (intervals.isEmpty()) {
+                1.0
+            } else {
+                CongestionModel.weightedSpeedFactor(intervals, cursor, end)
+            }
+            val level = if (intervals.isEmpty()) {
+                fallbackForTraffic(trafficScale)
+            } else {
+                CongestionModel.dominantLevel(intervals, cursor, end)
+            }
             segments += RouteSegment(
                 distanceMeters = step.distanceMeters,
                 staticDurationSeconds = staticSec,
-                trafficDurationSeconds = staticSec * trafficScale,
-                congestion = dominantCongestion(intervals, cursor, end, trafficScale),
+                congestionFactor = factor,
+                congestion = level,
             )
             cursor = end
         }
         return segments
     }
 
-    private data class Interval(val startM: Double, val endM: Double, val level: CongestionLevel)
-
-    private fun congestionIntervals(leg: LegDto): List<Interval> {
+    private fun congestionIntervals(leg: LegDto): List<CongestionInterval> {
         val raw = leg.travelAdvisory?.speedReadingIntervals.orEmpty()
         if (raw.isEmpty()) return emptyList()
 
@@ -72,29 +89,8 @@ object RoutesMapper {
             val start = cumulative[interval.startPolylinePointIndex.coerceIn(0, points.size - 1)]
             val end = cumulative[interval.endPolylinePointIndex.coerceIn(0, points.size - 1)]
             if (end <= start) return@mapNotNull null
-            Interval(start, end, level)
+            CongestionInterval(start, end, level)
         }
-    }
-
-    private fun dominantCongestion(
-        intervals: List<Interval>,
-        start: Double,
-        end: Double,
-        trafficScale: Double,
-    ): CongestionLevel {
-        if (intervals.isEmpty() || end <= start) {
-            return fallbackForTraffic(trafficScale)
-        }
-
-        val overlap = HashMap<CongestionLevel, Double>()
-        for (interval in intervals) {
-            val s = maxOf(start, interval.startM)
-            val e = minOf(end, interval.endM)
-            if (e > s) {
-                overlap[interval.level] = (overlap[interval.level] ?: 0.0) + (e - s)
-            }
-        }
-        return overlap.maxByOrNull { it.value }?.key ?: fallbackForTraffic(trafficScale)
     }
 
     private fun fallbackForTraffic(trafficScale: Double): CongestionLevel = when {

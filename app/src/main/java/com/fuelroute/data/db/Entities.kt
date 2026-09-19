@@ -3,6 +3,29 @@ package com.fuelroute.data.db
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
+@Entity(tableName = "vehicle")
+data class VehicleEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val fuelType: String,
+    val ratedCombinedL100: Double,
+    val engineDisplacementL: Double?,
+    val tankCapacityL: Double?,
+    val fuelRateCorrection: Double,
+    val manualCurve: String?,
+    val vin: String?,
+    val grade: String = "95",
+    val createdAtMs: Long,
+)
+
+@Entity(tableName = "learning_extras")
+data class LearningExtrasEntity(
+    @PrimaryKey val vehicleId: String,
+    val coldStartExtraL: Double,
+    val coldStartCount: Int,
+    val updatedAtMs: Long,
+)
+
 @Entity(tableName = "obd_sample")
 data class ObdSampleEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -40,6 +63,9 @@ data class TripEntity(
     val avgSpeedKmh: Double,
     val maxSpeedKmh: Double,
     val idleSeconds: Double,
+    val isOpen: Int = 0,
+    val routeSearchId: Int? = null,
+    val coldStartFuelL: Double = 0.0,
 )
 
 @Entity(tableName = "refuel")
@@ -50,6 +76,8 @@ data class RefuelEntity(
     val liters: Double,
     val totalPrice: Double,
     val isFull: Boolean,
+    val pricePerLiter: Double = 0.0,
+    val grade: String = "95",
 )
 
 @Entity(tableName = "route_search")
@@ -64,4 +92,7 @@ data class RouteSearchEntity(
     val predictedLiters: Double,
     val distanceKm: Double,
     val durationMin: Double,
+    val selectedRouteIndex: Int = 0,
+    val departureTimeMs: Long? = null,
+    val tollUnknown: Int = 0,
 )

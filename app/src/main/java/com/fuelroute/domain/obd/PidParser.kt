@@ -19,6 +19,12 @@ object PidParser {
         "STOPPED",
         "TIMEOUT",
         "?",
+        // SEARCHING is a not-yet-ready state (bus auto-detect in progress), not a hard
+        // error on the vehicle — but a response of only SEARCHING... carries no data.
+        "SEARCHING",
+        "ACT ALERT",
+        "LVP RESET",
+        "RTR TIMEOUT",
     )
 
     fun clean(raw: String): String = raw
@@ -39,8 +45,11 @@ object PidParser {
      */
     fun parseMode01Bytes(raw: String, pid: Int): List<Int>? {
         val cleaned = clean(raw)
-        if (isError(cleaned)) return null
 
+        // Valid data wins over "noise" markers (echo, SEARCHING...): scan for the
+        // `41 <PID>` pair first so a response like "SEARCHING...\r41 0D 3C\r>" still
+        // parses, while a response that is only "SEARCHING..." (or "NO DATA") has no
+        // payload and maps to null below.
         val tokens = cleaned
             .split(' ')
             .filter { HEX_PAIR.matches(it) }

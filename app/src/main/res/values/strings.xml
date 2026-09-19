@@ -34,6 +34,8 @@
     <string name="route_fuel_price">מחיר דלק: %1$s ₪ לליטר</string>
     <string name="route_based_on">מבוסס על %1$s ק״מ של נתוני רכב אמיתיים</string>
     <string name="route_default_curve">עקומת ברירת מחדל — חברו דונגל OBD לדיוק</string>
+    <string name="route_no_routes">לא נמצאו מסלולים</string>
+    <string name="route_single">נמצא מסלול אחד בלבד — אין חלופות להשוואה</string>
     <string name="route_open_history">חיפושים קודמים</string>
 
     <string name="route_detail_title">חישוב העלות</string>
@@ -105,6 +107,9 @@
     <string name="stats_trips">נסיעות</string>
     <string name="stats_no_trips">אין נסיעות מתועדות עדיין</string>
     <string name="stats_prediction">חיזוי העקומה: %1$s ל׳/100 ק״מ</string>
+    <string name="stats_debug_title">אבחון</string>
+    <string name="stats_last_error">שגיאה אחרונה</string>
+    <string name="stats_raw_reply">תשובה גולמית</string>
 
     <string name="history_title">היסטוריית חיפושים</string>
     <string name="history_empty">אין חיפושים קודמים עדיין</string>

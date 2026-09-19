@@ -217,6 +217,16 @@ fun RouteScreen(
                 }
             }
 
+            state.routeCountMessage?.let { message ->
+                item {
+                    Text(
+                        text = stringResource(message),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
             itemsIndexed(state.results) { index, cost ->
                 RouteCard(
                     cost = cost,

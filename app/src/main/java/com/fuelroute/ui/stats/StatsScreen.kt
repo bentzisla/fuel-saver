@@ -129,6 +129,9 @@ fun StatsScreen(
             ObdStatus.Connected -> {
                 item { SpeedGauge(state) }
                 item { MetricRow(state) }
+                if (state.lastError != null || state.lastRawReply != null) {
+                    item { DebugCard(state) }
+                }
                 item { TripSummaryCard(state) }
                 item { LearnedCard(state) }
                 item {
@@ -143,6 +146,9 @@ fun StatsScreen(
                         text = stringResource(R.string.stats_error),
                         color = MaterialTheme.colorScheme.error,
                     )
+                }
+                if (state.lastError != null || state.lastRawReply != null) {
+                    item { DebugCard(state) }
                 }
                 item { ConnectionCard(bonded = bonded, viewModel = viewModel) }
             }
@@ -313,6 +319,32 @@ private fun MetricTile(
                 Text(
                     text = unit,
                     style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DebugCard(state: LiveObdState) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = stringResource(R.string.stats_debug_title),
+                style = MaterialTheme.typography.titleSmall,
+            )
+            state.lastError?.let {
+                Text(
+                    text = stringResource(R.string.stats_last_error) + ": " + it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            state.lastRawReply?.let {
+                Text(
+                    text = stringResource(R.string.stats_raw_reply) + ": " + it,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }

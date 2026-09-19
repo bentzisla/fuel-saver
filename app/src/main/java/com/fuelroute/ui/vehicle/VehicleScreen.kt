@@ -131,5 +131,4 @@ private fun FuelType.labelRes(): Int = when (this) {
     FuelType.GASOLINE -> R.string.fuel_gasoline
     FuelType.DIESEL -> R.string.fuel_diesel
     FuelType.HYBRID -> R.string.fuel_hybrid
-    FuelType.ELECTRIC -> R.string.fuel_electric
 }

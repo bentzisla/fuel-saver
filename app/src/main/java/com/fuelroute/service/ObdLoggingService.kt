@@ -44,7 +44,9 @@ class ObdLoggingService : Service() {
     lateinit var settingsRepository: SettingsRepository
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private val overlay = ObdOverlayController(this)
+    // Deferred until first use: the Service constructor runs before Android attaches the
+    // base Context, so resolving WindowManager (or any system service) here would NPE.
+    private val overlay: ObdOverlayController by lazy { ObdOverlayController(this) }
     private var overlayEnabled = false
 
     override fun onBind(intent: Intent?): IBinder? = null

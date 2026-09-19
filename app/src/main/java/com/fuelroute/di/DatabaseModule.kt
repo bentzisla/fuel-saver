@@ -3,11 +3,14 @@ package com.fuelroute.di
 import android.content.Context
 import androidx.room.Room
 import com.fuelroute.data.db.AppDatabase
+import com.fuelroute.data.db.LearningExtrasDao
+import com.fuelroute.data.db.Migrations
 import com.fuelroute.data.db.ObdSampleDao
 import com.fuelroute.data.db.RefuelDao
 import com.fuelroute.data.db.RouteSearchDao
 import com.fuelroute.data.db.SpeedBinDao
 import com.fuelroute.data.db.TripDao
+import com.fuelroute.data.db.VehicleDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -23,7 +26,7 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, "fuelroute.db")
-            .fallbackToDestructiveMigration()
+            .addMigrations(Migrations.MIGRATION_3_4)
             .build()
 
     @Provides
@@ -40,4 +43,10 @@ object DatabaseModule {
 
     @Provides
     fun provideRouteSearchDao(db: AppDatabase): RouteSearchDao = db.routeSearchDao()
+
+    @Provides
+    fun provideVehicleDao(db: AppDatabase): VehicleDao = db.vehicleDao()
+
+    @Provides
+    fun provideLearningExtrasDao(db: AppDatabase): LearningExtrasDao = db.learningExtrasDao()
 }

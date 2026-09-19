@@ -30,6 +30,7 @@ commits, runs the serial build gate, or touches shared files like the version ca
 ## Waves (dispatch order)
 
 ```
+P0 (parallel, disjoint):        00a-obd-real-capture   00b-multi-route      (urgent bugs; car/device gate)
 Wave 1 (parallel, disjoint):   01-schema-migration    05-route-model-domain
 Wave 2 (parallel):             02-vehicle-multivehicle 03-obd-engine-transport 04-learning-domain
                                (02 and 03 both need 01; 04 needs 02 for RefuelViewModel; 03 needs 02 for active vehicle)
@@ -38,6 +39,12 @@ Wave 4:                        07-service-auto-logging  (needs 03)
 Wave 5:                        08-product-validation    (needs 01 + 02 + 06)
 Wave 6:                        09-tests-docs-hook       (needs everything; also closes Phase 0.4 doc fixes)
 ```
+
+`00a` (OBD transport/engine) and `00b` (routes DTO/UI) are file-disjoint and can run in parallel. They are the urgent
+fixes, so dispatch P0 **first**, before Wave 1/Wave 2. `00a`'s transport/parser changes are the foundation that card 03
+later extends; `00b`'s additive DTO/UI changes are absorbed by card 06. Note the project now pins the `general` +
+`explore` sub-agent model to `openrouter/deepseek/deepseek-v4.1-flash` — this only takes effect after an opencode
+restart.
 
 `05-route-model-domain` is pure Kotlin (no Android) and is deliberately disjoint from everXthing else, so it can
 always start in parallel with Wave 1.

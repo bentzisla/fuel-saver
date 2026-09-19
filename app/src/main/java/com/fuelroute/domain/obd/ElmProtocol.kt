@@ -19,11 +19,13 @@ object ElmProtocol {
 
     val initializationCommands: List<String> = listOf(
         "ATZ",   // reset
+        "ATAT1", // adaptive timing on (reduces clone timeouts)
         "ATE0",  // echo off
         "ATL0",  // linefeeds off
         "ATS0",  // spaces off
         "ATH0",  // headers off
         "ATSP0", // auto-detect protocol
+        "ATST64", // set 64 ms timeout (clone-friendly)
     )
 
     fun command(pid: Int): String = "01" + pid.toString(16).uppercase().padStart(2, '0')
