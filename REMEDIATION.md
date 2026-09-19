@@ -30,20 +30,28 @@ Phases 0 and 1 (~2.5 days) should not wait.
 
 ## Phase 0 - Stop the bleeding (0.5 day)
 
-- [ ] **0.1 Commit everything.** Verify `.gitignore` excludes `local.properties`, `keystore.properties`, `*.jks`, `release/`.
+- [x] **0.1 Commit everything.** Verify `.gitignore` excludes `local.properties`, `keystore.properties`, `*.jks`, `release/`.
       `git add -A`; commit "Import app sources".
       Done when: `git status` clean, `git log` shows the app.
+      -> Commit `eafe282` (116 files). Verified no secrets in `HEAD`.
 - [ ] **0.2 Back up the release keystore off-machine.** `release/fuelroute.jks` + `keystore.properties` -> password manager /
       encrypted archive. Record the SHA-1 next to it.
       Done when: a restore from the backup copy signs an APK.
-- [ ] **0.3 Move the repo to `C:\dev\fuel`.** Delete `.gradle/`, `.kotlin/`, `build/`, `app/build/`, `.idea/` before moving
+      **MANUAL (off-machine copy pending).** Values captured for the record:
+      - `release/fuelroute.jks` SHA256 = `F4F96B786CEAE5B49B506E1E78F894518EFC7CFAFB96A8F3C28D979A2F11E5FE`
+      - `keystore.properties` SHA256 = `5418C3FEBB751CF71DD0D2416A53D10FE528D290E4F1CA3A18918DF71125F76D`
+      - release cert SHA1 = `6E:EC:A5:E3:1D:4D:01:D3:39:29:04:2D:D1:1D:AC:CC:6E:59:FA:5C` (alias `fuelroute`)
+      - debug cert SHA1 = `E2:AB:20:64:E9:A8:2F:93:10:3D:77:16:5B:C3:F9:07:0D:E2:2E:60` (for API-key restriction)
+- [x] **0.3 Move the repo to `C:\dev\fuel`.** Delete `.gradle/`, `.kotlin/`, `build/`, `app/build/`, `.idea/` before moving
       (they hold absolute paths). Reopen OpenCode / Android Studio in the new folder. Exclude the old location from OneDrive
       if it must stay.
       Done when: `.\gradlew.bat assembleDebug --console=plain` succeeds from `C:\dev\fuel`.
-- [ ] **0.4 Fix `AGENTS.md`.** Canonical path `C:\dev\fuel`; `compileSdk`/`targetSdk` = 36 (SDK has `platforms;android-36`,
+      -> Move done by user; caches were carried over but the build is green (`assembleDebug` + `signingReport`).
+- [x] **0.4 Fix `AGENTS.md`.** Canonical path `C:\dev\fuel`; `compileSdk`/`targetSdk` = 36 (SDK has `platforms;android-36`,
       `build-tools;36.0.0`); JUnit **4**; mention `SimulatedObdTransport`, `tools/elm327_emulator.py`, `scripts/`,
       `install-on-connect.bat`.
       Done when: every claim in `AGENTS.md` matches `gradle/libs.versions.toml` and `app/build.gradle.kts`.
+      -> `AGENTS.md` env note updated to `C:\dev\fuel`; SDK/JUnit4/transport notes already present (verified against files).
 
 ---
 
