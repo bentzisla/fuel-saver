@@ -9,7 +9,6 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -17,13 +16,17 @@ import javax.inject.Inject
 
 data class VehicleUiState(
     val isLoaded: Boolean = false,
-    val id: String = "",
+    val vehicles: List<VehicleProfile> = emptyList(),
+    val activeId: String? = null,
+    val showForm: Boolean = false,
+    val editingId: String? = null,
     val name: String = "",
     val fuelType: FuelType = FuelType.GASOLINE,
     val ratedCombined: String = "",
     val displacement: String = "",
     val tankCapacity: String = "",
     val saved: Boolean = false,
+    val pendingDelete: VehicleProfile? = null,
 )
 
 @HiltViewModel
@@ -36,21 +39,56 @@ class VehicleViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            repository.profile.first().let { profile ->
-                _uiState.update {
-                    it.copy(
+            repository.vehicles().collect { vehicles ->
+                _uiState.update { state ->
+                    state.copy(
                         isLoaded = true,
-                        id = profile.id,
-                        name = profile.name,
-                        fuelType = profile.fuelType,
-                        ratedCombined = profile.ratedCombinedL100.toString(),
-                        displacement = profile.engineDisplacementL?.toString().orEmpty(),
-                        tankCapacity = profile.tankCapacityL?.toString().orEmpty(),
+                        vehicles = vehicles,
+                        activeId = state.activeId ?: vehicles.firstOrNull()?.id,
                     )
                 }
             }
         }
+        viewModelScope.launch {
+            val active = repository.active()
+            _uiState.update { it.copy(activeId = active.id) }
+        }
     }
+
+    fun select(id: String) {
+        viewModelScope.launch {
+            repository.setActive(id)
+            _uiState.update { it.copy(activeId = id, saved = false) }
+        }
+    }
+
+    fun startAdd() = _uiState.update {
+        it.copy(
+            showForm = true,
+            editingId = null,
+            name = "",
+            fuelType = FuelType.GASOLINE,
+            ratedCombined = "",
+            displacement = "",
+            tankCapacity = "",
+            saved = false,
+        )
+    }
+
+    fun startEdit(profile: VehicleProfile) = _uiState.update {
+        it.copy(
+            showForm = true,
+            editingId = profile.id,
+            name = profile.name,
+            fuelType = profile.fuelType,
+            ratedCombined = profile.ratedCombinedL100.toString(),
+            displacement = profile.engineDisplacementL?.toString().orEmpty(),
+            tankCapacity = profile.tankCapacityL?.toString().orEmpty(),
+            saved = false,
+        )
+    }
+
+    fun cancelEdit() = _uiState.update { it.copy(showForm = false, editingId = null, saved = false) }
 
     fun onNameChange(value: String) = _uiState.update { it.copy(name = value, saved = false) }
 
@@ -64,27 +102,49 @@ class VehicleViewModel @Inject constructor(
 
     fun save() {
         val state = _uiState.value
-        val normalized = state.copy(
-            name = state.name.trim(),
-            ratedCombined = state.ratedCombined.trim(),
-            displacement = state.displacement.trim(),
-            tankCapacity = state.tankCapacity.trim(),
+        val name = state.name.trim()
+        val ratedCombined = state.ratedCombined.trim()
+        val displacement = state.displacement.trim()
+        val tankCapacity = state.tankCapacity.trim()
+        _uiState.value = state.copy(
+            name = name,
+            ratedCombined = ratedCombined,
+            displacement = displacement,
+            tankCapacity = tankCapacity,
         )
-        _uiState.value = normalized
 
-        val profile = VehicleProfile(
-            id = normalized.id.ifBlank { UUID.randomUUID().toString() },
-            name = normalized.name,
-            fuelType = normalized.fuelType,
-            ratedCombinedL100 = normalized.ratedCombined.toDoubleOrNull() ?: DEFAULT_RATED_L100,
-            engineDisplacementL = normalized.displacement.toDoubleOrNull(),
-            tankCapacityL = normalized.tankCapacity.toDoubleOrNull(),
+        val existing = state.vehicles.firstOrNull { it.id == state.editingId }
+        val profile = (existing ?: VehicleProfile(id = UUID.randomUUID().toString(), name = name)).copy(
+            name = name,
+            fuelType = state.fuelType,
+            ratedCombinedL100 = ratedCombined.toDoubleOrNull() ?: DEFAULT_RATED_L100,
+            engineDisplacementL = displacement.toDoubleOrNull(),
+            tankCapacityL = tankCapacity.toDoubleOrNull(),
         )
         viewModelScope.launch {
-            repository.save(profile)
+            repository.upsert(profile)
+            if (existing == null) repository.setActive(profile.id)
             _uiState.update {
-                it.copy(id = profile.id, name = profile.name, saved = true)
+                it.copy(
+                    showForm = false,
+                    editingId = null,
+                    activeId = profile.id,
+                    saved = true,
+                )
             }
+        }
+    }
+
+    fun requestDelete(profile: VehicleProfile) = _uiState.update { it.copy(pendingDelete = profile) }
+
+    fun cancelDelete() = _uiState.update { it.copy(pendingDelete = null) }
+
+    fun confirmDelete() {
+        val profile = _uiState.value.pendingDelete ?: return
+        viewModelScope.launch {
+            repository.delete(profile.id)
+            val active = repository.active()
+            _uiState.update { it.copy(pendingDelete = null, activeId = active.id) }
         }
     }
 

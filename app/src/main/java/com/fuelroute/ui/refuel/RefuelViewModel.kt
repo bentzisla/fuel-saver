@@ -10,12 +10,9 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-
-private const val DEFAULT_VEHICLE_ID = "default"
 
 data class RefuelUiState(
     val liters: String = "",
@@ -42,7 +39,7 @@ class RefuelViewModel @Inject constructor(
 
     private fun load() {
         viewModelScope.launch {
-            val vehicle = vehicleRepository.profile.first()
+            val vehicle = vehicleRepository.active()
             _state.update {
                 it.copy(
                     refuels = refuelRepository.recent(20),
@@ -62,8 +59,8 @@ class RefuelViewModel @Inject constructor(
         if (liters == null || liters <= 0.0 || price == null || price < 0.0) return
 
         viewModelScope.launch {
-            val vehicle = vehicleRepository.profile.first()
-            val vehicleId = vehicle.id.ifBlank { DEFAULT_VEHICLE_ID }
+            val vehicle = vehicleRepository.active()
+            val vehicleId = vehicle.id
             refuelRepository.add(liters, price, _state.value.isFull, vehicleId)
 
             if (_state.value.isFull) {
@@ -76,7 +73,7 @@ class RefuelViewModel @Inject constructor(
                 }
             }
 
-            val updatedCorrection = vehicleRepository.profile.first().fuelRateCorrection
+            val updatedCorrection = vehicleRepository.active().fuelRateCorrection
             val refuels = refuelRepository.recent(20)
             _state.update {
                 it.copy(

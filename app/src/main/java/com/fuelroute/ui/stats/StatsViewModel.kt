@@ -90,8 +90,8 @@ class StatsViewModel @Inject constructor(
     }
 
     private suspend fun effectiveCurve(): ConsumptionCurve {
-        val vehicle = vehicleRepository.profile.first()
-        val learned = learnedCurveRepository.learnedCurve(vehicle.id.ifBlank { DEFAULT_VEHICLE_ID })
+        val vehicle = vehicleRepository.active()
+        val learned = learnedCurveRepository.learnedCurve(vehicle.id)
         val default = DefaultCurve.forVehicle(vehicle.ratedCombinedL100, vehicle.fuelType)
         val manual = vehicle.manualCurve
             ?.takeIf { it.size >= 2 }
@@ -121,9 +121,5 @@ class StatsViewModel @Inject constructor(
 
     fun stop() {
         ObdLoggingService.stop(appContext)
-    }
-
-    private companion object {
-        const val DEFAULT_VEHICLE_ID = "default"
     }
 }

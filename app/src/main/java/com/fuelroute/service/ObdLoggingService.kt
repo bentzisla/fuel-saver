@@ -25,7 +25,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -82,7 +81,7 @@ class ObdLoggingService : Service() {
         startForeground(NOTIFICATION_ID, buildNotification(null))
 
         scope.launch {
-            val vehicle = vehicleRepository.profile.first()
+            val vehicle = vehicleRepository.active()
             engine.start(transport, vehicle)
         }
 

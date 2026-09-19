@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface VehicleDao {
 
-    @Query("SELECT * FROM vehicle")
+    @Query("SELECT * FROM vehicle ORDER BY createdAtMs")
     fun getAll(): Flow<List<VehicleEntity>>
 
     @Query("SELECT * FROM vehicle WHERE id = :id")
@@ -69,6 +69,10 @@ interface SpeedBinDao {
 
     @Query("DELETE FROM speed_bin_stats WHERE vehicleId = :vehicleId")
     suspend fun resetForVehicle(vehicleId: String)
+
+    /** Idempotent bootstrap migration: repoints rows written under an unknown vehicle id. */
+    @Query("UPDATE speed_bin_stats SET vehicleId = :newVehicleId WHERE vehicleId NOT IN (SELECT id FROM vehicle)")
+    suspend fun repointOrphans(newVehicleId: String)
 }
 
 @Dao
@@ -82,6 +86,10 @@ interface TripDao {
 
     @Query("SELECT * FROM trip WHERE isOpen = 1 ORDER BY startedAtMs DESC")
     suspend fun recentOpenTrips(): List<TripEntity>
+
+    /** Idempotent bootstrap migration: repoints rows written under an unknown vehicle id. */
+    @Query("UPDATE trip SET vehicleId = :newVehicleId WHERE vehicleId NOT IN (SELECT id FROM vehicle)")
+    suspend fun repointOrphans(newVehicleId: String)
 
     @Query(
         "SELECT * FROM route_search WHERE departureTimeMs >= :tripStartMs - :windowMs " +
@@ -101,6 +109,10 @@ interface RefuelDao {
 
     @Query("SELECT COALESCE(SUM(liters), 0.0) FROM refuel WHERE isFull = 1 AND vehicleId = :vehicleId")
     suspend fun totalFullLiters(vehicleId: String): Double
+
+    /** Idempotent bootstrap migration: repoints rows written under an unknown vehicle id. */
+    @Query("UPDATE refuel SET vehicleId = :newVehicleId WHERE vehicleId NOT IN (SELECT id FROM vehicle)")
+    suspend fun repointOrphans(newVehicleId: String)
 
     @Query(
         "SELECT * FROM refuel WHERE isFull = 1 AND vehicleId = :vehicleId " +

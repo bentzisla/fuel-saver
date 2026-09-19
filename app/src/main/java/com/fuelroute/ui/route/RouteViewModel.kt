@@ -41,7 +41,6 @@ import javax.inject.Inject
 private const val DEFAULT_FUEL_PRICE = 7.0
 private const val DEFAULT_IDLE_LPH = 0.8
 private const val AUTOCOMPLETE_DEBOUNCE_MS = 300L
-private const val DEFAULT_VEHICLE_ID = "default"
 
 data class RouteUiState(
     val origin: String = "",
@@ -264,9 +263,9 @@ class RouteViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null, results = emptyList(), routeCountMessage = null) }
             try {
-                val vehicle = vehicleRepository.profile.first()
+                val vehicle = vehicleRepository.active()
                 val settings = settingsRepository.settings.first()
-                val learned = learnedCurveRepository.learnedCurve(vehicle.id.ifBlank { DEFAULT_VEHICLE_ID })
+                val learned = learnedCurveRepository.learnedCurve(vehicle.id)
                 val default = DefaultCurve.forVehicle(vehicle.ratedCombinedL100, vehicle.fuelType)
                 val fallback = effectiveFallback(vehicle.manualCurve, default)
                 val curve = CurveBlender.blend(learned, fallback)

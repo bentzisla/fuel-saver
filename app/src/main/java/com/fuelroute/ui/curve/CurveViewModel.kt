@@ -13,7 +13,6 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -58,37 +57,35 @@ class CurveViewModel @Inject constructor(
 
     fun adoptLearned() {
         viewModelScope.launch {
-            val vehicle = vehicleRepository.profile.first()
-            val vehicleId = vehicle.id.ifBlank { DEFAULT_VEHICLE_ID }
+            val vehicle = vehicleRepository.active()
             val current = _state.value
             if (current.effectivePoints.size >= 2) {
-                vehicleRepository.save(vehicle.copy(manualCurve = current.effectivePoints))
+                vehicleRepository.upsert(vehicle.copy(manualCurve = current.effectivePoints))
             }
-            learnedCurveRepository.reset(vehicleId)
+            learnedCurveRepository.reset(vehicle.id)
             _state.value = buildState()
         }
     }
 
     fun resetLearning() {
         viewModelScope.launch {
-            val vehicle = vehicleRepository.profile.first()
-            val vehicleId = vehicle.id.ifBlank { DEFAULT_VEHICLE_ID }
-            learnedCurveRepository.reset(vehicleId)
+            val vehicle = vehicleRepository.active()
+            learnedCurveRepository.reset(vehicle.id)
             _state.value = buildState()
         }
     }
 
     fun clearManual() {
         viewModelScope.launch {
-            val vehicle = vehicleRepository.profile.first()
-            vehicleRepository.save(vehicle.copy(manualCurve = null))
+            val vehicle = vehicleRepository.active()
+            vehicleRepository.upsert(vehicle.copy(manualCurve = null))
             _state.value = buildState()
         }
     }
 
     private suspend fun buildState(): CurveUiState {
-        val vehicle = vehicleRepository.profile.first()
-        val learned = learnedCurveRepository.learnedCurve(vehicle.id.ifBlank { DEFAULT_VEHICLE_ID })
+        val vehicle = vehicleRepository.active()
+        val learned = learnedCurveRepository.learnedCurve(vehicle.id)
         val default = DefaultCurve.forVehicle(vehicle.ratedCombinedL100, vehicle.fuelType)
         val manual = vehicle.manualCurve
             ?.takeIf { it.size >= 2 }
@@ -116,9 +113,5 @@ class CurveViewModel @Inject constructor(
             hasManualCurve = manual != null,
             hasLearnedData = learned.totalDistanceKm > 0.0,
         )
-    }
-
-    private companion object {
-        const val DEFAULT_VEHICLE_ID = "default"
     }
 }

@@ -24,7 +24,7 @@ import com.fuelroute.data.routes.RouteSearchRepository
 import com.fuelroute.data.routes.RoutesRepository
 import com.fuelroute.data.settings.DataStoreSettingsRepository
 import com.fuelroute.data.settings.SettingsRepository
-import com.fuelroute.data.vehicle.DataStoreVehicleRepository
+import com.fuelroute.data.vehicle.DefaultVehicleRepository
 import com.fuelroute.data.vehicle.VehicleRepository
 import dagger.Binds
 import dagger.Module
@@ -68,7 +68,7 @@ abstract class RepositoryModule {
 
     @Binds
     @Singleton
-    abstract fun bindVehicleRepository(impl: DataStoreVehicleRepository): VehicleRepository
+    abstract fun bindVehicleRepository(impl: DefaultVehicleRepository): VehicleRepository
 
     @Binds
     @Singleton

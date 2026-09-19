@@ -9,6 +9,8 @@ data class VehicleProfile(
     val manualCurve: List<SpeedPoint>? = null,
     val fuelRateCorrection: Double = 1.0,
     val tankCapacityL: Double? = null,
+    val vin: String? = null,
+    val grade: String = "95",
 ) {
     val hasManualCurve: Boolean
         get() = !manualCurve.isNullOrEmpty()

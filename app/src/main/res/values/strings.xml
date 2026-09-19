@@ -61,6 +61,18 @@
     <string name="vehicle_save">שמור</string>
     <string name="vehicle_saved">הפרופיל נשמר</string>
     <string name="vehicle_open_refuel">רישום תדלוק</string>
+    <string name="vehicle_add">הוסף רכב</string>
+    <string name="vehicle_edit">עריכה</string>
+    <string name="vehicle_delete">מחיקה</string>
+    <string name="vehicle_active">הרכב הפעיל</string>
+    <string name="vehicle_untitled">רכב ללא שם</string>
+    <string name="vehicle_new_title">רכב חדש</string>
+    <string name="vehicle_edit_title">עריכת רכב</string>
+    <string name="vehicle_cancel">ביטול</string>
+    <string name="vehicle_combined_short">%1$s ל׳/100 ק״מ</string>
+    <string name="vehicle_delete_title">מחיקת רכב</string>
+    <string name="vehicle_delete_message">למחוק את %1$s? לא ניתן לשחזר.</string>
+    <string name="vehicle_delete_confirm">מחק</string>
 
     <string name="refuel_title">תדלוק</string>
     <string name="refuel_liters_label">ליטרים</string>

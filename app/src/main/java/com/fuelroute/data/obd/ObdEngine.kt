@@ -65,7 +65,7 @@ class ObdEngine @Inject constructor(
 
     fun start(transport: ObdTransport, vehicle: VehicleProfile) {
         if (job?.isActive == true) return
-        val vehicleId = vehicle.id.ifBlank { DEFAULT_VEHICLE_ID }
+        val vehicleId = vehicle.id
         job = scope.launch {
             runCatching {
                 sampleDao.deleteOlderThan(System.currentTimeMillis() - SAMPLE_RETENTION_MS)
@@ -306,7 +306,6 @@ class ObdEngine @Inject constructor(
         const val POLL_INTERVAL_MS = 250L
         const val SAMPLE_PERSIST_INTERVAL_MS = 1_000L
         const val SAMPLE_RETENTION_MS = 90L * 24 * 60 * 60 * 1000
-        const val DEFAULT_VEHICLE_ID = "default"
         private const val TAG = "FuelRoute"
         private const val MAX_RAW_REPLY_CHARS = 160
         private const val CONSECUTIVE_ERROR_THRESHOLD = 10
