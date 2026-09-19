@@ -24,6 +24,21 @@ class ComputeRoutesRequestTest {
     }
 
     @Test
+    fun `encodes alternatives, traffic and reference route but omits null departure time`() {
+        val request = ComputeRoutesRequest(
+            origin = WaypointDto(placeId = "origin"),
+            destination = WaypointDto(placeId = "destination"),
+        )
+
+        val encoded = json.encodeToString(ComputeRoutesRequest.serializer(), request)
+
+        assertTrue(encoded.contains("\"computeAlternativeRoutes\":true"))
+        assertTrue(encoded.contains("\"extraComputations\":[\"TRAFFIC_ON_POLYLINE\",\"TOLLS\"]"))
+        assertTrue(encoded.contains("\"requestedReferenceRoutes\":[\"FUEL_EFFICIENT\"]"))
+        assertTrue(!encoded.contains("departureTime"))
+    }
+
+    @Test
     fun `round trips requested reference routes and departure time`() {
         val request = ComputeRoutesRequest(
             origin = WaypointDto(placeId = "origin"),

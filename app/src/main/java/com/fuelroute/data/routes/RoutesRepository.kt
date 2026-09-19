@@ -3,9 +3,7 @@ package com.fuelroute.data.routes
 import android.util.Log
 import com.fuelroute.BuildConfig
 import com.fuelroute.domain.model.Route
-import java.time.Instant
-import java.time.format.DateTimeFormatter
-import java.time.temporal.ChronoUnit
+import retrofit2.HttpException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -29,16 +27,20 @@ class GoogleRoutesRepository @Inject constructor(
         val request = ComputeRoutesRequest(
             origin = origin.toDto(),
             destination = destination.toDto(),
-            departureTime = DEPARTURE_TIME_FORMATTER.format(Instant.now().truncatedTo(ChronoUnit.SECONDS)),
         )
-        val response = service.computeRoutes(BuildConfig.MAPS_API_KEY, request)
+        // No departureTime yet: sending "now" truncated to the second lands slightly in the
+        // past, and the Routes API rejects a past departureTime for DRIVE with HTTP 400
+        // (past times are TRANSIT-only). The user-facing departure time picker is card 06.
+        val response = try {
+            service.computeRoutes(BuildConfig.MAPS_API_KEY, request)
+        } catch (e: HttpException) {
+            val body = e.response()?.errorBody()?.string()
+            Log.e("FuelRoute", "computeRoutes HTTP ${e.code()}: $body")
+            throw e
+        }
         val routes = RoutesMapper.toDomain(response)
         Log.d("FuelRoute", "routes returned: ${routes.size} labels=${routes.map { it.routeLabels }}")
         return routes
-    }
-
-    private companion object {
-        val DEPARTURE_TIME_FORMATTER: DateTimeFormatter = DateTimeFormatter.ISO_INSTANT
     }
 
     private fun RouteWaypoint.toDto() = WaypointDto(
