@@ -24,8 +24,9 @@ data class ComputeRoutesRequest(
     val routingPreference: String = "TRAFFIC_AWARE_OPTIMAL",
     @EncodeDefault
     val computeAlternativeRoutes: Boolean = true,
-    @EncodeDefault
-    val requestedReferenceRoutes: List<String> = listOf("FUEL_EFFICIENT"),
+    // FUEL_EFFICIENT reference route is unsupported in the origin country (IL) and returns
+    // HTTP 400. Re-added properly (debug flag + region gate) by card 06. Default empty = omitted.
+    val requestedReferenceRoutes: List<String> = emptyList(),
     val departureTime: String? = null, // NB: no @EncodeDefault — null must be omitted (past times → 400)
     @EncodeDefault
     val languageCode: String = "he",
