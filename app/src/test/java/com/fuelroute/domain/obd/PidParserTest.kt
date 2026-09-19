@@ -74,6 +74,19 @@ class PidParserTest {
     }
 
     @Test
+    fun `parses hex with spaces off (ATS0 clone)`() {
+        assertEquals(60.0, ElmProtocol.speed("410D3C")!!, 1e-9)
+        assertEquals(1726.0, ElmProtocol.rpm("410C1AF8")!!, 1e-9)
+        assertEquals(7.5, ElmProtocol.fuelRateLph("415E0096")!!, 1e-9)
+        assertEquals(83.0, ElmProtocol.coolantTempC("41057B")!!, 1e-9)
+    }
+
+    @Test
+    fun `parses unspaced data after searching noise`() {
+        assertEquals(60.0, ElmProtocol.speed("SEARCHING...\r410D3C\r>")!!, 1e-9)
+    }
+
+    @Test
     fun `builds mode 01 commands`() {
         assertEquals("010D", ElmProtocol.command(ElmProtocol.PID_SPEED))
         assertEquals("015E", ElmProtocol.command(ElmProtocol.PID_FUEL_RATE))

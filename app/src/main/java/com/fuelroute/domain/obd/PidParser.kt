@@ -7,7 +7,9 @@ package com.fuelroute.domain.obd
  */
 object PidParser {
 
-    private val HEX_PAIR = Regex("^[0-9A-Fa-f]{2}$")
+    // Unanchored so findAll() can tokenize a hex run regardless of spacing: ATS1 gives
+    // "41 0D 3C", ATS0 (spaces off) gives "410D3C" — both must yield the same bytes.
+    private val HEX_BYTE = Regex("[0-9A-Fa-f]{2}")
 
     private val ERROR_MARKERS = listOf(
         "NO DATA",
@@ -46,14 +48,12 @@ object PidParser {
     fun parseMode01Bytes(raw: String, pid: Int): List<Int>? {
         val cleaned = clean(raw)
 
-        // Valid data wins over "noise" markers (echo, SEARCHING...): scan for the
-        // `41 <PID>` pair first so a response like "SEARCHING...\r41 0D 3C\r>" still
+        // Valid data wins over "noise" markers (echo, SEARCHING...). Extract every 2-hex
+        // pair regardless of spacing (spaces-on "41 0D 3C" OR spaces-off "410D3C"), then
+        // scan for the `41 <PID>` pair so a response like "SEARCHING...\r41 0D 3C\r>" still
         // parses, while a response that is only "SEARCHING..." (or "NO DATA") has no
         // payload and maps to null below.
-        val tokens = cleaned
-            .split(' ')
-            .filter { HEX_PAIR.matches(it) }
-            .map { it.toInt(16) }
+        val tokens = HEX_BYTE.findAll(cleaned).map { it.value.toInt(16) }.toList()
 
         for (i in 0 until tokens.size - 1) {
             if (tokens[i] == 0x41 && tokens[i + 1] == (pid and 0xFF)) {

@@ -22,7 +22,7 @@ object ElmProtocol {
         "ATAT1", // adaptive timing on (reduces clone timeouts)
         "ATE0",  // echo off
         "ATL0",  // linefeeds off
-        "ATS0",  // spaces off
+        "ATS1", // spaces ON — PidParser tokenizes space-delimited hex; ATS0 would break parsing
         "ATH0",  // headers off
         "ATSP0", // auto-detect protocol
         "ATST64", // set 64 ms timeout (clone-friendly)
