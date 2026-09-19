@@ -37,8 +37,23 @@ Wave 2 (parallel):             02-vehicle-multivehicle 03-obd-engine-transport 0
 Wave 3:                        06-routes-data-api       (needs 05 + 02)
 Wave 4:                        07-service-auto-logging  (needs 03)
 Wave 5:                        08-product-validation    (needs 01 + 02 + 06)
-Wave 6:                        09-tests-docs-hook       (needs everything; also closes Phase 0.4 doc fixes)
+Wave 7 (parallel, disjoint):   10-schema-v5             12-nav-address-integrity   (Phase 8 product additions)
+Wave 8 (parallel):             11-history-predicted-vs-actual  13-favorite-destinations
+                               (11 needs 10 + 03; 13 needs 10, and 12 for exact placeId/coords)
+Wave 9 (parallel):             14-zero-touch-obd-logging      15-android-auto-dashboard
+                               (14 needs 07 + 03; 15 needs 03 + 02 + 07/14)
+Wave 10:                       09-tests-docs-hook       (needs everything; also closes Phase 0.4 doc fixes)
 ```
+
+**`09-tests-docs-hook` moved to last** (was Wave 6): it must also cover the Phase 8 cards' tests, fixtures and docs.
+
+Phase 8 (cards 10-15) is **additive product scope** from the user, not review findings. Two ordering rules matter:
+- **Only card 10 may touch `Migrations.kt`/`AppDatabase.kt`** while it is open — v4 is already installed on the user's
+  device with real learned data, so v5 must be one non-destructive migration (same rule Phase 1 used for v4).
+- **`12-nav-address-integrity` is a user-visible bug and depends on nothing** — it can be dispatched immediately, in
+  parallel with anything, ahead of its wave if desired.
+- `15-android-auto-dashboard` needs **new dependencies** (`androidx.car.app`); the orchestrator owns
+  `gradle/libs.versions.toml`, so coordinate that entry rather than letting the sub-agent invent one.
 
 `00a` (OBD transport/engine) and `00b` (routes DTO/UI) are file-disjoint and can run in parallel. They are the urgent
 fixes, so dispatch P0 **first**, before Wave 1/Wave 2. `00a`'s transport/parser changes are the foundation that card 03

@@ -279,6 +279,48 @@ Deferred (car is gasoline; keep the code paths, low priority):
 
 ---
 
+## Phase 8 - Product additions (user requests, 2026-09-20)
+
+Five features requested after the P0/Wave-1 fixes. They are **additive product scope**, not review findings, and each
+has its own task card. All schema changes go into **one migration, v4 -> v5, in 8.0** (same rule as Phase 1) because
+v4 is already installed on the user's device with real learned data.
+
+- [ ] **8.0 Schema v4 -> v5.** `route_search`: `selectedPredictedCost/Liters/Minutes`, `pricePerLiterAtSearch`,
+      `destinationPlaceId/Lat/Lng`. `trip`: `actualCost`, `pricePerLiterAtTrip`, `linkedAtMs`. New table
+      `favorite_destination`. New DAOs + `MIGRATION_4_5`; no destructive fallback.
+      See `remediation/tasks/10-schema-v5.md`.
+      Done when: `app/schemas/...AppDatabase/5.json` emitted; build + tests green; existing device data survives.
+- [ ] **8.1 Route history: predicted vs. actual price.** *(user request 1; completes 6.1 + 6.2)* Persist the route the
+      user actually chose, auto-link a closed OBD trip to its `route_search` (30 min window, manual override), record
+      `actualCost = fuelL * pricePerLiter` at trip close, and show predicted ₪ vs. actual ₪ + delta + rolling
+      "דיוק חיזוי: ±N%" in `HistoryScreen`. Pure `TripMatcher` + `PredictionAccuracy`.
+      See `remediation/tasks/11-history-predicted-vs-actual.md`.
+      Done when: one search + one logged drive shows both prices and the delta.
+- [ ] **8.2 Destination corruption on nav hand-off.** *(user request 2 - bug)* "יצחק שדה, הרצליה" arrives in the nav app
+      as "יצחק שדה, תל אביב". Two causes: `onDestinationSelect` keeps only `mainText` (drops the city), and
+      `NavigationLauncher` hands off **free text** that Maps/Waze re-geocode. Fix = keep the full label, resolve the
+      place's coordinates, send `destination_place_id` (Maps) and `ll=` (Waze).
+      See `remediation/tasks/12-nav-address-integrity.md`.
+      **Gate: picking a Herzliya address navigates to Herzliya in both Google Maps and Waze.**
+- [ ] **8.3 Favorite destinations.** *(user request 3)* Room-backed `favorite_destination` (durable, not the 10-entry
+      recents cache), star toggle on the route screen, one-tap chips, rename ("בית") + delete/reorder, included in the
+      1.5 backup.
+      See `remediation/tasks/13-favorite-destinations.md`.
+- [ ] **8.4 Zero-touch OBD logging.** *(user request 4; completes Phase 5, extends card 07)* Auto-connect before any
+      device was picked (bonded ELM name match), re-arm after reboot and after Bluetooth toggles, stop cleanly on
+      ACL disconnect / ignition off, `autoConnect` on by default, and surface *why* nothing was recorded.
+      See `remediation/tasks/14-zero-touch-obd-logging.md`.
+      **Gate: phone locked and app never opened -> powering the dongle records a trip; engine off -> service stops.**
+- [ ] **8.5 Android Auto live dashboard.** *(user request 5)* Car App Library `CarAppService` + `PaneTemplate` showing
+      live consumption, **₪ per hour**, and trip cost, fed by the existing engine (the car screen never owns the
+      connection). Pure `LiveCostCalculator`.
+      Constraints, locked: templates only (no Compose), host-throttled refresh (~1 Hz, not 4 Hz), and **Play Store will
+      not approve a generic vehicle-dashboard category** -> personal sideload with Android Auto "Unknown sources".
+      Tested with the Desktop Head Unit (no emulator needed).
+      See `remediation/tasks/15-android-auto-dashboard.md`.
+
+---
+
 ## Manual steps outside the codebase
 
 - Cloud Console: second API key for Routes/Places REST with Android restriction + `X-Android-*` headers, hard daily quota cap,
