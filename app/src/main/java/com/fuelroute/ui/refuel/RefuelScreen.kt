@@ -97,6 +97,14 @@ fun RefuelScreen(
             )
         }
 
+        if (state.calibrationClamped) {
+            Text(
+                text = stringResource(R.string.refuel_calibration_clamped),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+
         Text(
             text = stringResource(R.string.refuel_correction, format(state.correction, 3)),
             style = MaterialTheme.typography.labelMedium,

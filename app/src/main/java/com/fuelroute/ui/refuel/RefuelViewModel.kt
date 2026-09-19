@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.fuelroute.data.refuel.RefuelRepository
 import com.fuelroute.data.settings.SettingsRepository
 import com.fuelroute.data.vehicle.VehicleRepository
+import com.fuelroute.domain.learning.Calibration
+import com.fuelroute.domain.learning.RefuelCalibrator
 import com.fuelroute.domain.model.Refuel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,6 +23,7 @@ data class RefuelUiState(
     val refuels: List<Refuel> = emptyList(),
     val correction: Double = 1.0,
     val saved: Boolean = false,
+    val calibrationClamped: Boolean = false,
 )
 
 @HiltViewModel
@@ -49,9 +52,13 @@ class RefuelViewModel @Inject constructor(
         }
     }
 
-    fun onLitersChange(value: String) = _state.update { it.copy(liters = value, saved = false) }
-    fun onPriceChange(value: String) = _state.update { it.copy(totalPrice = value, saved = false) }
-    fun onFullChange(value: Boolean) = _state.update { it.copy(isFull = value) }
+    fun onLitersChange(value: String) =
+        _state.update { it.copy(liters = value, saved = false, calibrationClamped = false) }
+
+    fun onPriceChange(value: String) =
+        _state.update { it.copy(totalPrice = value, saved = false, calibrationClamped = false) }
+
+    fun onFullChange(value: Boolean) = _state.update { it.copy(isFull = value, calibrationClamped = false) }
 
     fun save() {
         val liters = _state.value.liters.trim().toDoubleOrNull()
@@ -63,13 +70,20 @@ class RefuelViewModel @Inject constructor(
             val vehicleId = vehicle.id
             refuelRepository.add(liters, price, _state.value.isFull, vehicleId)
 
+            var clamped = false
             if (_state.value.isFull) {
                 settingsRepository.saveFuelPrice(price / liters)
-                val totalPumped = refuelRepository.totalFullLiters(vehicleId)
-                val totalObd = refuelRepository.totalObdFuel(vehicleId)
-                if (totalObd >= 1.0) {
-                    val correction = (totalPumped / totalObd).coerceIn(0.7, 1.4)
-                    vehicleRepository.updateFuelRateCorrection(correction)
+                // Calibrate against the tank-to-tank interval, not lifetime totals.
+                val interval = refuelRepository.lastFullInterval(vehicleId)
+                if (interval != null) {
+                    when (val calibration = RefuelCalibrator.calibrate(interval.pumpedLitres, interval.obdLitres)) {
+                        is Calibration.Exact -> vehicleRepository.updateFuelRateCorrection(calibration.factor)
+                        is Calibration.Clamped -> {
+                            vehicleRepository.updateFuelRateCorrection(calibration.factor)
+                            clamped = true
+                        }
+                        Calibration.Insufficient -> Unit
+                    }
                 }
             }
 
@@ -82,6 +96,7 @@ class RefuelViewModel @Inject constructor(
                     refuels = refuels,
                     correction = updatedCorrection,
                     saved = true,
+                    calibrationClamped = clamped,
                 )
             }
         }

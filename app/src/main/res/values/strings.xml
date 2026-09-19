@@ -84,6 +84,7 @@
     <string name="refuel_history">תדלוקים אחרונים</string>
     <string name="refuel_no_history">אין תדלוקים</string>
     <string name="refuel_correction">מקדם תיקון: %1$s</string>
+    <string name="refuel_calibration_clamped">הכיול הגיע לקצה — בדוק את הנתונים</string>
 
     <string name="fuel_gasoline">בנזין</string>
     <string name="fuel_diesel">דיזל</string>
@@ -122,6 +123,9 @@
     <string name="stats_debug_title">אבחון</string>
     <string name="stats_last_error">שגיאה אחרונה</string>
     <string name="stats_raw_reply">תשובה גולמית</string>
+    <string name="stats_sample_rate">קצב דגימה</string>
+    <string name="stats_battery">מתח מצבר</string>
+    <string name="stats_vin">מספר שלדה (VIN)</string>
 
     <string name="history_title">היסטוריית חיפושים</string>
     <string name="history_empty">אין חיפושים קודמים עדיין</string>

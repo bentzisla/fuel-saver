@@ -6,7 +6,6 @@ import com.fuelroute.data.db.ObdSampleEntity
 import com.fuelroute.data.db.SpeedBinDao
 import com.fuelroute.data.db.SpeedBinStatsEntity
 import com.fuelroute.data.db.TripDao
-import com.fuelroute.data.db.TripEntity
 import com.fuelroute.domain.learning.FuelRateCalculator
 import com.fuelroute.domain.learning.SpeedBinAggregator
 import com.fuelroute.domain.learning.TripDetector
@@ -14,6 +13,7 @@ import com.fuelroute.domain.model.ObdSample
 import com.fuelroute.domain.model.SpeedBinStats
 import com.fuelroute.domain.model.VehicleProfile
 import com.fuelroute.domain.obd.ElmProtocol
+import com.fuelroute.domain.obd.ObdConnectionPolicy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -45,6 +45,10 @@ data class LiveObdState(
     val sampleCount: Int = 0,
     val lastRawReply: String? = null,
     val lastError: String? = null,
+    val supportedPids: Set<Int> = emptySet(),
+    val sampleRateHz: Double = 0.0,
+    val batteryVoltage: Double? = null,
+    val vin: String? = null,
 )
 
 @Singleton
@@ -77,24 +81,9 @@ class ObdEngine @Inject constructor(
                 return@launch
             }
 
-            val replies = mutableMapOf<String, String>()
-            for (command in ElmProtocol.initializationCommands) {
-                val reply = transport.sendCommand(command)
-                replies[command] = reply
-                Log.d(TAG, "ELM init $command -> ${reply.trim()}")
-            }
-
-            val atz = replies["ATZ"].orEmpty()
-            if (!atz.contains("ELM327", ignoreCase = true)) {
-                Log.e(TAG, "ATZ did not return ELM327 banner: \"$atz\"")
+            if (!initializeAdapter(transport)) {
                 transport.disconnect()
-                mutableLive.update {
-                    it.copy(
-                        status = ObdStatus.Error,
-                        deviceName = transport.deviceName,
-                        lastError = "bad ATZ: ${atz.trim()}",
-                    )
-                }
+                mutableLive.update { it.copy(status = ObdStatus.Error, lastError = "INIT") }
                 return@launch
             }
 
@@ -110,6 +99,24 @@ class ObdEngine @Inject constructor(
         job?.cancel()
         job = null
         mutableLive.update { it.copy(status = ObdStatus.Disconnected) }
+    }
+
+    /** Sends the ELM init sequence and validates the `ATZ` banner. */
+    private suspend fun initializeAdapter(transport: ObdTransport): Boolean {
+        val replies = mutableMapOf<String, String>()
+        for (command in ElmProtocol.initializationCommands) {
+            val reply = transport.sendCommand(command)
+            replies[command] = reply
+            Log.d(TAG, "ELM init $command -> ${reply.trim()}")
+        }
+
+        val atz = replies["ATZ"].orEmpty()
+        if (!atz.contains("ELM327", ignoreCase = true)) {
+            Log.e(TAG, "ATZ did not return ELM327 banner: \"$atz\"")
+            mutableLive.update { it.copy(lastError = "bad ATZ: ${atz.trim()}") }
+            return false
+        }
+        return true
     }
 
     /**
@@ -128,6 +135,21 @@ class ObdEngine @Inject constructor(
         Log.w(TAG, "protocol still SEARCHING after ${PROTOCOL_LOCK_TIMEOUT_MS}ms")
     }
 
+    /** Probes `0100`/`0120`/`0140`/`0160` and merges the bitmaps. */
+    private suspend fun negotiatePids(transport: ObdTransport): Set<Int> {
+        val replies = mutableMapOf<Int, String>()
+        for (base in ElmProtocol.supportedPidBlocks) {
+            replies[base] = transport.sendCommand(ElmProtocol.command(base))
+        }
+        val supported = ElmProtocol.supportedPids(replies)
+        Log.d(TAG, "supported PIDs: ${supported.sorted().joinToString { "%02X".format(it) }}")
+        return supported
+    }
+
+    /** Reads the VIN once (Mode 09 PID 02). */
+    private suspend fun readVin(transport: ObdTransport): String? =
+        ElmProtocol.vin(transport.sendCommand(ElmProtocol.command09(ElmProtocol.PID_VIN)))
+
     private suspend fun runLoop(transport: ObdTransport, vehicle: VehicleProfile, vehicleId: String) {
         val bins = mutableMapOf<Int, SpeedBinStats>()
         speedBinDao.getForVehicle(vehicleId).forEach {
@@ -143,6 +165,8 @@ class ObdEngine @Inject constructor(
 
         val aggregator = SpeedBinAggregator()
         val tripDetector = TripDetector()
+        val tripRecorder = TripRecorder(tripDao)
+        tripRecorder.closeLeftovers(System.currentTimeMillis())
 
         var lastSample: ObdSample? = null
         var sampleCount = 0
@@ -151,17 +175,34 @@ class ObdEngine @Inject constructor(
         var tripSeconds = 0.0
         var tripIdleSeconds = 0.0
         var tripMaxSpeed = 0.0
-        var lastPersistMs = 0L
+        var lastBinPersistMs = System.currentTimeMillis()
+        var lastSamplePersistMs = 0L
+        var lastVoltageMs = 0L
+        var batteryVoltage: Double? = null
+        var rpmNullSinceMs: Long? = null
         var consecutiveBad = 0
+        var supportedPids: Set<Int> = emptySet()
+        val loopStartMs = System.currentTimeMillis()
 
         try {
+            supportedPids = negotiatePids(transport)
+            val vin = readVin(transport)
+            mutableLive.update { it.copy(supportedPids = supportedPids, vin = vin) }
+
             while (true) {
                 val now = System.currentTimeMillis()
+
                 val rawSpeed = transport.sendCommand(ElmProtocol.command(ElmProtocol.PID_SPEED))
                 val rawRpm = transport.sendCommand(ElmProtocol.command(ElmProtocol.PID_RPM))
+                // Coolant is always polled: the cold-engine exclusion in the aggregator
+                // depends on it and it is not part of the optional negotiation set.
                 val rawCoolant = transport.sendCommand(ElmProtocol.command(ElmProtocol.PID_COOLANT_TEMP))
-                val rawMaf = transport.sendCommand(ElmProtocol.command(ElmProtocol.PID_MAF))
-                val rawFuelRate = transport.sendCommand(ElmProtocol.command(ElmProtocol.PID_FUEL_RATE))
+                val rawMaf = pollIf(transport, ElmProtocol.PID_MAF, supportedPids)
+                val rawFuelRate = pollIf(transport, ElmProtocol.PID_FUEL_RATE, supportedPids)
+                val rawMap = pollIf(transport, ElmProtocol.PID_MAP, supportedPids)
+                val rawIat = pollIf(transport, ElmProtocol.PID_INTAKE_TEMP, supportedPids)
+                val rawLoad = pollIf(transport, ElmProtocol.PID_ENGINE_LOAD, supportedPids)
+                val rawFuelLevel = pollIf(transport, ElmProtocol.PID_FUEL_LEVEL, supportedPids)
 
                 val speed = ElmProtocol.speed(rawSpeed)
                 val rpm = ElmProtocol.rpm(rawRpm)
@@ -175,12 +216,18 @@ class ObdEngine @Inject constructor(
                     rpm = rpm,
                     mafGps = maf,
                     fuelRateLph = fuelRateRaw,
+                    mapKpa = ElmProtocol.mapKpa(rawMap),
+                    intakeTempC = ElmProtocol.intakeTempC(rawIat),
                     coolantTempC = coolant,
+                    engineLoadPct = ElmProtocol.engineLoadPct(rawLoad),
+                    fuelLevelPct = ElmProtocol.fuelLevelPct(rawFuelLevel),
                 )
 
                 val fuelRate = FuelRateCalculator.fuelRateLph(sample, vehicle.fuelType, vehicle.engineDisplacementL)
                     ?.times(vehicle.fuelRateCorrection)
-                val dtSec = lastSample?.let { ((now - it.timestampMs) / 1000.0).coerceIn(0.0, 2.0) } ?: 0.0
+                // No clamp here: the aggregator rejects gaps > 2 s itself, while trip
+                // totals need the true wall-clock delta.
+                val dtSec = lastSample?.let { (now - it.timestampMs) / 1000.0 } ?: 0.0
 
                 aggregator.accumulate(bins, sample, dtSec, fuelRate, vehicleId)
 
@@ -194,18 +241,17 @@ class ObdEngine @Inject constructor(
                 }
 
                 when (val transition = tripDetector.onSample(sample)) {
+                    is TripDetector.TripTransition.Started -> {
+                        tripRecorder.start(vehicleId, tripDetector.startedAtMs ?: sample.timestampMs)
+                    }
                     is TripDetector.TripTransition.Ended -> {
-                        tripDao.insert(
-                            TripEntity(
-                                vehicleId = vehicleId,
-                                startedAtMs = transition.startedAtMs,
-                                endedAtMs = transition.endedAtMs,
-                                distanceKm = tripDistance,
-                                fuelL = tripFuel,
-                                avgSpeedKmh = if (tripSeconds > 0.0) tripDistance / (tripSeconds / 3600.0) else 0.0,
-                                maxSpeedKmh = tripMaxSpeed,
-                                idleSeconds = tripIdleSeconds,
-                            ),
+                        tripRecorder.end(
+                            vehicleId = vehicleId,
+                            endedAtMs = transition.endedAtMs,
+                            distanceKm = tripDistance,
+                            fuelL = tripFuel,
+                            maxSpeedKmh = tripMaxSpeed,
+                            idleSeconds = tripIdleSeconds,
                         )
                         tripDistance = 0.0
                         tripFuel = 0.0
@@ -217,9 +263,37 @@ class ObdEngine @Inject constructor(
                 }
 
                 sampleCount++
-                if (now - lastPersistMs >= SAMPLE_PERSIST_INTERVAL_MS) {
+                if (now - lastSamplePersistMs >= SAMPLE_PERSIST_INTERVAL_MS) {
                     sampleDao.insert(sample.toEntity(vehicleId))
-                    lastPersistMs = now
+                    lastSamplePersistMs = now
+                }
+
+                if (now - lastBinPersistMs >= SPEED_BIN_PERSIST_INTERVAL_MS) {
+                    speedBinDao.upsertAll(bins.values.map { it.toEntity() })
+                    if (tripRecorder.isOpen) {
+                        tripRecorder.checkpoint(
+                            vehicleId = vehicleId,
+                            nowMs = now,
+                            distanceKm = tripDistance,
+                            fuelL = tripFuel,
+                            maxSpeedKmh = tripMaxSpeed,
+                            idleSeconds = tripIdleSeconds,
+                        )
+                    }
+                    lastBinPersistMs = now
+                }
+
+                if (now - lastVoltageMs >= BATTERY_POLL_INTERVAL_MS) {
+                    batteryVoltage = ElmProtocol.batteryVoltage(
+                        transport.sendCommand(ElmProtocol.CMD_BATTERY_VOLTAGE),
+                    )
+                    lastVoltageMs = now
+                }
+
+                if (rpm == null) {
+                    if (rpmNullSinceMs == null) rpmNullSinceMs = now
+                } else {
+                    rpmNullSinceMs = null
                 }
 
                 val speedKmh = speed ?: 0.0
@@ -236,6 +310,9 @@ class ObdEngine @Inject constructor(
                 if (badReason != null) consecutiveBad++ else consecutiveBad = 0
                 val diagError = if (consecutiveBad >= CONSECUTIVE_ERROR_THRESHOLD) badReason else null
 
+                val elapsedSec = ((now - loopStartMs) / 1000.0).coerceAtLeast(0.001)
+                val sampleRateHz = sampleCount / elapsedSec
+
                 mutableLive.update {
                     it.copy(
                         speedKmh = speed,
@@ -249,34 +326,87 @@ class ObdEngine @Inject constructor(
                         bins = bins.values.sortedBy { bin -> bin.binIndex },
                         totalDistanceKm = bins.values.sumOf { bin -> bin.distanceKm },
                         sampleCount = sampleCount,
+                        sampleRateHz = sampleRateHz,
+                        batteryVoltage = batteryVoltage,
+                        supportedPids = supportedPids,
                         lastRawReply = rawSpeed.take(MAX_RAW_REPLY_CHARS),
                         lastError = diagError,
                     )
                 }
 
                 lastSample = sample
+
+                if (ObdConnectionPolicy.shouldReconnect(consecutiveBad)) {
+                    Log.w(TAG, "reconnecting after $consecutiveBad consecutive bad speed replies")
+                    transport.disconnect()
+                    mutableLive.update { it.copy(status = ObdStatus.Connecting, lastError = "RECONNECT") }
+                    if (!reconnectWithBackoff(transport)) {
+                        mutableLive.update { it.copy(status = ObdStatus.Error, lastError = "RECONNECT FAILED") }
+                        return
+                    }
+                    initializeAdapter(transport)
+                    settleProtocol(transport)
+                    supportedPids = negotiatePids(transport)
+                    mutableLive.update { it.copy(status = ObdStatus.Connected, supportedPids = supportedPids) }
+                    consecutiveBad = 0
+                    rpmNullSinceMs = null
+                    lastSample = null
+                }
+
+                if (ObdConnectionPolicy.shouldStopForIgnitionOff(rpmNullSinceMs, now, batteryVoltage)) {
+                    Log.i(TAG, "ignition off detected — stopping OBD loop")
+                    return
+                }
+
                 delay(POLL_INTERVAL_MS)
             }
         } finally {
             speedBinDao.upsertAll(bins.values.map { it.toEntity() })
             val end = tripDetector.forceEnd(lastSample?.timestampMs ?: System.currentTimeMillis())
             if (end is TripDetector.TripTransition.Ended) {
-                tripDao.insert(
-                    TripEntity(
-                        vehicleId = vehicleId,
-                        startedAtMs = end.startedAtMs,
-                        endedAtMs = end.endedAtMs,
-                        distanceKm = tripDistance,
-                        fuelL = tripFuel,
-                        avgSpeedKmh = if (tripSeconds > 0.0) tripDistance / (tripSeconds / 3600.0) else 0.0,
-                        maxSpeedKmh = tripMaxSpeed,
-                        idleSeconds = tripIdleSeconds,
-                    ),
+                tripRecorder.end(
+                    vehicleId = vehicleId,
+                    endedAtMs = end.endedAtMs,
+                    distanceKm = tripDistance,
+                    fuelL = tripFuel,
+                    maxSpeedKmh = tripMaxSpeed,
+                    idleSeconds = tripIdleSeconds,
                 )
             }
             transport.disconnect()
-            mutableLive.update { it.copy(status = ObdStatus.Disconnected) }
+            mutableLive.update {
+                it.copy(status = if (it.status == ObdStatus.Error) it.status else ObdStatus.Disconnected)
+            }
         }
+    }
+
+    /** Sends a PID only when negotiation says it is supported (or negotiation failed). */
+    private suspend fun pollIf(transport: ObdTransport, pid: Int, supported: Set<Int>): String =
+        if (supported.isEmpty() || supported.contains(pid)) {
+            transport.sendCommand(ElmProtocol.command(pid))
+        } else {
+            ""
+        }
+
+    /**
+     * Retries `connect()` with 2, 4, 8, … 60 s backoff until [ObdConnectionPolicy.MAX_RECONNECT_WINDOW_MS]
+     * is exhausted. Returns true as soon as a connect succeeds.
+     */
+    private suspend fun reconnectWithBackoff(transport: ObdTransport): Boolean {
+        var waitedMs = 0L
+        var attempt = 0
+        while (waitedMs < ObdConnectionPolicy.MAX_RECONNECT_WINDOW_MS) {
+            val backoffMs = ObdConnectionPolicy.backoffDelayMs(attempt)
+            delay(backoffMs)
+            waitedMs += backoffMs
+            if (transport.connect().isSuccess) {
+                Log.i(TAG, "reconnected after ${waitedMs}ms")
+                return true
+            }
+            attempt++
+        }
+        Log.e(TAG, "reconnect gave up after ${waitedMs}ms")
+        return false
     }
 
     private fun ObdSample.toEntity(vehicleId: String) = ObdSampleEntity(
@@ -305,6 +435,8 @@ class ObdEngine @Inject constructor(
     companion object {
         const val POLL_INTERVAL_MS = 250L
         const val SAMPLE_PERSIST_INTERVAL_MS = 1_000L
+        const val SPEED_BIN_PERSIST_INTERVAL_MS = 30_000L
+        const val BATTERY_POLL_INTERVAL_MS = 10_000L
         const val SAMPLE_RETENTION_MS = 90L * 24 * 60 * 60 * 1000
         private const val TAG = "FuelRoute"
         private const val MAX_RAW_REPLY_CHARS = 160

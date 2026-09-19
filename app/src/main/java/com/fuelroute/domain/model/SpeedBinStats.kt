@@ -2,13 +2,20 @@ package com.fuelroute.domain.model
 
 const val SPEED_BIN_WIDTH_KMH: Double = 5.0
 
+/**
+ * Maps a speed to its bin. Bin 0 is reserved for idle (< 1 km/h); every moving bin is
+ * offset by one so that crawling at 1-5 km/h lands in bin 1 rather than being folded into
+ * the idle measurement.
+ */
 fun speedToBinIndex(speedKmh: Double): Int {
-    if (speedKmh <= 0.0) return 0
-    return (speedKmh / SPEED_BIN_WIDTH_KMH).toInt()
+    if (speedKmh < 1.0) return 0
+    return (speedKmh / SPEED_BIN_WIDTH_KMH).toInt() + 1
 }
 
+/** Representative speed for a bin: 0 for idle, otherwise the center of the 5 km/h window. */
 fun binIndexToSpeedKmh(binIndex: Int): Double =
-    binIndex * SPEED_BIN_WIDTH_KMH + SPEED_BIN_WIDTH_KMH / 2.0
+    if (binIndex == 0) 0.0
+    else (binIndex - 1) * SPEED_BIN_WIDTH_KMH + SPEED_BIN_WIDTH_KMH / 2.0
 
 data class SpeedBinStats(
     val vehicleId: String,

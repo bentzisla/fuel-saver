@@ -29,7 +29,7 @@ class CurveBlenderTest {
             listOf(
                 SpeedBinStats(
                     vehicleId = "v",
-                    binIndex = 14, // 70-75 km/h, center 72.5
+                    binIndex = 15, // 70-75 km/h, center 72.5
                     distanceKm = 500.0,
                     fuelL = 50.0,
                     seconds = 20_000.0,

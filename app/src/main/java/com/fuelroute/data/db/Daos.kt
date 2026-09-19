@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.Update
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
@@ -79,13 +80,27 @@ interface SpeedBinDao {
 interface TripDao {
 
     @Insert
-    suspend fun insert(trip: TripEntity)
+    suspend fun insert(trip: TripEntity): Long
+
+    @Update
+    suspend fun update(trip: TripEntity)
 
     @Query("SELECT * FROM trip ORDER BY startedAtMs DESC LIMIT :limit")
     suspend fun recent(limit: Int): List<TripEntity>
 
     @Query("SELECT * FROM trip WHERE isOpen = 1 ORDER BY startedAtMs DESC")
     suspend fun recentOpenTrips(): List<TripEntity>
+
+    /** Closes every trip left open by a crash/kill so a new engine start is clean. */
+    @Query("UPDATE trip SET isOpen = 0, endedAtMs = :endedAtMs WHERE isOpen = 1")
+    suspend fun closeOpenTrips(endedAtMs: Long): Int
+
+    /** Sum of trip fuel recorded inside the [fromMs, toMs] window (inclusive). */
+    @Query(
+        "SELECT COALESCE(SUM(fuelL), 0.0) FROM trip WHERE vehicleId = :vehicleId " +
+            "AND endedAtMs >= :fromMs AND startedAtMs <= :toMs"
+    )
+    suspend fun fuelBetween(vehicleId: String, fromMs: Long, toMs: Long): Double
 
     /** Idempotent bootstrap migration: repoints rows written under an unknown vehicle id. */
     @Query("UPDATE trip SET vehicleId = :newVehicleId WHERE vehicleId NOT IN (SELECT id FROM vehicle)")

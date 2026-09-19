@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
+import com.fuelroute.data.learning.ColdStartRepository
+import com.fuelroute.data.learning.DefaultColdStartRepository
 import com.fuelroute.data.location.FusedLocationRepository
 import com.fuelroute.data.location.LocationRepository
 import com.fuelroute.data.obd.BluetoothDevicesRepository
@@ -93,6 +95,10 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindLearnedCurveRepository(impl: DefaultLearnedCurveRepository): LearnedCurveRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindColdStartRepository(impl: DefaultColdStartRepository): ColdStartRepository
 
     @Binds
     @Singleton

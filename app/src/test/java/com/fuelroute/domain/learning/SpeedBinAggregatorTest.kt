@@ -49,6 +49,18 @@ class SpeedBinAggregatorTest {
     }
 
     @Test
+    fun `a 4 kmh crawl lands in bin 1 not the idle bin`() {
+        val bins = mutableMapOf<Int, SpeedBinStats>()
+        val crawl = ObdSample(timestampMs = 0, speedKmh = 4.0, rpm = 900.0, coolantTempC = 85.0)
+
+        assertTrue(aggregator.accumulate(bins, crawl, dtSec = 1.0, fuelRateLph = 3.0, vehicleId = "v"))
+
+        assertEquals(1, speedToBinIndex(4.0))
+        assertTrue(bins.containsKey(1))
+        assertFalse(bins.containsKey(0))
+    }
+
+    @Test
     fun `idle bin produces liters per hour but no liters per 100 km`() {
         val bins = mutableMapOf<Int, SpeedBinStats>()
         val idle = ObdSample(timestampMs = 0, speedKmh = 0.0, rpm = 800.0, coolantTempC = 85.0)

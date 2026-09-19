@@ -39,9 +39,15 @@ class SimulatedObdTransport(
             "0105" -> String.format(Locale.US, "41 05 %02X", s.coolant + 40)
             "0110" -> twoBytes("41 10", (s.mafGps * 100).toInt())
             "015E" -> twoBytes("41 5E", (s.fuelRateLph * 20).toInt())
+            "010B" -> String.format(Locale.US, "41 0B %02X", 100)
+            "010F" -> String.format(Locale.US, "41 0F %02X", 24 + 40)
             "0100" -> "41 00 BE 3F A8 13"
+            "0120" -> "41 20 80 00 00 00"
+            "0140", "0160" -> "NO DATA"
+            "0902" -> VIN_RESPONSE
+            "ATRV" -> String.format(Locale.US, "%.1fV", 12.4)
             "ATZ" -> "ELM327 v1.5"
-            "ATE0", "ATL0", "ATS0", "ATH0", "ATSP0" -> "OK"
+            "ATE0", "ATL0", "ATS0", "ATS1", "ATH0", "ATSP0", "ATAT1", "ATST64" -> "OK"
             else -> "NO DATA"
         }
     }
@@ -86,5 +92,10 @@ class SimulatedObdTransport(
     private fun twoBytes(prefix: String, value: Int): String {
         val v = value.coerceIn(0, 0xFFFF)
         return String.format(Locale.US, "%s %02X %02X", prefix, (v shr 8) and 0xFF, v and 0xFF)
+    }
+
+    companion object {
+        /** Mode 09 PID 02 reply for VIN "WP0ZZZ99ZMS123456". */
+        const val VIN_RESPONSE = "49 02 01 57 50 30 5A 5A 5A 39 39 5A 4D 53 31 32 33 34 35 36"
     }
 }
