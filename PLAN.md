@@ -110,7 +110,7 @@ X-Goog-FieldMask: routes.routeLabels,routes.description,routes.distanceMeters,ro
 
 **הערות:**
 - ה-API לא מחזיר מהירות מספרית ישירה למקטע, אלא `distance/staticDuration` (מהירות "רגילה") + קטגוריות עומס. ראה סעיף 4 איך משלבים.
-- ל-Google יש גם `requestedReferenceRoutes: ["FUEL_EFFICIENT"]` (eco-routing מובנה). הכיסוי הגיאוגרפי מוגבל וייתכן שלא זמין בישראל - נבדוק בשלב 1 ונשתמש בו כ-baseline להשוואה אם זמין.
+- ל-Google יש גם `requestedReferenceRoutes: ["FUEL_EFFICIENT"]` (eco-routing מובנה). הכיסוי הגיאוגרפי מוגבל וייתכן שלא זמין בישראל - נבדוק בשלב 2B ונשתמש בו כ-baseline להשוואה אם זמין.
 - **תמחור (יש לוודא בדף התמחור העדכני):** Compute Routes Advanced (עם תנועה/חלופות/אגרה) הוא SKU בדרגת "Pro" עם מכסה חינמית של כמה אלפי קריאות בחודש. שימוש אישי = 0$.
 - שגיאות שחייבים לטפל בהן: 429 (quota), 403 (key restriction), ללא רשת, ללא מסלול.
 

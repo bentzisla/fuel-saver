@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FuelRoute</string>
+
+    <string name="nav_route">מסלול</string>
+    <string name="nav_vehicle">רכב</string>
+    <string name="nav_stats">סטטיסטיקה</string>
+    <string name="nav_settings">הגדרות</string>
+
+    <string name="route_title">בחירת מסלול</string>
+    <string name="route_origin_label">מוצא</string>
+    <string name="route_destination_label">יעד</string>
+    <string name="route_compute">חשב מסלול</string>
+    <string name="route_loading">מחשב מסלולים…</string>
+    <string name="route_fuel_label">דלק</string>
+    <string name="route_fuel_cost_label">עלות דלק</string>
+    <string name="route_toll_label">אגרה</string>
+    <string name="route_time_label">זמן</string>
+    <string name="route_distance_label">מרחק</string>
+    <string name="route_avg_speed_label">מהירות ממוצעת</string>
+    <string name="route_cheapest">הזול ביותר</string>
+    <string name="route_selected">נבחר</string>
+    <string name="route_label_primary">המסלול הראשי</string>
+    <string name="route_label_alternate">מסלול חלופי</string>
+    <string name="route_label_fuel_efficient">מסלול חסכוני בדלק</string>
+    <string name="route_units_min">ד׳</string>
+    <string name="route_units_km">ק״מ</string>
+    <string name="route_units_kmh">קמ״ש</string>
+    <string name="route_use_current_location">מיקום נוכחי</string>
+    <string name="route_current_location_set">מיקום נוכחי</string>
+    <string name="route_clear">נקה</string>
+    <string name="route_location_error">לא ניתן לקבל מיקום נוכחי</string>
+    <string name="route_recent_destinations">יעדים אחרונים</string>
+    <string name="route_fuel_price">מחיר דלק: %1$s ₪ לליטר</string>
+    <string name="route_based_on">מבוסס על %1$s ק״מ של נתוני רכב אמיתיים</string>
+    <string name="route_default_curve">עקומת ברירת מחדל — חברו דונגל OBD לדיוק</string>
+    <string name="route_open_history">חיפושים קודמים</string>
+
+    <string name="route_detail_title">חישוב העלות</string>
+    <string name="route_close">סגור</string>
+    <string name="route_navigate">נווט</string>
+    <string name="route_detail_fuel">דלק: %1$s ל׳ × %2$s ₪ = %3$s ₪</string>
+    <string name="route_detail_toll">אגרה: %1$s ₪</string>
+    <string name="route_detail_total">סה״כ: %1$s ₪</string>
+    <string name="route_detail_segments_title">מקטעים (%1$d)</string>
+    <string name="route_detail_speed">מהירות</string>
+    <string name="route_detail_l100">ל׳/100 ק״מ</string>
+    <string name="route_detail_liters">ליטר</string>
+    <string name="congestion_normal">רגיל</string>
+    <string name="congestion_slow">איטי</string>
+    <string name="congestion_jam">פקק</string>
+
+    <string name="vehicle_title">הרכב שלי</string>
+    <string name="vehicle_name_label">שם הרכב</string>
+    <string name="vehicle_fuel_type_label">סוג דלק</string>
+    <string name="vehicle_rated_combined_label">צריכה משולבת (ליטר/100 ק"מ)</string>
+    <string name="vehicle_displacement_label">נפח מנוע (ליטר)</string>
+    <string name="vehicle_tank_capacity_label">קיבולת מיכל (ליטר)</string>
+    <string name="vehicle_save">שמור</string>
+    <string name="vehicle_saved">הפרופיל נשמר</string>
+    <string name="vehicle_open_refuel">רישום תדלוק</string>
+
+    <string name="refuel_title">תדלוק</string>
+    <string name="refuel_liters_label">ליטרים</string>
+    <string name="refuel_price_label">סכום כולל (₪)</string>
+    <string name="refuel_full">תדלוק מלא</string>
+    <string name="refuel_partial">תדלוק חלקי</string>
+    <string name="refuel_save">שמור</string>
+    <string name="refuel_saved">התדלוק נשמר</string>
+    <string name="refuel_history">תדלוקים אחרונים</string>
+    <string name="refuel_no_history">אין תדלוקים</string>
+    <string name="refuel_correction">מקדם תיקון: %1$s</string>
+
+    <string name="fuel_gasoline">בנזין</string>
+    <string name="fuel_diesel">דיזל</string>
+    <string name="fuel_hybrid">היברידי</string>
+    <string name="fuel_electric">חשמלי</string>
+
+    <string name="stats_title">סטטיסטיקה ולמידה</string>
+    <string name="stats_not_connected_desc">חבר דונגל ELM327 (Bluetooth) כדי ללמוד את צריכת הדלק של הרכב מנסיעות אמיתיות. עד שהדונגל מחובר אפשר להריץ הדמיה.</string>
+    <string name="stats_start_demo">התחל רישום (הדמיה)</string>
+    <string name="stats_stop">עצור רישום</string>
+    <string name="stats_connecting">מתחבר…</string>
+    <string name="stats_error">שגיאה בהתחברות לדונגל</string>
+    <string name="stats_speed">מהירות</string>
+    <string name="stats_inst_l100">צריכה רגעית</string>
+    <string name="stats_fuel_rate">צריכת דלק</string>
+    <string name="stats_coolant">מנוע</string>
+    <string name="stats_rpm">סל״ד</string>
+    <string name="stats_trip">נסיעה נוכחית</string>
+    <string name="stats_trip_distance">מרחק</string>
+    <string name="stats_trip_fuel">דלק</string>
+    <string name="stats_trip_time">זמן</string>
+    <string name="stats_learned">נתוני למידה שנצברו</string>
+    <string name="stats_learned_distance">ק״מ שנמדדו</string>
+    <string name="stats_learned_bins">פחי מהירות</string>
+    <string name="stats_samples">דגימות</string>
+    <string name="stats_units_lph">ל׳/שעה</string>
+    <string name="stats_units_l100">ל׳/100 ק״מ</string>
+    <string name="stats_connect_header">חיבור לדונגל OBD</string>
+    <string name="stats_no_devices">אין דונגלים מצומדים. צמד את ה-ELM327 בהגדרות Bluetooth של המכשיר ואז לחץ רענון.</string>
+    <string name="stats_refresh">רענון</string>
+    <string name="stats_demo_row">הדמיה (ללא דונגל)</string>
+    <string name="stats_connecting_to">מתחבר ל־%1$s…</string>
+    <string name="stats_trips">נסיעות</string>
+    <string name="stats_no_trips">אין נסיעות מתועדות עדיין</string>
+    <string name="stats_prediction">חיזוי העקומה: %1$s ל׳/100 ק״מ</string>
+
+    <string name="history_title">היסטוריית חיפושים</string>
+    <string name="history_empty">אין חיפושים קודמים עדיין</string>
+    <string name="history_saved">חסכת %1$s ₪ לעומת המסלול המהיר</string>
+    <string name="history_summary">עלות: %1$s ₪ • דלק חזוי: %2$s ל׳ • %3$s ק״מ • %4$s דק׳</string>
+
+    <string name="notification_channel">רישום צריכת דלק</string>
+    <string name="notification_title">FuelRoute</string>
+    <string name="notification_text">מתעד צריכת דלק…</string>
+    <string name="notification_live">מהירות %1$d קמ״ש • צריכה %2$s ל׳/100</string>
+    <string name="notification_stop">עצור</string>
+
+    <string name="curve_title">עקומת הרכב שלי</string>
+    <string name="curve_open">עקומת הרכב שלי</string>
+    <string name="curve_legend_default">ברירת מחדל</string>
+    <string name="curve_legend_manual">עקומה ידנית</string>
+    <string name="curve_legend_effective">עקומה בשימוש</string>
+    <string name="curve_legend_learned">נתוני מדידה</string>
+    <string name="curve_based_on">מבוסס על %1$s ק״מ של מדידה אמיתית</string>
+    <string name="curve_no_data">אין עדיין נתוני מדידה — מדורג לפי עקומת ברירת מחדל. חברו דונגל OBD כדי לדייק.</string>
+    <string name="curve_efficient">המהירות היעילה ביותר: %1$s קמ״ש (%2$s ל׳/100 ק״מ)</string>
+    <string name="curve_idle">צריכת סרק: %1$s ל׳/שעה</string>
+    <string name="curve_x_axis">0 — 140 קמ״ש</string>
+    <string name="curve_y_label">ליטר / 100 ק״מ</string>
+    <string name="curve_adopt">אמץ לעקומה ידנית (snapshot)</string>
+    <string name="curve_reset_learning">אפס למידה</string>
+    <string name="curve_clear_manual">הסר עקומה ידנית</string>
+
+    <string name="settings_title">הגדרות</string>
+    <string name="settings_fuel_price_label">מחיר דלק (₪ לליטר)</string>
+    <string name="settings_value_per_minute_label">שווי זמן (₪ לדקה)</string>
+    <string name="settings_nav_app_label">אפליקציית ניווט</string>
+    <string name="settings_nav_google">Google Maps</string>
+    <string name="settings_nav_waze">Waze</string>
+    <string name="settings_auto_connect">חיבור אוטומטי לדונגל</string>
+    <string name="settings_show_overlay">בועה צפה (צריכה live)</string>
+    <string name="settings_show_overlay_hint">בועה קטנה עם הצריכה הנוכחית שנשארת על המסך כשהאפליקציה ברקע</string>
+    <string name="settings_autosaved">ההגדרות נשמרות אוטומטית</string>
+
+    <string name="overlay_close">✕</string>
+    <string name="overlay_no_data">--</string>
+    <string name="overlay_unit_l100">ל׳/100 ק״מ</string>
+    <string name="overlay_unit_kmh">קמ״ש</string>
+</resources>
