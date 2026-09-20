@@ -2,9 +2,10 @@ package com.fuelroute.ui.refuel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.fuelroute.data.price.FuelPriceRepository
 import com.fuelroute.data.refuel.RefuelRepository
-import com.fuelroute.data.settings.SettingsRepository
 import com.fuelroute.data.vehicle.VehicleRepository
+import com.fuelroute.domain.fuel.RangeEstimator
 import com.fuelroute.domain.learning.Calibration
 import com.fuelroute.domain.learning.RefuelCalibrator
 import com.fuelroute.domain.model.Refuel
@@ -24,13 +25,15 @@ data class RefuelUiState(
     val correction: Double = 1.0,
     val saved: Boolean = false,
     val calibrationClamped: Boolean = false,
+    val tankCapacityL: Double? = null,
+    val showTankWarning: Boolean = false,
 )
 
 @HiltViewModel
 class RefuelViewModel @Inject constructor(
     private val refuelRepository: RefuelRepository,
     private val vehicleRepository: VehicleRepository,
-    private val settingsRepository: SettingsRepository,
+    private val fuelPriceRepository: FuelPriceRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(RefuelUiState())
@@ -47,32 +50,46 @@ class RefuelViewModel @Inject constructor(
                 it.copy(
                     refuels = refuelRepository.recent(20),
                     correction = vehicle.fuelRateCorrection,
+                    tankCapacityL = vehicle.tankCapacityL,
                 )
             }
         }
     }
 
     fun onLitersChange(value: String) =
-        _state.update { it.copy(liters = value, saved = false, calibrationClamped = false) }
+        _state.update { it.copy(liters = value, saved = false, calibrationClamped = false, showTankWarning = false) }
 
     fun onPriceChange(value: String) =
         _state.update { it.copy(totalPrice = value, saved = false, calibrationClamped = false) }
 
     fun onFullChange(value: Boolean) = _state.update { it.copy(isFull = value, calibrationClamped = false) }
 
-    fun save() {
-        val liters = _state.value.liters.trim().toDoubleOrNull()
-        val price = _state.value.totalPrice.trim().toDoubleOrNull()
+    fun dismissTankWarning() = _state.update { it.copy(showTankWarning = false) }
+
+    /** Confirms the over-capacity warning and saves as-is. */
+    fun confirmTankWarning() = save(confirmed = true)
+
+    fun save(confirmed: Boolean = false) {
+        val state = _state.value
+        val liters = state.liters.trim().toDoubleOrNull()
+        val price = state.totalPrice.trim().toDoubleOrNull()
         if (liters == null || liters <= 0.0 || price == null || price < 0.0) return
+
+        if (!confirmed && RangeEstimator.exceedsTankCapacity(liters, state.tankCapacityL)) {
+            _state.update { it.copy(showTankWarning = true) }
+            return
+        }
 
         viewModelScope.launch {
             val vehicle = vehicleRepository.active()
             val vehicleId = vehicle.id
-            refuelRepository.add(liters, price, _state.value.isFull, vehicleId)
+            refuelRepository.add(liters, price, state.isFull, vehicleId)
 
             var clamped = false
-            if (_state.value.isFull) {
-                settingsRepository.saveFuelPrice(price / liters)
+            if (state.isFull) {
+                // A full refuel refreshes the observed price for the vehicle's grade,
+                // unless the user pinned it.
+                fuelPriceRepository.onFullRefuel(vehicle.grade, price / liters)
                 // Calibrate against the tank-to-tank interval, not lifetime totals.
                 val interval = refuelRepository.lastFullInterval(vehicleId)
                 if (interval != null) {
@@ -97,6 +114,7 @@ class RefuelViewModel @Inject constructor(
                     correction = updatedCorrection,
                     saved = true,
                     calibrationClamped = clamped,
+                    showTankWarning = false,
                 )
             }
         }

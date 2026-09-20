@@ -10,12 +10,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -127,6 +129,32 @@ fun RefuelScreen(
                 RefuelRow(refuel)
             }
         }
+    }
+
+    if (state.showTankWarning) {
+        AlertDialog(
+            onDismissRequest = viewModel::dismissTankWarning,
+            title = { Text(stringResource(R.string.refuel_over_capacity_title)) },
+            text = {
+                Text(
+                    stringResource(
+                        R.string.refuel_over_capacity_message,
+                        state.liters,
+                        state.tankCapacityL?.let { format(it, 1) } ?: "—",
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = viewModel::confirmTankWarning) {
+                    Text(stringResource(R.string.refuel_over_capacity_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::dismissTankWarning) {
+                    Text(stringResource(R.string.vehicle_cancel))
+                }
+            },
+        )
     }
 }
 

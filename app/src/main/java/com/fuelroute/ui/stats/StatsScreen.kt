@@ -5,9 +5,12 @@ import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
 import android.os.Build
 import android.view.WindowManager
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,12 +21,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -36,13 +41,16 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fuelroute.R
 import com.fuelroute.data.obd.LiveObdState
 import com.fuelroute.data.obd.ObdStatus
+import com.fuelroute.domain.fuel.RangeEstimator
 import com.fuelroute.domain.model.Trip
+import com.fuelroute.domain.model.VehicleProfile
 import com.fuelroute.ui.permission.PermissionGate
 import com.fuelroute.ui.permission.findActivity
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun StatsScreen(
     modifier: Modifier = Modifier,
@@ -53,10 +61,24 @@ fun StatsScreen(
     val bonded by viewModel.bonded.collectAsStateWithLifecycle()
     val connectingName by viewModel.connectingName.collectAsStateWithLifecycle()
     val trips by viewModel.trips.collectAsStateWithLifecycle()
+    val vehicles by viewModel.vehicles.collectAsStateWithLifecycle()
+    val activeVehicle by viewModel.activeVehicle.collectAsStateWithLifecycle()
+    val vinEvent by viewModel.vinEvent.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+
+    LaunchedEffect(vinEvent) {
+        val name = vinEvent ?: return@LaunchedEffect
+        val label = name.ifBlank { context.getString(R.string.vehicle_untitled) }
+        Toast.makeText(
+            context,
+            context.getString(R.string.stats_vin_detected, label),
+            Toast.LENGTH_LONG,
+        ).show()
+        viewModel.consumeVinEvent()
+    }
 
     // BLUETOOTH_CONNECT is required to list/connect bonded adapters; SCAN and
     // POST_NOTIFICATIONS are requested together but never gate the feature.
@@ -105,6 +127,16 @@ fun StatsScreen(
             )
         }
 
+        if (vehicles.size > 1) {
+            item {
+                VehicleSwitcher(
+                    vehicles = vehicles,
+                    activeId = activeVehicle?.id,
+                    onSelect = viewModel::selectVehicle,
+                )
+            }
+        }
+
         item {
             OutlinedButton(onClick = onOpenCurve, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.curve_open))
@@ -142,6 +174,7 @@ fun StatsScreen(
             ObdStatus.Connected -> {
                 item { SpeedGauge(state) }
                 item { MetricRow(state) }
+                item { RangeEstimateCard(state, activeVehicle) }
                 if (state.lastError != null || state.lastRawReply != null) {
                     item { DebugCard(state) }
                 }
@@ -254,6 +287,59 @@ private fun DeviceRow(device: BluetoothDevice, onClick: () -> Unit) {
             Text(
                 text = device.address,
                 style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun VehicleSwitcher(
+    vehicles: List<VehicleProfile>,
+    activeId: String?,
+    onSelect: (String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = stringResource(R.string.stats_vehicle_switch),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            vehicles.forEach { vehicle ->
+                FilterChip(
+                    selected = vehicle.id == activeId,
+                    onClick = { onSelect(vehicle.id) },
+                    label = {
+                        Text(vehicle.name.ifBlank { stringResource(R.string.vehicle_untitled) })
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RangeEstimateCard(state: LiveObdState, vehicle: VehicleProfile?) {
+    val rangeKm = RangeEstimator.remainingRangeKm(
+        tankCapacityL = vehicle?.tankCapacityL,
+        levelPct = state.fuelLevelPct,
+        litersPer100Km = state.instantL100,
+    ) ?: return
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = stringResource(R.string.stats_remaining_range, format(rangeKm, 0)),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = stringResource(
+                    R.string.stats_remaining_range_hint,
+                    format(state.fuelLevelPct ?: 0.0, 0),
+                    format(state.instantL100 ?: 0.0, 1),
+                ),
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }

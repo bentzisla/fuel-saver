@@ -12,6 +12,7 @@ import com.fuelroute.data.places.PlaceSuggestion
 import com.fuelroute.data.places.PlacesHistoryRepository
 import com.fuelroute.data.places.PlacesRepository
 import com.fuelroute.data.places.RecentPlace
+import com.fuelroute.data.price.FuelPriceRepository
 import com.fuelroute.data.routes.RouteRequestOptions
 import com.fuelroute.data.routes.RouteSearch
 import com.fuelroute.data.routes.RouteSearchRepository
@@ -88,6 +89,7 @@ class RouteViewModel @Inject constructor(
     private val vehicleRepository: VehicleRepository,
     private val learnedCurveRepository: LearnedCurveRepository,
     private val settingsRepository: SettingsRepository,
+    private val fuelPriceRepository: FuelPriceRepository,
     private val routeSearchRepository: RouteSearchRepository,
 ) : ViewModel() {
 
@@ -100,13 +102,14 @@ class RouteViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             settingsRepository.settings.first().let { settings ->
-                _uiState.update {
-                    it.copy(
-                        navigationApp = settings.navigationApp,
-                        fuelPricePerLiter = settings.fuelPricePerLiter,
-                    )
-                }
+                _uiState.update { it.copy(navigationApp = settings.navigationApp) }
             }
+        }
+
+        viewModelScope.launch {
+            val vehicle = vehicleRepository.active()
+            val price = fuelPriceRepository.current(vehicle.grade)
+            _uiState.update { it.copy(fuelPricePerLiter = price.pricePerLiter) }
         }
 
         viewModelScope.launch {
@@ -310,7 +313,7 @@ class RouteViewModel @Inject constructor(
                     forceRefresh = forceRefresh,
                 )
                 val notice = RoutesError.fromRoutes(routes)
-                val fuelPrice = settings.fuelPricePerLiter
+                val fuelPrice = fuelPriceRepository.current(vehicle.grade).pricePerLiter
                 val ranked = RouteRanker.rank(
                     routes.map { fuelModel.cost(it, fuelPrice) },
                     valuePerMinute = settings.valuePerMinute,

@@ -34,6 +34,9 @@ interface VehicleRepository {
     /** The currently selected vehicle, bootstrapping the first one when needed. */
     suspend fun active(): VehicleProfile
 
+    /** The vehicle whose stored VIN equals [vin], if any (case-sensitive). */
+    suspend fun findByVin(vin: String): VehicleProfile?
+
     suspend fun setActive(id: String)
 
     /** Inserts or updates [profile]; becomes active when it is the first vehicle. */
@@ -95,6 +98,11 @@ class DefaultVehicleRepository @Inject constructor(
     override suspend fun setActive(id: String) {
         ensureBootstrapped()
         if (vehicleDao.getById(id) != null) setActiveId(id)
+    }
+
+    override suspend fun findByVin(vin: String): VehicleProfile? {
+        ensureBootstrapped()
+        return vehicleDao.getByVin(vin)?.toDomain()
     }
 
     override suspend fun upsert(profile: VehicleProfile) {

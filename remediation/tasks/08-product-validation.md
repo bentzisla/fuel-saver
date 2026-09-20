@@ -1,35 +1,34 @@
-# Task 08 — Product & validation (history, predicted-vs-actual, price, defaults)
+# Task 08 — Product & validation (price, capacity, defaults, multi-vehicle polish)
 
-**REMEDIATION items:** Phase 6 (6.1–6.7).
+**REMEDIATION items:** Phase 6 — 6.3, 6.4, 6.5, 6.7.
 **Depends on:** card 01 (trip.routeSearchId / route_search columns), card 02 (active vehicle), card 06
 (`RouteSearch` field wiring + `RoutesError`), card 05 (ranking default already set).
-**Touches:** new `ui/history/*`, `ui/stats/*`, `ui/route/*` (result "יצאתי במסלול הזה" button), `data/routes/
-RouteSearchRepository.kt`, new `data/price/*`, `ui/refuel/*`, `ui/settings/*`.
+**Touches:** `data/price/*` (new), `ui/refuel/*`, `ui/settings/*`, `ui/route/*` (result badges),
+`ui/vehicle/*` / `ui/stats/*` (multi-vehicle switcher + VIN toast), `res/values/strings.xml`.
+
+> **SCOPE NOTE (2026-09-20):** steps 6.1 (history screen) and 6.2 (predicted-vs-actual accuracy) are now owned by
+> **card 11** (Phase 8), which gets the dedicated v5 schema columns and does the full predicted-vs-actual story. This
+> card therefore does **only 6.3–6.7**. Do not rewrite `HistoryScreen` or trip-linking here.
 
 ## Objective
-Make the already-collected `route_search`/`trip` data actually visible and useful, and close the loop by measuring
-prediction accuracy.
+Close out the remaining product items: reflect tank capacity, make fuel price a first-class per-grade value, show the
+cheapest/fastest story on results, and finish multi-vehicle UX (switcher + VIN auto-switch surfacing).
 
 ## Steps
 
-1. **History screen** (`ui/history/HistoryScreen.kt` + `HistoryViewModel.kt`): read `RouteSearchRepository.recent`,
-   render list (origin → destination, date, cheapest cost, saved vs fastest, distance, duration, predicted liters),
-   plus a "חסכת X ₪ בסה\"כ" summary. Add a nav entry (from the Route tab action bar or a results-screen link).
-2. **Predicted vs actual (the accuracy metric)**:
-   - On trip start (OBD), auto-link to a `route_search` whose `departureTimeMs` is within the last 30 min (best match
-     by destination/geometry — start simple: most recent); set `trip.routeSearchId`.
-   - Add a manual "יצאתי במסלול הזה" button in the results screen that arms the same link for the next trip.
-   - On Stats, show per-linked-trip error `(predictedLiters - actualFuelL) / actualFuelL` and a rolling MAPE over the
-     last N linked trips, e.g. "דיוק חיזוי: ±N%".
-3. **`tankCapacityL`**: refuel sanity check ("ליטרים > נפח מיכל?") and a remaining-range estimate from fuel level (%)
-   where available (surfaced on the dashboard).
-4. **`data/price/FuelPriceRepository.kt`** (new): price + `grade` + `manuallyPinned` flag. A full refuel updates the
-   price **only when not pinned**. Wire into `RefuelViewModel` + Settings. Keep `SettingsRepository.fuelPricePerLiter`
-   as the manual override store or migrate to the new repo; keep one source of truth.
-5. **Defaults/UX**: `valuePerMinute` default 0.5 (card 05 already changed ranking default); results always show both
-   "הזול ביותר" and "המהיר ביותר" badges + the delta in ₪ and minutes.
-6. **Multi-vehicle polish**: simple vehicle switcher reachable from Stats/Vehicle; per-vehicle stats filtering; VIN
-   auto-switch toast ("זוהה: <name>") once card 03 exposes VIN.
+1. **`tankCapacityL` (6.3).** When a refuel is saved, sanity-check liters against the active vehicle's
+   `tankCapacityL` and, if exceeded, show a confirmation/warning ("ליטרים > נפח מיכל?"). On the live dashboard, if a
+   fuel-level % reading is available from OBD, show an estimated remaining range
+   (`tankCapacityL * level% / 100 * current L/100km`), clearly marked as an estimate.
+2. **`data/price/FuelPriceRepository.kt` (6.4, new).** Price + `grade` (95/98/diesel) + `manuallyPinned` flag. A full
+   refuel updates the price **only when not pinned**. Keep one source of truth: migrate `SettingsRepository.
+   fuelPricePerLiter` into this repo (or read-through), and surface pinning in Settings. Do not add a network
+   data.gov.il fetch yet — leave a `TODO` noting the monthly WorkManager fetch depends on a verified dataset.
+3. **Defaults/UX (6.5).** Results always show both "הזול ביותר" and "המהיר ביותר" badges plus the delta in ₪ and
+   minutes; `valuePerMinute` default 0.5 is already the ranking default from card 05 — make sure the UI reflects it.
+4. **Multi-vehicle polish (6.7).** A simple vehicle switcher in the top bar (or Stats/Vehicle), per-vehicle stats
+   filtering, and — since card 03 now exposes `LiveObdState.vin` — a toast "זוהה: <name>" when a VIN matches a known
+   vehicle (auto-switch the active vehicle). Skip the auto-switch prompt UI; a toast + switch is enough for now.
 
 ## Verify
 ```
@@ -38,7 +37,8 @@ prediction accuracy.
 ```
 
 ## Done when
-- History screen reachable and populated after a search; linking one drive shows "דיוק חיזוי: ±N%".
-- Price persists per grade and isn't clobbered by a refuel when pinned.
+- Refuel over tank capacity warns; fuel-level → remaining range shows on the dashboard.
+- Price persists per grade and a pinned price is not clobbered by a refuel.
+- Results show cheapest/fastest badges + deltas; vehicle switcher + VIN toast work with two vehicles.
 
 Do **not** commit.

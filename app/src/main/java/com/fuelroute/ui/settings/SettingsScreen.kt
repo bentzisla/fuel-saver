@@ -77,6 +77,27 @@ fun SettingsScreen(
             modifier = Modifier.fillMaxWidth(),
         )
 
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.settings_price_pin),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    text = stringResource(R.string.settings_price_grade, state.priceGrade),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = state.pricePinned,
+                onCheckedChange = viewModel::onPricePinnedChange,
+            )
+        }
+
         OutlinedTextField(
             value = state.valuePerMinute,
             onValueChange = viewModel::onValuePerMinuteChange,

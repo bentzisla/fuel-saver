@@ -17,6 +17,9 @@ interface VehicleDao {
     @Query("SELECT * FROM vehicle WHERE id = :id")
     suspend fun getById(id: String): VehicleEntity?
 
+    @Query("SELECT * FROM vehicle WHERE vin = :vin LIMIT 1")
+    suspend fun getByVin(vin: String): VehicleEntity?
+
     @Upsert
     suspend fun upsert(vehicles: List<VehicleEntity>)
 
@@ -87,6 +90,9 @@ interface TripDao {
 
     @Query("SELECT * FROM trip ORDER BY startedAtMs DESC LIMIT :limit")
     suspend fun recent(limit: Int): List<TripEntity>
+
+    @Query("SELECT * FROM trip WHERE vehicleId = :vehicleId ORDER BY startedAtMs DESC LIMIT :limit")
+    suspend fun recentForVehicle(vehicleId: String, limit: Int): List<TripEntity>
 
     @Query("SELECT * FROM trip WHERE isOpen = 1 ORDER BY startedAtMs DESC")
     suspend fun recentOpenTrips(): List<TripEntity>

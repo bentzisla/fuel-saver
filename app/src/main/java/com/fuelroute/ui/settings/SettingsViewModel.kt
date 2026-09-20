@@ -2,8 +2,11 @@ package com.fuelroute.ui.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.fuelroute.data.price.FuelGrades
+import com.fuelroute.data.price.FuelPriceRepository
 import com.fuelroute.data.settings.NAV_GOOGLE
 import com.fuelroute.data.settings.SettingsRepository
+import com.fuelroute.data.vehicle.VehicleRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,6 +19,8 @@ import javax.inject.Inject
 data class SettingsUiState(
     val isLoaded: Boolean = false,
     val fuelPrice: String = "",
+    val pricePinned: Boolean = false,
+    val priceGrade: String = FuelGrades.GASOLINE_95,
     val valuePerMinute: String = "",
     val navigationApp: String = NAV_GOOGLE,
     val autoConnect: Boolean = true,
@@ -26,6 +31,8 @@ data class SettingsUiState(
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
+    private val fuelPriceRepository: FuelPriceRepository,
+    private val vehicleRepository: VehicleRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -33,10 +40,14 @@ class SettingsViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
+            val vehicle = vehicleRepository.active()
+            val price = fuelPriceRepository.current(vehicle.grade)
             val settings = settingsRepository.settings.first()
             _uiState.value = SettingsUiState(
                 isLoaded = true,
-                fuelPrice = settings.fuelPricePerLiter.toString(),
+                fuelPrice = price.pricePerLiter.toString(),
+                pricePinned = price.manuallyPinned,
+                priceGrade = vehicle.grade,
                 valuePerMinute = settings.valuePerMinute.toString(),
                 navigationApp = settings.navigationApp,
                 autoConnect = settings.autoConnect,
@@ -48,7 +59,14 @@ class SettingsViewModel @Inject constructor(
 
     fun onFuelPriceChange(value: String) {
         _uiState.update { it.copy(fuelPrice = value) }
-        value.toDoubleOrNull()?.let { viewModelScope.launch { settingsRepository.saveFuelPrice(it) } }
+        val grade = _uiState.value.priceGrade
+        value.toDoubleOrNull()?.let { viewModelScope.launch { fuelPriceRepository.saveManualPrice(grade, it) } }
+    }
+
+    fun onPricePinnedChange(pinned: Boolean) {
+        _uiState.update { it.copy(pricePinned = pinned) }
+        val grade = _uiState.value.priceGrade
+        viewModelScope.launch { fuelPriceRepository.setPinned(grade, pinned) }
     }
 
     fun onValuePerMinuteChange(value: String) {

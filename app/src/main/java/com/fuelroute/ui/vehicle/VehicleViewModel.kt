@@ -2,6 +2,7 @@ package com.fuelroute.ui.vehicle
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.fuelroute.data.price.FuelGrades
 import com.fuelroute.data.vehicle.VehicleRepository
 import com.fuelroute.domain.model.FuelType
 import com.fuelroute.domain.model.VehicleProfile
@@ -25,6 +26,7 @@ data class VehicleUiState(
     val ratedCombined: String = "",
     val displacement: String = "",
     val tankCapacity: String = "",
+    val grade: String = FuelGrades.GASOLINE_95,
     val saved: Boolean = false,
     val pendingDelete: VehicleProfile? = null,
 )
@@ -71,6 +73,7 @@ class VehicleViewModel @Inject constructor(
             ratedCombined = "",
             displacement = "",
             tankCapacity = "",
+            grade = FuelGrades.GASOLINE_95,
             saved = false,
         )
     }
@@ -84,6 +87,7 @@ class VehicleViewModel @Inject constructor(
             ratedCombined = profile.ratedCombinedL100.toString(),
             displacement = profile.engineDisplacementL?.toString().orEmpty(),
             tankCapacity = profile.tankCapacityL?.toString().orEmpty(),
+            grade = profile.grade,
             saved = false,
         )
     }
@@ -99,6 +103,8 @@ class VehicleViewModel @Inject constructor(
     fun onDisplacementChange(value: String) = _uiState.update { it.copy(displacement = value, saved = false) }
 
     fun onTankCapacityChange(value: String) = _uiState.update { it.copy(tankCapacity = value, saved = false) }
+
+    fun onGradeSelect(value: String) = _uiState.update { it.copy(grade = value, saved = false) }
 
     fun save() {
         val state = _uiState.value
@@ -120,6 +126,7 @@ class VehicleViewModel @Inject constructor(
             ratedCombinedL100 = ratedCombined.toDoubleOrNull() ?: DEFAULT_RATED_L100,
             engineDisplacementL = displacement.toDoubleOrNull(),
             tankCapacityL = tankCapacity.toDoubleOrNull(),
+            grade = state.grade,
         )
         viewModelScope.launch {
             repository.upsert(profile)

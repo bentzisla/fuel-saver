@@ -45,6 +45,12 @@
     <string name="route_traffic_per_segment">לפי מקטע</string>
     <string name="route_traffic_route_average">ממוצע</string>
     <string name="route_traffic_none">אין</string>
+    <string name="route_fastest">המהיר ביותר</string>
+    <string name="route_cheapest_summary">הזול ביותר: ₪ %1$s</string>
+    <string name="route_fastest_summary">המהיר ביותר: %1$s דק׳</string>
+    <string name="route_tradeoff_summary">חיסכון של %1$s ₪ בתמורה ל־%2$s דק׳ נוספות</string>
+    <string name="route_delta_cost">‎+%1$s ₪ מהזול ביותר</string>
+    <string name="route_delta_time">‎+%1$s דק׳ מהמהיר ביותר</string>
     <string name="route_error_no_network">אין חיבור לאינטרנט</string>
     <string name="route_error_quota">חריגה ממכסת השימוש בשירות המסלולים</string>
     <string name="route_error_forbidden">המפתח אינו מורשה לשירות המסלולים</string>
@@ -74,6 +80,10 @@
     <string name="vehicle_title">הרכב שלי</string>
     <string name="vehicle_name_label">שם הרכב</string>
     <string name="vehicle_fuel_type_label">סוג דלק</string>
+    <string name="vehicle_grade_label">סוג דלק (אוקטן)</string>
+    <string name="vehicle_grade_95">95</string>
+    <string name="vehicle_grade_98">98</string>
+    <string name="vehicle_grade_diesel">דיזל</string>
     <string name="vehicle_rated_combined_label">צריכה משולבת (ליטר/100 ק"מ)</string>
     <string name="vehicle_displacement_label">נפח מנוע (ליטר)</string>
     <string name="vehicle_tank_capacity_label">קיבולת מיכל (ליטר)</string>
@@ -104,6 +114,9 @@
     <string name="refuel_no_history">אין תדלוקים</string>
     <string name="refuel_correction">מקדם תיקון: %1$s</string>
     <string name="refuel_calibration_clamped">הכיול הגיע לקצה — בדוק את הנתונים</string>
+    <string name="refuel_over_capacity_title">כמות גדולה מנפח המיכל</string>
+    <string name="refuel_over_capacity_message">הזנת %1$s ליטר אך נפח המיכל הוא %2$s ליטר. להמשיך בכל זאת?</string>
+    <string name="refuel_over_capacity_confirm">המשך בכל זאת</string>
 
     <string name="fuel_gasoline">בנזין</string>
     <string name="fuel_diesel">דיזל</string>
@@ -145,6 +158,10 @@
     <string name="stats_sample_rate">קצב דגימה</string>
     <string name="stats_battery">מתח מצבר</string>
     <string name="stats_vin">מספר שלדה (VIN)</string>
+    <string name="stats_vin_detected">זוהה: %1$s</string>
+    <string name="stats_vehicle_switch">בחירת רכב לסטטיסטיקה</string>
+    <string name="stats_remaining_range">טווח משוער: %1$s ק״מ</string>
+    <string name="stats_remaining_range_hint">הערכה לפי מפלס דלק %1$s%% וצריכה %2$s ל׳/100 ק״מ</string>
 
     <string name="history_title">היסטוריית חיפושים</string>
     <string name="history_empty">אין חיפושים קודמים עדיין</string>
@@ -182,6 +199,8 @@
     <string name="settings_title">הגדרות</string>
     <string name="settings_fuel_price_label">מחיר דלק (₪ לליטר)</string>
     <string name="settings_value_per_minute_label">שווי זמן (₪ לדקה)</string>
+    <string name="settings_price_pin">נעל מחיר (לא יתעדכן בתדלוק)</string>
+    <string name="settings_price_grade">סוג דלק: %1$s</string>
     <string name="settings_nav_app_label">אפליקציית ניווט</string>
     <string name="settings_nav_google">Google Maps</string>
     <string name="settings_nav_waze">Waze</string>

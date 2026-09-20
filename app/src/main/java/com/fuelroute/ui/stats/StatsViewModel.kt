@@ -18,6 +18,7 @@ import com.fuelroute.domain.fuel.ConsumptionCurve
 import com.fuelroute.domain.fuel.CurveBlender
 import com.fuelroute.domain.fuel.DefaultCurve
 import com.fuelroute.domain.model.Trip
+import com.fuelroute.domain.model.VehicleProfile
 import com.fuelroute.service.ObdLoggingService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -61,14 +62,42 @@ class StatsViewModel @Inject constructor(
     private val _trips = MutableStateFlow<List<TripDisplay>>(emptyList())
     val trips: StateFlow<List<TripDisplay>> = _trips.asStateFlow()
 
+    private val _vehicles = MutableStateFlow<List<VehicleProfile>>(emptyList())
+    val vehicles: StateFlow<List<VehicleProfile>> = _vehicles.asStateFlow()
+
+    private val _activeVehicle = MutableStateFlow<VehicleProfile?>(null)
+    val activeVehicle: StateFlow<VehicleProfile?> = _activeVehicle.asStateFlow()
+
+    /** Name of the vehicle recognised from the OBD VIN, or null. Consumed by the UI toast. */
+    private val _vinEvent = MutableStateFlow<String?>(null)
+    val vinEvent: StateFlow<String?> = _vinEvent.asStateFlow()
+
+    private var lastHandledVin: String? = null
+
     init {
         refreshDevices()
-        loadTrips()
+
+        viewModelScope.launch {
+            vehicleRepository.vehicles().collect { list ->
+                _vehicles.value = list
+                val current = list.firstOrNull { it.id == _activeVehicle.value?.id } ?: list.firstOrNull()
+                if (current != null && current != _activeVehicle.value) {
+                    _activeVehicle.value = current
+                }
+            }
+        }
+        viewModelScope.launch {
+            _activeVehicle.value = vehicleRepository.active()
+        }
+        viewModelScope.launch {
+            _activeVehicle.collect { loadTrips() }
+        }
         viewModelScope.launch {
             engine.live.collect { state ->
                 if (state.status != ObdStatus.Connecting) {
                     _connectingName.update { null }
                 }
+                handleVin(state.vin)
                 if (state.status == ObdStatus.Disconnected) {
                     loadTrips()
                 }
@@ -82,9 +111,47 @@ class StatsViewModel @Inject constructor(
         }
     }
 
-    private fun loadTrips() {
+    /** Switches the active vehicle; stats reload for that vehicle. */
+    fun selectVehicle(id: String) {
         viewModelScope.launch {
-            val trips = tripRepository.recentTrips(20)
+            vehicleRepository.setActive(id)
+            _activeVehicle.value = vehicleRepository.active()
+        }
+    }
+
+    fun consumeVinEvent() {
+        _vinEvent.value = null
+    }
+
+    private fun handleVin(vin: String?) {
+        if (vin.isNullOrBlank() || vin == lastHandledVin) return
+        lastHandledVin = vin
+        viewModelScope.launch {
+            val match = vehicleRepository.findByVin(vin)
+            if (match != null) {
+                if (match.id != _activeVehicle.value?.id) {
+                    vehicleRepository.setActive(match.id)
+                    _activeVehicle.value = vehicleRepository.active()
+                }
+                _vinEvent.value = match.name
+            } else {
+                // First sighting of this car: remember the VIN on the active vehicle so a
+                // later connection can auto-switch to it.
+                _activeVehicle.value?.let { active ->
+                    if (active.vin != vin) vehicleRepository.upsert(active.copy(vin = vin))
+                }
+            }
+        }
+    }
+
+    private fun loadTrips() {
+        val vehicleId = _activeVehicle.value?.id
+        if (vehicleId == null) {
+            _trips.value = emptyList()
+            return
+        }
+        viewModelScope.launch {
+            val trips = tripRepository.recentTrips(vehicleId, 20)
             val curve = effectiveCurve()
             _trips.value = trips.map { trip ->
                 TripDisplay(

@@ -59,6 +59,7 @@ import com.fuelroute.domain.model.Route
 import com.fuelroute.domain.model.RouteCost
 import com.fuelroute.domain.model.SegmentCost
 import com.fuelroute.domain.model.TrafficResolution
+import com.fuelroute.domain.ranking.RouteInsights
 import com.fuelroute.nav.NavigationLauncher
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -73,6 +74,7 @@ fun RouteScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var detailIndex by remember { mutableStateOf<Int?>(null) }
+    val badges = RouteInsights.badges(state.results)
 
     val context = LocalContext.current
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -232,13 +234,21 @@ fun RouteScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                item {
+                    ResultsSummary(costs = state.results)
+                }
             }
 
             itemsIndexed(state.results) { index, cost ->
+                val cheapest = badges.cheapestIndex?.let { state.results[it] }
+                val fastest = badges.fastestIndex?.let { state.results[it] }
                 RouteCard(
                     cost = cost,
                     index = index,
-                    isCheapest = index == 0,
+                    isCheapest = badges.cheapestIndex == index,
+                    isFastest = badges.fastestIndex == index,
+                    costPremium = cheapest?.let { (cost.totalCost - it.totalCost).coerceAtLeast(0.0) } ?: 0.0,
+                    timePenaltyMinutes = fastest?.let { (cost.durationMinutes - it.durationMinutes).coerceAtLeast(0.0) } ?: 0.0,
                     isSelected = index == state.selectedIndex,
                     onClick = {
                         viewModel.selectResult(index)
@@ -493,10 +503,43 @@ private fun PlaceField(
 }
 
 @Composable
+private fun ResultsSummary(costs: List<RouteCost>) {
+    val badges = RouteInsights.badges(costs)
+    val cheapest = badges.cheapestIndex?.let { costs[it] } ?: return
+    val fastest = badges.fastestIndex?.let { costs[it] } ?: return
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = stringResource(R.string.route_cheapest_summary, format(cheapest.totalCost, 2)),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                text = stringResource(R.string.route_fastest_summary, format(fastest.durationMinutes, 0)),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            if (cheapest !== fastest) {
+                Text(
+                    text = stringResource(
+                        R.string.route_tradeoff_summary,
+                        format((fastest.totalCost - cheapest.totalCost).coerceAtLeast(0.0), 2),
+                        format((cheapest.durationMinutes - fastest.durationMinutes).coerceAtLeast(0.0), 0),
+                    ),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun RouteCard(
     cost: RouteCost,
     index: Int,
     isCheapest: Boolean,
+    isFastest: Boolean,
+    costPremium: Double,
+    timePenaltyMinutes: Double,
     isSelected: Boolean,
     onClick: () -> Unit,
 ) {
@@ -528,6 +571,13 @@ private fun RouteCard(
                             color = MaterialTheme.colorScheme.primary,
                         )
                     }
+                    if (isFastest) {
+                        Text(
+                            text = stringResource(R.string.route_fastest),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                     if (isSelected) {
                         Text(
                             text = stringResource(R.string.route_selected),
@@ -542,6 +592,21 @@ private fun RouteCard(
                 text = "₪ ${format(cost.totalCost, 2)}",
                 style = MaterialTheme.typography.headlineSmall,
             )
+
+            if (costPremium > 0.005) {
+                Text(
+                    text = stringResource(R.string.route_delta_cost, format(costPremium, 2)),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (timePenaltyMinutes > 0.5) {
+                Text(
+                    text = stringResource(R.string.route_delta_time, format(timePenaltyMinutes, 0)),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
 
             HorizontalDivider()
 

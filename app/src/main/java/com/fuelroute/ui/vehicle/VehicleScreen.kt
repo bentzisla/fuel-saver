@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fuelroute.R
+import com.fuelroute.data.price.FuelGrades
 import com.fuelroute.domain.model.FuelType
 import com.fuelroute.domain.model.VehicleProfile
 import java.util.Locale
@@ -232,6 +233,20 @@ private fun VehicleForm(state: VehicleUiState, viewModel: VehicleViewModel) {
         }
     }
 
+    Text(
+        text = stringResource(R.string.vehicle_grade_label),
+        style = MaterialTheme.typography.titleSmall,
+    )
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FuelGrades.ALL.forEach { grade ->
+            FilterChip(
+                selected = state.grade == grade,
+                onClick = { viewModel.onGradeSelect(grade) },
+                label = { Text(stringResource(gradeLabelRes(grade))) },
+            )
+        }
+    }
+
     OutlinedTextField(
         value = state.ratedCombined,
         onValueChange = viewModel::onRatedCombinedChange,
@@ -280,6 +295,13 @@ private fun FuelType.labelRes(): Int = when (this) {
     FuelType.GASOLINE -> R.string.fuel_gasoline
     FuelType.DIESEL -> R.string.fuel_diesel
     FuelType.HYBRID -> R.string.fuel_hybrid
+}
+
+@StringRes
+private fun gradeLabelRes(grade: String): Int = when (grade) {
+    FuelGrades.GASOLINE_98 -> R.string.vehicle_grade_98
+    FuelGrades.DIESEL -> R.string.vehicle_grade_diesel
+    else -> R.string.vehicle_grade_95
 }
 
 private fun format(value: Double): String = String.format(Locale.US, "%.1f", value)

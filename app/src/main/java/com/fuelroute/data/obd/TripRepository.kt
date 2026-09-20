@@ -6,7 +6,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 interface TripRepository {
-    suspend fun recentTrips(limit: Int): List<Trip>
+    suspend fun recentTrips(vehicleId: String, limit: Int): List<Trip>
 }
 
 @Singleton
@@ -14,8 +14,8 @@ class DefaultTripRepository @Inject constructor(
     private val tripDao: TripDao,
 ) : TripRepository {
 
-    override suspend fun recentTrips(limit: Int): List<Trip> =
-        tripDao.recent(limit).map {
+    override suspend fun recentTrips(vehicleId: String, limit: Int): List<Trip> =
+        tripDao.recentForVehicle(vehicleId, limit).map {
             Trip(
                 id = it.id,
                 vehicleId = it.vehicleId,

@@ -18,6 +18,8 @@ import com.fuelroute.data.places.DataStorePlacesHistoryRepository
 import com.fuelroute.data.places.GooglePlacesRepository
 import com.fuelroute.data.places.PlacesHistoryRepository
 import com.fuelroute.data.places.PlacesRepository
+import com.fuelroute.data.price.DefaultFuelPriceRepository
+import com.fuelroute.data.price.FuelPriceRepository
 import com.fuelroute.data.refuel.DefaultRefuelRepository
 import com.fuelroute.data.refuel.RefuelRepository
 import com.fuelroute.data.routes.CachingRoutesRepository
@@ -40,6 +42,7 @@ import javax.inject.Singleton
 private val Context.vehicleDataStore: DataStore<Preferences> by preferencesDataStore(name = "vehicle")
 private val Context.placesDataStore: DataStore<Preferences> by preferencesDataStore(name = "places")
 private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
+private val Context.priceDataStore: DataStore<Preferences> by preferencesDataStore(name = "price")
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -62,6 +65,12 @@ object AppModule {
     @Named("settings")
     fun provideSettingsDataStore(@ApplicationContext context: Context): DataStore<Preferences> =
         context.settingsDataStore
+
+    @Provides
+    @Singleton
+    @Named("price")
+    fun providePriceDataStore(@ApplicationContext context: Context): DataStore<Preferences> =
+        context.priceDataStore
 }
 
 @Module
@@ -111,6 +120,10 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindSettingsRepository(impl: DataStoreSettingsRepository): SettingsRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindFuelPriceRepository(impl: DefaultFuelPriceRepository): FuelPriceRepository
 
     @Binds
     @Singleton

@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
+import com.fuelroute.domain.fuel.ModelConstants
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
@@ -18,8 +19,7 @@ const val NAV_GOOGLE = "google"
 const val NAV_WAZE = "waze"
 
 data class AppSettings(
-    val fuelPricePerLiter: Double = 7.0,
-    val valuePerMinute: Double = 0.0,
+    val valuePerMinute: Double = ModelConstants.DEFAULT_VALUE_PER_MINUTE,
     val navigationApp: String = NAV_GOOGLE,
     val autoConnect: Boolean = true,
     val showOverlay: Boolean = false,
@@ -29,7 +29,6 @@ data class AppSettings(
 
 interface SettingsRepository {
     val settings: Flow<AppSettings>
-    suspend fun saveFuelPrice(value: Double)
     suspend fun saveValuePerMinute(value: Double)
     suspend fun saveNavigationApp(value: String)
     suspend fun saveAutoConnect(value: Boolean)
@@ -47,8 +46,7 @@ class DataStoreSettingsRepository @Inject constructor(
         .catch { emit(emptyPreferences()) }
         .map { prefs ->
             AppSettings(
-                fuelPricePerLiter = prefs[Keys.FUEL_PRICE] ?: 7.0,
-                valuePerMinute = prefs[Keys.VALUE_PER_MINUTE] ?: 0.0,
+                valuePerMinute = prefs[Keys.VALUE_PER_MINUTE] ?: ModelConstants.DEFAULT_VALUE_PER_MINUTE,
                 navigationApp = prefs[Keys.NAVIGATION_APP] ?: NAV_GOOGLE,
                 autoConnect = prefs[Keys.AUTO_CONNECT] ?: true,
                 showOverlay = prefs[Keys.SHOW_OVERLAY] ?: false,
@@ -56,10 +54,6 @@ class DataStoreSettingsRepository @Inject constructor(
                 lastDeviceAddress = prefs[Keys.LAST_DEVICE_ADDRESS]?.takeIf { it.isNotBlank() },
             )
         }
-
-    override suspend fun saveFuelPrice(value: Double) {
-        dataStore.edit { it[Keys.FUEL_PRICE] = value }
-    }
 
     override suspend fun saveValuePerMinute(value: Double) {
         dataStore.edit { it[Keys.VALUE_PER_MINUTE] = value }
@@ -86,7 +80,6 @@ class DataStoreSettingsRepository @Inject constructor(
     }
 
     private object Keys {
-        val FUEL_PRICE = doublePreferencesKey("fuel_price_per_liter")
         val VALUE_PER_MINUTE = doublePreferencesKey("value_per_minute")
         val NAVIGATION_APP = stringPreferencesKey("navigation_app")
         val AUTO_CONNECT = booleanPreferencesKey("auto_connect")
