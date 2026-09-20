@@ -210,6 +210,8 @@
     <string name="notification_live">מהירות %1$d קמ״ש • צריכה %2$s ל׳/100</string>
     <string name="notification_stop">עצור</string>
     <string name="notification_stale">אין נתונים מהדונגל</string>
+    <string name="notification_connecting">מתחבר לדונגל OBD…</string>
+    <string name="notification_waiting">ממתין לדונגל OBD…</string>
 
     <string name="permission_grant">אשר הרשאה</string>
     <string name="permission_open_settings">פתח הגדרות אפליקציה</string>

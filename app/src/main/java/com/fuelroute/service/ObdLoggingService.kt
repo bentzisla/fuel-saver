@@ -23,6 +23,7 @@ import com.fuelroute.data.obd.ObdTransport
 import com.fuelroute.data.obd.SimulatedObdTransport
 import com.fuelroute.data.settings.SettingsRepository
 import com.fuelroute.data.vehicle.VehicleRepository
+import com.fuelroute.domain.obd.ConnectPolicy
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -61,9 +62,13 @@ class ObdLoggingService : Service() {
     private var lastLiveAtMs = 0L
     private var lastStale: Boolean? = null
     private var latestState: LiveObdState? = null
-    // Set once the engine reaches Connecting/Connected, so the stale Disconnected value
-    // emitted before the run loop starts does not immediately stop the service.
-    private var sawActive = false
+    // Time the current logging run started. Combined with a short startup grace this keeps
+    // the engine's initial Disconnected value from stopping the service before it has had a
+    // chance to attempt the connect.
+    private var startedAtMs = 0L
+    // Set once the engine reaches Connecting/Connected. A terminal Error/Disconnected after
+    // that is a real stop even inside the grace window.
+    private var sawData = false
     private var lastPersistedError: String? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -104,7 +109,8 @@ class ObdLoggingService : Service() {
         latestState = null
         lastStale = null
         lastLiveAtMs = System.currentTimeMillis()
-        sawActive = false
+        startedAtMs = System.currentTimeMillis()
+        sawData = false
         lastPersistedError = null
         acquireWakeLock()
 
@@ -138,18 +144,26 @@ class ObdLoggingService : Service() {
                     settingsRepository.saveLastObdError(error)
                 }
 
-                when (state.status) {
-                    ObdStatus.Connecting, ObdStatus.Connected -> sawActive = true
-                    ObdStatus.Disconnected, ObdStatus.Error -> if (sawActive) {
-                        // Ignition off (run loop returned) or a failed connect: stop the
-                        // foreground service instead of lingering on a powered-but-idle dongle.
-                        if (state.status == ObdStatus.Error) {
-                            settingsRepository.saveLastObdError(state.lastError ?: "ERROR")
-                        }
-                        Log.i(TAG, "engine finished (${state.status}) — stopping logging service")
-                        stopForeground(STOP_FOREGROUND_REMOVE)
-                        stopSelf()
+                if (state.status == ObdStatus.Connecting || state.status == ObdStatus.Connected) {
+                    sawData = true
+                }
+                if (ConnectPolicy.shouldAutoStop(
+                        status = state.status.name,
+                        elapsedMs = System.currentTimeMillis() - startedAtMs,
+                        sawData = sawData,
+                    )
+                ) {
+                    // Ignition off (run loop returned) or a failed/timed-out connect: stop
+                    // the foreground service instead of lingering on a powered-but-idle
+                    // dongle. Unlike the old `sawActive` gate this also fires when no data
+                    // was ever read.
+                    if (state.status == ObdStatus.Error) {
+                        settingsRepository.saveLastObdError(state.lastError ?: "ERROR")
                     }
+                    Log.i(TAG, "engine finished (${state.status}) — stopping logging service")
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                    return@collect
                 }
 
                 getSystemService(NotificationManager::class.java)
@@ -222,11 +236,14 @@ class ObdLoggingService : Service() {
             Intent(this, ObdLoggingService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE,
         )
-        val text = if (state?.speedKmh != null) {
-            val l100 = state.instantL100?.let { String.format(Locale.US, "%.1f", it) } ?: "-"
-            getString(R.string.notification_live, Math.round(state.speedKmh), l100)
-        } else {
-            getString(R.string.notification_text)
+        val text = when {
+            state?.status == ObdStatus.Connecting -> getString(R.string.notification_connecting)
+            state?.status == ObdStatus.Disconnected -> getString(R.string.notification_waiting)
+            state?.speedKmh != null -> {
+                val l100 = state.instantL100?.let { String.format(Locale.US, "%.1f", it) } ?: "-"
+                getString(R.string.notification_live, Math.round(state.speedKmh), l100)
+            }
+            else -> getString(R.string.notification_text)
         }
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.notification_title))

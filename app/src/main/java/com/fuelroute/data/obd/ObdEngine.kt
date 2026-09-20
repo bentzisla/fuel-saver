@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.net.SocketTimeoutException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -79,7 +80,12 @@ class ObdEngine @Inject constructor(
             mutableLive.update { it.copy(status = ObdStatus.Connecting) }
             val connected = transport.connect()
             if (connected.isFailure) {
-                mutableLive.update { it.copy(status = ObdStatus.Error, lastError = "CONNECT") }
+                // Terminal: the run loop is never entered, so the logging service can stop
+                // instead of lingering on the foreground notification.
+                val cause = connected.exceptionOrNull()
+                val reason = if (cause is SocketTimeoutException) "CONNECT TIMEOUT" else "CONNECT"
+                Log.w(TAG, "OBD connect failed ($reason)", cause)
+                mutableLive.update { it.copy(status = ObdStatus.Error, lastError = reason) }
                 return@launch
             }
 

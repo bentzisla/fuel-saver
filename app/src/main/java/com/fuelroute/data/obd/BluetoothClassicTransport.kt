@@ -4,8 +4,13 @@ import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket
 import android.util.Log
+import com.fuelroute.domain.obd.ConnectPolicy
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.io.IOException
 import java.net.SocketTimeoutException
 import java.util.UUID
@@ -38,14 +43,55 @@ class BluetoothClassicTransport(
 
     @SuppressLint("MissingPermission")
     override suspend fun connect(): Result<Unit> = withContext(Dispatchers.IO) {
-        runCatching {
-            val s = device.createRfcommSocketToServiceRecord(SPP_UUID)
-            s.connect()
+        val s = try {
+            device.createRfcommSocketToServiceRecord(SPP_UUID)
+        } catch (t: Throwable) {
+            if (t is CancellationException) throw t
+            return@withContext Result.failure(t)
+        }
+
+        // `BluetoothSocket.connect()` is a blocking, non-cancellable call. Run it on a
+        // sibling coroutine so `withTimeout` can abandon it, then close the socket to
+        // unblock the underlying RFCOMM thread. Without this the service lingered for as
+        // long as the ROM kept the connect pending while the dongle was absent.
+        var failure: Throwable? = null
+        val connectJob = launch {
+            try {
+                s.connect()
+            } catch (t: Throwable) {
+                failure = t
+            }
+        }
+        val timedOut = try {
+            withTimeout(ConnectPolicy.CONNECT_TIMEOUT_MS) { connectJob.join() }
+            false
+        } catch (_: TimeoutCancellationException) {
+            true
+        }
+
+        if (timedOut) {
+            Log.w(TAG, "connect to ${device.address} timed out after ${ConnectPolicy.CONNECT_TIMEOUT_MS}ms")
+            runCatching { s.close() }
+            connectJob.cancel()
+            return@withContext Result.failure(SocketTimeoutException("connect timeout"))
+        }
+
+        failure?.let { cause ->
+            runCatching { s.close() }
+            return@withContext Result.failure(cause)
+        }
+
+        try {
             applySoTimeout(s, SO_TIMEOUT_MS)
             socket = s
             input = s.inputStream
             output = s.outputStream
             _connected.value = true
+            Result.success(Unit)
+        } catch (t: Throwable) {
+            runCatching { s.close() }
+            if (t is CancellationException) throw t
+            Result.failure(t)
         }
     }
 

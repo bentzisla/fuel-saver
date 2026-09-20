@@ -14,6 +14,7 @@ import androidx.core.content.ContextCompat
 import com.fuelroute.data.settings.SettingsRepository
 import com.fuelroute.domain.obd.AutoConnectDebounce
 import com.fuelroute.domain.obd.BondedObdDevice
+import com.fuelroute.domain.obd.ConnectPolicy
 import com.fuelroute.domain.obd.ObdDeviceMatcher
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
@@ -30,8 +31,9 @@ import javax.inject.Inject
  *   ELM-pattern name match on first ever use), then remember it.
  * - `ACL_DISCONNECTED` → stop logging (the engine flushes bins and closes the open trip)
  *   and arm a short debounce so a flap does not spin the run loop.
- * - `STATE_CHANGED` → `STATE_ON` re-arms by starting the bonded adapter, because an ACL
- *   broadcast is not re-sent for a device that is already connected.
+ * - `STATE_CHANGED` → `STATE_ON` re-arms only when the resolved target is already
+ *   ACL-connected (tracked from the ACL broadcasts in this process). Turning Bluetooth on
+ *   with a paired-but-absent dongle must not summon the foreground notification.
  *
  * `ACTION_ACL_CONNECTED` is only delivered while the app is in the background when
  * `BLUETOOTH_CONNECT` is granted, which makes it a valid `connectedDevice`
@@ -64,6 +66,7 @@ class BluetoothAclReceiver : BroadcastReceiver() {
             Log.w(TAG, "ACL_CONNECTED ignored: BLUETOOTH_CONNECT not granted")
             return
         }
+        markConnected(address)
 
         val pendingResult = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
@@ -98,6 +101,7 @@ class BluetoothAclReceiver : BroadcastReceiver() {
     private fun onDisconnected(context: Context, intent: Intent) {
         val device = intent.bluetoothDeviceExtra() ?: return
         val address = device.address ?: return
+        markDisconnected(address)
 
         val pendingResult = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
@@ -137,6 +141,10 @@ class BluetoothAclReceiver : BroadcastReceiver() {
                     lastDeviceAddress = settings.lastDeviceAddress,
                     bonded = bonded,
                 ) ?: return@launch
+                if (!ConnectPolicy.shouldAutoStartOnAdapterOn(target, connectedAddresses)) {
+                    Log.i(TAG, "Bluetooth on but $target is not connected — not starting logging")
+                    return@launch
+                }
                 if (AutoConnectDebounce.shouldIgnoreStart(lastStopAtMs, System.currentTimeMillis())) {
                     Log.i(TAG, "ignoring Bluetooth-on start for $target inside the debounce window")
                     return@launch
@@ -171,6 +179,22 @@ class BluetoothAclReceiver : BroadcastReceiver() {
 
         @Volatile
         private var lastStopAtMs: Long? = null
+
+        /**
+         * Addresses currently ACL-connected in this process, tracked from the ACL
+         * broadcasts. Used so `STATE_ON` cannot start logging for a paired-but-absent
+         * dongle. Empty after process death; the next `ACL_CONNECTED` repopulates it.
+         */
+        @Volatile
+        private var connectedAddresses: Set<String> = emptySet()
+
+        private fun markConnected(address: String) {
+            connectedAddresses = connectedAddresses + address
+        }
+
+        private fun markDisconnected(address: String) {
+            connectedAddresses = connectedAddresses - address
+        }
 
         /** Clears the debounce after a reboot so the first ACL connect is not ignored. */
         fun clearDebounce() {
