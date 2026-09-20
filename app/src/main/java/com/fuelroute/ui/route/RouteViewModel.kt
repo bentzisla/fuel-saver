@@ -47,7 +47,6 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 private const val DEFAULT_FUEL_PRICE = 7.0
-private const val DEFAULT_IDLE_LPH = 0.8
 private const val AUTOCOMPLETE_DEBOUNCE_MS = 300L
 
 data class RouteUiState(
@@ -458,11 +457,16 @@ class RouteViewModel @Inject constructor(
             try {
                 val vehicle = vehicleRepository.active()
                 val settings = settingsRepository.settings.first()
+                val overrides = settingsRepository.modelOverrides.first()
                 val learned = learnedCurveRepository.learnedCurve(vehicle.id)
                 val default = DefaultCurve.forVehicle(vehicle.ratedCombinedL100, vehicle.fuelType)
                 val fallback = effectiveFallback(vehicle.manualCurve, default)
                 val curve = CurveBlender.blend(learned, fallback)
-                val fuelModel = FuelModel(curve, learned.idleLitersPerHour ?: DEFAULT_IDLE_LPH)
+                val fuelModel = FuelModel(
+                    curve = curve,
+                    idleLitersPerHour = learned.idleLitersPerHour ?: overrides.effectiveIdleLphDefault,
+                    overrides = overrides,
+                )
 
                 val originWaypoint = when {
                     state.originIsCurrentLocation && state.originLocation != null ->

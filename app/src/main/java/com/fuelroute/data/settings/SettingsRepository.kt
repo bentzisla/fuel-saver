@@ -9,11 +9,13 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import com.fuelroute.domain.fuel.FuelModelOverrides
 import com.fuelroute.domain.fuel.ModelConstants
 import com.fuelroute.domain.retention.RetentionPolicy
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Named
 import javax.inject.Singleton
@@ -37,6 +39,10 @@ data class AppSettings(
 
 interface SettingsRepository {
     val settings: Flow<AppSettings>
+
+    /** Runtime fuel-model calibration overrides; all-null (i.e. defaults) when unset. */
+    val modelOverrides: Flow<FuelModelOverrides>
+
     suspend fun saveValuePerMinute(value: Double)
     suspend fun saveNavigationApp(value: String)
     suspend fun saveAutoConnect(value: Boolean)
@@ -48,12 +54,22 @@ interface SettingsRepository {
     suspend fun saveLastObdError(value: String?)
     suspend fun saveAutoConnectIntroSeen(value: Boolean)
     suspend fun saveRetentionDays(value: Int)
+    suspend fun saveModelOverrides(value: FuelModelOverrides)
 }
 
 @Singleton
 class DataStoreSettingsRepository @Inject constructor(
     @Named("settings") private val dataStore: DataStore<Preferences>,
 ) : SettingsRepository {
+
+    override val modelOverrides: Flow<FuelModelOverrides> = dataStore.data
+        .catch { emit(emptyPreferences()) }
+        .map { prefs ->
+            prefs[Keys.MODEL_OVERRIDES]
+                ?.takeIf { it.isNotBlank() }
+                ?.let { raw -> runCatching { json.decodeFromString<FuelModelOverrides>(raw) }.getOrNull() }
+                ?: FuelModelOverrides.DEFAULT
+        }
 
     override val settings: Flow<AppSettings> = dataStore.data
         .catch { emit(emptyPreferences()) }
@@ -117,6 +133,10 @@ class DataStoreSettingsRepository @Inject constructor(
         dataStore.edit { it[Keys.RETENTION_DAYS] = RetentionPolicy.applyRetentionDays(value) }
     }
 
+    override suspend fun saveModelOverrides(value: FuelModelOverrides) {
+        dataStore.edit { it[Keys.MODEL_OVERRIDES] = json.encodeToString(value) }
+    }
+
     private object Keys {
         val VALUE_PER_MINUTE = doublePreferencesKey("value_per_minute")
         val NAVIGATION_APP = stringPreferencesKey("navigation_app")
@@ -129,5 +149,10 @@ class DataStoreSettingsRepository @Inject constructor(
         val LAST_OBD_ERROR = stringPreferencesKey("last_obd_error")
         val AUTO_CONNECT_INTRO_SEEN = booleanPreferencesKey("auto_connect_intro_seen")
         val RETENTION_DAYS = intPreferencesKey("retention_days")
+        val MODEL_OVERRIDES = stringPreferencesKey("model_overrides")
+    }
+
+    private companion object {
+        val json = Json { ignoreUnknownKeys = true }
     }
 }

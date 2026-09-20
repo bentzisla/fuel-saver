@@ -10,8 +10,11 @@ import kotlin.math.max
 class FuelModel(
     private val curve: ConsumptionCurve,
     private val idleLitersPerHour: Double,
-    private val stopGoWeight: Double = ModelConstants.STOP_GO_WEIGHT,
+    private val overrides: FuelModelOverrides = FuelModelOverrides.DEFAULT,
 ) {
+
+    private val stopGoWeight: Double get() = overrides.effectiveStopGoWeight
+    private val jamFactor: Double get() = overrides.effectiveJamFactor
 
     fun cost(
         route: Route,
@@ -22,7 +25,8 @@ class FuelModel(
         // No congestion data = pure uniform time scaling; the extra delay is already
         // reflected in a lower effective speed, so do not pile a stop-go idle term on top.
         val applyStopGo = route.trafficResolution != TrafficResolution.NONE
-        var fuelLiters = coldStartLiters
+        val correction = overrides.effectiveFuelCorrection
+        var fuelLiters = coldStartLiters * correction
         val segmentCosts = mutableListOf<SegmentCost>()
 
         for (segment in route.segments) {
@@ -33,7 +37,7 @@ class FuelModel(
             val baseLiters = distanceKm * litersPer100 / 100.0
             val extraHours = max(0.0, (t - segment.staticDurationSeconds) / 3600.0)
             val stopGoLiters = if (applyStopGo) idleLitersPerHour * extraHours * stopGoWeight else 0.0
-            val segmentLiters = baseLiters + stopGoLiters
+            val segmentLiters = (baseLiters + stopGoLiters) * correction
             fuelLiters += segmentLiters
             segmentCosts += SegmentCost(
                 distanceKm = distanceKm,
@@ -75,7 +79,7 @@ class FuelModel(
     }
 
     private fun rawSeconds(segment: RouteSegment): Double {
-        val factor = segment.congestionFactor.coerceIn(ModelConstants.JAM_FACTOR, ModelConstants.NORMAL_FACTOR)
+        val factor = segment.congestionFactor.coerceIn(jamFactor, ModelConstants.NORMAL_FACTOR)
         return segment.staticDurationSeconds / factor
     }
 }

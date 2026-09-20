@@ -19,6 +19,7 @@ import com.fuelroute.data.price.FuelPriceRepository
 import com.fuelroute.data.price.PricePinning
 import com.fuelroute.data.settings.AppSettings
 import com.fuelroute.data.settings.SettingsRepository
+import com.fuelroute.domain.fuel.FuelModelOverrides
 import com.fuelroute.domain.fuel.ModelConstants
 import io.mockk.coEvery
 import io.mockk.every
@@ -366,6 +367,8 @@ class BackupRepositoryTest {
 
         override val settings: Flow<AppSettings> = state.asStateFlow()
 
+        override val modelOverrides: Flow<FuelModelOverrides> = flowOf(FuelModelOverrides.DEFAULT)
+
         override suspend fun saveValuePerMinute(value: Double) = update { it.copy(valuePerMinute = value) }
         override suspend fun saveNavigationApp(value: String) = update { it.copy(navigationApp = value) }
         override suspend fun saveAutoConnect(value: Boolean) = update { it.copy(autoConnect = value) }
@@ -378,6 +381,7 @@ class BackupRepositoryTest {
         override suspend fun saveAutoConnectIntroSeen(value: Boolean) =
             update { it.copy(autoConnectIntroSeen = value) }
         override suspend fun saveRetentionDays(value: Int) = update { it.copy(retentionDays = value) }
+        override suspend fun saveModelOverrides(value: FuelModelOverrides) = Unit
 
         private fun update(transform: (AppSettings) -> AppSettings) {
             state.update(transform)

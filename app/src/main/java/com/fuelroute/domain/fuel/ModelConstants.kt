@@ -1,5 +1,7 @@
 package com.fuelroute.domain.fuel
 
+import kotlinx.serialization.Serializable
+
 /**
  * Named constants for the fuel model (see PLAN.md §4). Centralized so ranking and
  * cost math never repeat magic numbers.
@@ -34,4 +36,38 @@ object ModelConstants {
     // lower = smoother/less flicker, higher = more responsive. ~0.35 settles in a
     // few seconds at 1 Hz without hiding real acceleration changes.
     const val LIVE_EMA_ALPHA = 0.35 // TODO(calibrate)
+}
+
+/**
+ * Runtime calibration overrides for the fuel model. Every field is nullable: null means
+ * "use [ModelConstants]". This is the value persisted by the debug calibration screen and
+ * threaded into [FuelModel]; [ModelConstants] stays the single source of defaults.
+ *
+ * Scope note: this carries only the global/segment scalars the cost math reads. The
+ * segment-level stop-go re-fit is intentionally not attempted (see card 18).
+ */
+@Serializable
+data class FuelModelOverrides(
+    val slowFactor: Double? = null,
+    val jamFactor: Double? = null,
+    val stopGoWeight: Double? = null,
+    val coldStartDefaultL: Double? = null,
+    val idleLphDefault: Double? = null,
+    /**
+     * Global multiplier applied to every predicted liter, fitted by `CalibrationFitter` over
+     * linked drives. Null = 1.0 (no correction). This is the one value the "fit" action writes.
+     */
+    val fuelCorrection: Double? = null,
+) {
+    val effectiveSlowFactor: Double get() = slowFactor ?: ModelConstants.SLOW_FACTOR
+    val effectiveJamFactor: Double get() = jamFactor ?: ModelConstants.JAM_FACTOR
+    val effectiveStopGoWeight: Double get() = stopGoWeight ?: ModelConstants.STOP_GO_WEIGHT
+    val effectiveColdStartDefaultL: Double
+        get() = coldStartDefaultL ?: ModelConstants.COLD_START_DEFAULT_L
+    val effectiveIdleLphDefault: Double get() = idleLphDefault ?: ModelConstants.IDLE_LPH_DEFAULT
+    val effectiveFuelCorrection: Double get() = fuelCorrection ?: 1.0
+
+    companion object {
+        val DEFAULT = FuelModelOverrides()
+    }
 }

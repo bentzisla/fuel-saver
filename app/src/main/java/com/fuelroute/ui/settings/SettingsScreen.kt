@@ -59,6 +59,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun SettingsScreen(
     modifier: Modifier = Modifier,
+    onOpenCalibration: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -260,6 +261,8 @@ fun SettingsScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
+        CalibrationSection(onOpen = onOpenCalibration)
+
         BackupSection(viewModel = viewModel)
 
         Text(
@@ -389,6 +392,29 @@ private fun AutoLoggingSection(
 
 private fun formatTimestamp(ms: Long): String =
     DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(ms))
+
+@Composable
+private fun CalibrationSection(onOpen: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.settings_calibration_title),
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                text = stringResource(R.string.settings_calibration_hint),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Button(onClick = onOpen, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.settings_calibration_open))
+            }
+        }
+    }
+}
 
 @Composable
 private fun BackupSection(viewModel: SettingsViewModel) {

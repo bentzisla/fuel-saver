@@ -26,6 +26,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.compose.runtime.LaunchedEffect
 import com.fuelroute.R
 import com.fuelroute.ui.curve.CurveScreen
+import com.fuelroute.ui.debug.CalibrationScreen
 import com.fuelroute.ui.history.HistoryScreen
 import com.fuelroute.ui.refuel.RefuelScreen
 import com.fuelroute.ui.route.RouteScreen
@@ -96,8 +97,11 @@ fun FuelRouteNavHost(openStats: Boolean = false) {
             composable(TopDestination.STATS.route) {
                 StatsScreen(onOpenCurve = { navController.navigate("curve") })
             }
-            composable(TopDestination.SETTINGS.route) { SettingsScreen() }
+            composable(TopDestination.SETTINGS.route) {
+                SettingsScreen(onOpenCalibration = { navController.navigate("calibration") })
+            }
             composable("curve") { CurveScreen() }
+            composable("calibration") { CalibrationScreen() }
             composable("refuel") { RefuelScreen() }
             composable("history") { HistoryScreen() }
         }

@@ -260,6 +260,28 @@
     <string name="settings_backup_import_result">הייבוא הושלם: נוספו %1$d נסיעות ו־%2$d תדלוקים (%3$d כפילויות דולגו)</string>
     <string name="settings_backup_import_failed">ייבוא הגיבוי נכשל</string>
 
+    <string name="settings_calibration_title">כיול מודל הדלק</string>
+    <string name="settings_calibration_hint">כיול קבועי המודל בזמן ריצה והתאמה מול נסיעות שנרשמו</string>
+    <string name="settings_calibration_open">פתח כיול</string>
+
+    <string name="calibration_title">כיול מודל הדלק</string>
+    <string name="calibration_hint">ערכי הכיול נשמרים אוטומטית ומשפיעים על חישוב העלות. ריק = ברירת מחדל.</string>
+    <string name="calibration_slow_factor">מקדם מהירות איטית (SLOW_FACTOR)</string>
+    <string name="calibration_jam_factor">מקדם פקק (JAM_FACTOR)</string>
+    <string name="calibration_stop_go">משקל עצור-סע (STOP_GO_WEIGHT)</string>
+    <string name="calibration_cold_start">דלק התנעה קרה (ליטר)</string>
+    <string name="calibration_idle_lph">צריכת סרק (ל׳/שעה)</string>
+    <string name="calibration_fuel_correction">מקדם תיקון דלק גלובלי</string>
+    <string name="calibration_reset">אפס לברירות מחדל</string>
+    <string name="calibration_reset_done">הכיול אופס לברירות מחדל</string>
+    <string name="calibration_fit_title">התאמה מול נסיעות</string>
+    <string name="calibration_fit">התאם מול נסיעות</string>
+    <string name="calibration_no_data">אין נסיעות מקושרות עם חיזוי וצריכה בפועל</string>
+    <string name="calibration_result">מקדם מוצע: %1$s (%2$d נסיעות)</string>
+    <string name="calibration_mape">MAPE לפני: %1$s%% • אחרי: %2$s%%</string>
+    <string name="calibration_apply">החל כמקדם תיקון</string>
+    <string name="calibration_applied">המקדם הוחל ונשמר</string>
+
     <string name="settings_auto_logging_title">רישום אוטומטי ללא מגע</string>
     <string name="settings_auto_logging_state">מצב: %1$s</string>
     <string name="settings_on">מופעל</string>
