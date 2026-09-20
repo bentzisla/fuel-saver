@@ -45,6 +45,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,6 +56,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import android.widget.Toast
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fuelroute.R
@@ -97,6 +99,13 @@ fun RouteScreen(
     }
 
     val context = LocalContext.current
+    val departLinkFeedback = state.departLinkFeedback
+    LaunchedEffect(departLinkFeedback) {
+        departLinkFeedback?.let { resId ->
+            Toast.makeText(context, context.getString(resId), Toast.LENGTH_SHORT).show()
+            viewModel.clearDepartLinkFeedback()
+        }
+    }
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
@@ -342,6 +351,7 @@ fun RouteScreen(
                 origin = originNav,
                 destination = destinationNav,
                 navigationApp = state.navigationApp,
+                onDeparted = viewModel::markDeparted,
                 onDismiss = { detailIndex = null },
             )
         }
@@ -887,6 +897,7 @@ private fun RouteDetailDialog(
     origin: NavDestination,
     destination: NavDestination,
     navigationApp: String,
+    onDeparted: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -942,6 +953,13 @@ private fun RouteDetailDialog(
                     text = stringResource(R.string.route_detail_total, format(cost.totalCost, 2)),
                     style = MaterialTheme.typography.titleSmall,
                 )
+
+                OutlinedButton(
+                    onClick = onDeparted,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(stringResource(R.string.route_departed_button))
+                }
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 

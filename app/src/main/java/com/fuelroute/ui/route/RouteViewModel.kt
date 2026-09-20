@@ -72,6 +72,7 @@ data class RouteUiState(
     val fuelPricePerLiter: Double = DEFAULT_FUEL_PRICE,
     val learnedKm: Double = 0.0,
     val navigationApp: String = NAV_GOOGLE,
+    val departLinkFeedback: Int? = null,
 )
 
 object RouteCountMessages {
@@ -394,7 +395,22 @@ class RouteViewModel @Inject constructor(
      */
     fun markDeparted() {
         val searchId = lastSearchId ?: return
-        viewModelScope.launch { tripLinker.linkLatestUnlinkedTrip(searchId) }
+        viewModelScope.launch {
+            val linked = tripLinker.linkLatestUnlinkedTrip(searchId)
+            _uiState.update {
+                it.copy(
+                    departLinkFeedback = if (linked != null) {
+                        R.string.route_departed_linked
+                    } else {
+                        R.string.route_departed_none
+                    },
+                )
+            }
+        }
+    }
+
+    fun clearDepartLinkFeedback() {
+        _uiState.update { it.copy(departLinkFeedback = null) }
     }
 
     private fun persistSelection(index: Int) {

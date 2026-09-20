@@ -84,6 +84,9 @@
     <string name="route_detail_title">חישוב העלות</string>
     <string name="route_close">סגור</string>
     <string name="route_navigate">נווט</string>
+    <string name="route_departed_button">יצאתי במסלול הזה</string>
+    <string name="route_departed_linked">קושר לנסיעה — יוצג בהיסטוריה</string>
+    <string name="route_departed_none">לא נמצאה נסיעה לקשר (עדיין לא התחילה רישום OBD)</string>
     <string name="route_detail_fuel">דלק: %1$s ל׳ × %2$s ₪ = %3$s ₪</string>
     <string name="route_detail_toll">אגרה: %1$s ₪</string>
     <string name="route_detail_total">סה״כ: %1$s ₪</string>
