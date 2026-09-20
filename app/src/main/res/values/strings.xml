@@ -224,7 +224,10 @@
 
     <string name="history_title">היסטוריית חיפושים</string>
     <string name="history_empty">אין חיפושים קודמים עדיין</string>
-    <string name="history_saved">חסכת %1$s ₪ לעומת המסלול המהיר</string>
+    <string name="history_saved_total">חסכת %1$s ₪ בסה״כ</string>
+    <string name="history_saving_vs_fastest">חיסכון מול המהיר: %1$s ₪</string>
+    <string name="history_type_search">חיפוש</string>
+    <string name="history_not_driven">לא נסעו במסלול זה</string>
     <string name="history_summary">עלות: %1$s ₪ • דלק חזוי: %2$s ל׳ • %3$s ק״מ • %4$s דק׳</string>
     <string name="history_accuracy">דיוק חיזוי: ±%1$s%%</string>
     <string name="history_predicted_price">מחיר שהוצע: %1$s ₪</string>
