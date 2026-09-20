@@ -23,6 +23,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.compose.runtime.LaunchedEffect
 import com.fuelroute.R
 import com.fuelroute.ui.curve.CurveScreen
 import com.fuelroute.ui.history.HistoryScreen
@@ -44,10 +45,19 @@ private enum class TopDestination(
 }
 
 @Composable
-fun FuelRouteNavHost() {
+fun FuelRouteNavHost(openStats: Boolean = false) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
+
+    // Deep link from the OBD logging notification straight to the live dashboard.
+    LaunchedEffect(openStats) {
+        if (openStats) {
+            navController.navigate(TopDestination.STATS.route) {
+                launchSingleTop = true
+            }
+        }
+    }
 
     Scaffold(
         bottomBar = {

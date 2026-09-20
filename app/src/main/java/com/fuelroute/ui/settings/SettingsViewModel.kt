@@ -20,6 +20,7 @@ data class SettingsUiState(
     val navigationApp: String = NAV_GOOGLE,
     val autoConnect: Boolean = true,
     val showOverlay: Boolean = false,
+    val keepScreenOn: Boolean = false,
 )
 
 @HiltViewModel
@@ -40,6 +41,7 @@ class SettingsViewModel @Inject constructor(
                 navigationApp = settings.navigationApp,
                 autoConnect = settings.autoConnect,
                 showOverlay = settings.showOverlay,
+                keepScreenOn = settings.keepScreenOn,
             )
         }
     }
@@ -67,5 +69,10 @@ class SettingsViewModel @Inject constructor(
     fun onShowOverlayChange(value: Boolean) {
         _uiState.update { it.copy(showOverlay = value) }
         viewModelScope.launch { settingsRepository.saveShowOverlay(value) }
+    }
+
+    fun onKeepScreenOnChange(value: Boolean) {
+        _uiState.update { it.copy(keepScreenOn = value) }
+        viewModelScope.launch { settingsRepository.saveKeepScreenOn(value) }
     }
 }

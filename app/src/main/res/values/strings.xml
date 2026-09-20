@@ -156,6 +156,12 @@
     <string name="notification_text">מתעד צריכת דלק…</string>
     <string name="notification_live">מהירות %1$d קמ״ש • צריכה %2$s ל׳/100</string>
     <string name="notification_stop">עצור</string>
+    <string name="notification_stale">אין נתונים מהדונגל</string>
+
+    <string name="permission_grant">אשר הרשאה</string>
+    <string name="permission_open_settings">פתח הגדרות אפליקציה</string>
+    <string name="permission_obd_rationale">כדי להתחבר לדונגל OBD ולקבל התראות רישום נדרשות הרשאות Bluetooth והתראות.</string>
+    <string name="permission_obd_permanently_denied">ההרשאה נדחתה לצמיתות. אפשר להפעיל אותה בהגדרות האפליקציה; עד אז רישום OBD מושבת.</string>
 
     <string name="curve_title">עקומת הרכב שלי</string>
     <string name="curve_open">עקומת הרכב שלי</string>
@@ -182,6 +188,11 @@
     <string name="settings_auto_connect">חיבור אוטומטי לדונגל</string>
     <string name="settings_show_overlay">בועה צפה (צריכה live)</string>
     <string name="settings_show_overlay_hint">בועה קטנה עם הצריכה הנוכחית שנשארת על המסך כשהאפליקציה ברקע</string>
+    <string name="settings_keep_screen_on">השאר מסך דלוק בזמן רישום</string>
+    <string name="settings_keep_screen_on_hint">מונע כיבוי מסך כשהמחוונים החיים מוצגים</string>
+    <string name="settings_battery_optimization_rationale">כדי שרישום הדלק ימשיך לפעול כשהמסך כבוי, יש לפטור את FuelRoute מאופטימיזציית סוללה.</string>
+    <string name="settings_battery_optimization_button">בטל אופטימיזציית סוללה</string>
+    <string name="settings_elm_battery_note">שימו לב: דונגל ELM327 נשאר מחובר וצורך חשמל מהמצבר — נתקו אותו כשהרכב אינו בשימוש.</string>
     <string name="settings_autosaved">ההגדרות נשמרות אוטומטית</string>
 
     <string name="overlay_close">✕</string>

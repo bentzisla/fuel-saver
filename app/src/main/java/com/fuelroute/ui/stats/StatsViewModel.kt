@@ -11,6 +11,7 @@ import com.fuelroute.data.obd.LiveObdState
 import com.fuelroute.data.obd.ObdEngine
 import com.fuelroute.data.obd.ObdStatus
 import com.fuelroute.data.obd.TripRepository
+import com.fuelroute.data.settings.AppSettings
 import com.fuelroute.data.settings.SettingsRepository
 import com.fuelroute.data.vehicle.VehicleRepository
 import com.fuelroute.domain.fuel.ConsumptionCurve
@@ -21,9 +22,11 @@ import com.fuelroute.service.ObdLoggingService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -45,6 +48,9 @@ class StatsViewModel @Inject constructor(
 ) : ViewModel() {
 
     val live: StateFlow<LiveObdState> = engine.live
+
+    val settings: StateFlow<AppSettings> = settingsRepository.settings
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppSettings())
 
     private val _bonded = MutableStateFlow<List<BluetoothDevice>>(emptyList())
     val bonded: StateFlow<List<BluetoothDevice>> = _bonded.asStateFlow()

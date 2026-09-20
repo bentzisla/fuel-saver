@@ -3,10 +3,8 @@ package com.fuelroute.ui.stats
 import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
-import android.content.pm.PackageManager
 import android.os.Build
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import android.view.WindowManager
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -25,20 +23,22 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fuelroute.R
 import com.fuelroute.data.obd.LiveObdState
 import com.fuelroute.data.obd.ObdStatus
 import com.fuelroute.domain.model.Trip
+import com.fuelroute.ui.permission.PermissionGate
+import com.fuelroute.ui.permission.findActivity
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -55,39 +55,42 @@ fun StatsScreen(
     val trips by viewModel.trips.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
-    val bluetoothLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) {
-        viewModel.refreshDevices()
-        viewModel.autoConnect()
-    }
-    val notificationsLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { }
+    val activity = remember(context) { context.findActivity() }
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
 
-    LaunchedEffect(Unit) {
+    // BLUETOOTH_CONNECT is required to list/connect bonded adapters; SCAN and
+    // POST_NOTIFICATIONS are requested together but never gate the feature.
+    val requiredPermissions = remember {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val btGranted = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.BLUETOOTH_CONNECT,
-            ) == PackageManager.PERMISSION_GRANTED
-            if (btGranted) {
-                viewModel.refreshDevices()
-                viewModel.autoConnect()
-            } else {
-                bluetoothLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT)
-            }
+            listOf(Manifest.permission.BLUETOOTH_CONNECT)
         } else {
+            emptyList()
+        }
+    }
+    val optionalPermissions = remember {
+        buildList {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) add(Manifest.permission.BLUETOOTH_SCAN)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+    val onPermissionsGranted: () -> Unit = remember(viewModel) {
+        {
             viewModel.refreshDevices()
             viewModel.autoConnect()
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val notifGranted = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS,
-            ) == PackageManager.PERMISSION_GRANTED
-            if (!notifGranted) notificationsLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    // While the live dashboard is connected, optionally hold the screen on.
+    DisposableEffect(activity, settings.keepScreenOn, state.status) {
+        val window = activity?.window
+        if (settings.keepScreenOn && state.status == ObdStatus.Connected) {
+            window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
+        onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }
 
     LazyColumn(
@@ -110,7 +113,17 @@ fun StatsScreen(
 
         when (state.status) {
             ObdStatus.Disconnected -> {
-                item { ConnectionCard(bonded = bonded, viewModel = viewModel) }
+                item {
+                    PermissionGate(
+                        permissions = requiredPermissions,
+                        optionalPermissions = optionalPermissions,
+                        rationale = stringResource(R.string.permission_obd_rationale),
+                        permanentlyDeniedMessage = stringResource(R.string.permission_obd_permanently_denied),
+                        onGranted = onPermissionsGranted,
+                    ) {
+                        ConnectionCard(bonded = bonded, viewModel = viewModel)
+                    }
+                }
             }
             ObdStatus.Connecting -> {
                 item {
@@ -150,7 +163,17 @@ fun StatsScreen(
                 if (state.lastError != null || state.lastRawReply != null) {
                     item { DebugCard(state) }
                 }
-                item { ConnectionCard(bonded = bonded, viewModel = viewModel) }
+                item {
+                    PermissionGate(
+                        permissions = requiredPermissions,
+                        optionalPermissions = optionalPermissions,
+                        rationale = stringResource(R.string.permission_obd_rationale),
+                        permanentlyDeniedMessage = stringResource(R.string.permission_obd_permanently_denied),
+                        onGranted = onPermissionsGranted,
+                    ) {
+                        ConnectionCard(bonded = bonded, viewModel = viewModel)
+                    }
+                }
             }
         }
 
@@ -248,16 +271,16 @@ private fun SpeedGauge(state: LiveObdState) {
         ) {
             Text(
                 text = stringResource(R.string.stats_speed),
-                style = MaterialTheme.typography.labelMedium,
+                style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
                 text = "${Math.round(state.speedKmh ?: 0.0)}",
-                style = MaterialTheme.typography.displayMedium,
+                style = MaterialTheme.typography.displayLarge,
             )
             Text(
                 text = stringResource(R.string.route_units_kmh),
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -308,17 +331,17 @@ private fun MetricTile(
         ) {
             Text(
                 text = label,
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
                 text = value,
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.headlineMedium,
             )
             if (unit.isNotBlank()) {
                 Text(
                     text = unit,
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }

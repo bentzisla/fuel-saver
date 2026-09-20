@@ -23,6 +23,7 @@ data class AppSettings(
     val navigationApp: String = NAV_GOOGLE,
     val autoConnect: Boolean = true,
     val showOverlay: Boolean = false,
+    val keepScreenOn: Boolean = false,
     val lastDeviceAddress: String? = null,
 )
 
@@ -33,6 +34,7 @@ interface SettingsRepository {
     suspend fun saveNavigationApp(value: String)
     suspend fun saveAutoConnect(value: Boolean)
     suspend fun saveShowOverlay(value: Boolean)
+    suspend fun saveKeepScreenOn(value: Boolean)
     suspend fun saveLastDeviceAddress(value: String?)
 }
 
@@ -50,6 +52,7 @@ class DataStoreSettingsRepository @Inject constructor(
                 navigationApp = prefs[Keys.NAVIGATION_APP] ?: NAV_GOOGLE,
                 autoConnect = prefs[Keys.AUTO_CONNECT] ?: true,
                 showOverlay = prefs[Keys.SHOW_OVERLAY] ?: false,
+                keepScreenOn = prefs[Keys.KEEP_SCREEN_ON] ?: false,
                 lastDeviceAddress = prefs[Keys.LAST_DEVICE_ADDRESS]?.takeIf { it.isNotBlank() },
             )
         }
@@ -74,6 +77,10 @@ class DataStoreSettingsRepository @Inject constructor(
         dataStore.edit { it[Keys.SHOW_OVERLAY] = value }
     }
 
+    override suspend fun saveKeepScreenOn(value: Boolean) {
+        dataStore.edit { it[Keys.KEEP_SCREEN_ON] = value }
+    }
+
     override suspend fun saveLastDeviceAddress(value: String?) {
         dataStore.edit { it[Keys.LAST_DEVICE_ADDRESS] = value.orEmpty() }
     }
@@ -84,6 +91,7 @@ class DataStoreSettingsRepository @Inject constructor(
         val NAVIGATION_APP = stringPreferencesKey("navigation_app")
         val AUTO_CONNECT = booleanPreferencesKey("auto_connect")
         val SHOW_OVERLAY = booleanPreferencesKey("show_overlay")
+        val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
         val LAST_DEVICE_ADDRESS = stringPreferencesKey("last_device_address")
     }
 }

@@ -16,22 +16,29 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fuelroute.R
 import com.fuelroute.data.settings.NAV_GOOGLE
 import com.fuelroute.data.settings.NAV_WAZE
+import com.fuelroute.service.BatteryOptimization
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -41,6 +48,12 @@ fun SettingsScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    var ignoringBattery by remember { mutableStateOf(BatteryOptimization.isIgnoring(context)) }
+
+    LifecycleResumeEffect(Unit) {
+        ignoringBattery = BatteryOptimization.isIgnoring(context)
+        onPauseOrDispose { }
+    }
 
     Column(
         modifier = modifier
@@ -137,6 +150,53 @@ fun SettingsScreen(
                 },
             )
         }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.settings_keep_screen_on),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    text = stringResource(R.string.settings_keep_screen_on_hint),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = state.keepScreenOn,
+                onCheckedChange = viewModel::onKeepScreenOnChange,
+            )
+        }
+
+        if (!ignoringBattery) {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.settings_battery_optimization_rationale),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Button(
+                        onClick = { BatteryOptimization.request(context) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(R.string.settings_battery_optimization_button))
+                    }
+                }
+            }
+        }
+
+        Text(
+            text = stringResource(R.string.settings_elm_battery_note),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
 
         Text(
             text = stringResource(R.string.settings_autosaved),
