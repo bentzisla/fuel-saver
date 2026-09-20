@@ -26,8 +26,8 @@ data class FavoriteDestination(
  * Distinct from [PlacesHistoryRepository]: favorites are named, ordered and never evicted, and they
  * survive an app restart because they live in the Room `favorite_destination` table.
  *
- * TODO(1.5): include the `favorite_destination` table in BackupRepository export/import and dedupe
- * on import by `placeId`, then normalized label, once the backup feature lands.
+ * Included in [com.fuelroute.data.backup.BackupRepository] export/import (deduped on import by
+ * `placeId`, then normalized label via [normalizeLabel]/[matches]).
  */
 @Singleton
 class FavoritesRepository @Inject constructor(

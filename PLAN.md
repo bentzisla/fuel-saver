@@ -315,16 +315,15 @@ fuel/
 ```
 
 **זרימת נתונים - למידה (רצה תמיד כשמחוברים):**
-`ObdLoggingService` → `ObdTransport.readLine()` → `ElmProtocol` (Kotlin טהור) → `Flow<ObdSample>`
+`ObdLoggingService` → `ObdTransport.sendCommand()` → `ElmProtocol`/`PidParser` (Kotlin טהור)
 → `FuelRateCalculator` → `TripDetector` + `SpeedBinAggregator` → Room (`obd_sample`, `speed_bin_stats`, `trip`)
-→ `StateFlow<LiveState>` → `LiveDashboardScreen` / התראה.
+→ `ObdEngine.live: StateFlow<LiveObdState>` → `StatsScreen` (לוח חי) / התראה / `car/DashboardScreen`.
 
 **זרימת נתונים - מסלול:**
-`HomeScreen` → `HomeViewModel.compute()` → `ComputeCheapestRouteUseCase`
-→ `RoutesRepository.getAlternatives()` (Retrofit → DTO → `Route` domain)
-→ `GetEffectiveCurveUseCase` (`CurveBlender`: נלמדת + ידנית/ברירת מחדל)
-→ `FuelModel.cost(route, curve, price)` לכל מסלול → `RouteRanker.rank()`
-→ `StateFlow<ResultsUiState>` → `ResultsScreen` (מפה עם 3 פוליליינים בצבעים, הזול מודגש, תווית "מבוסס על X ק"מ של נתוני רכב אמיתיים").
+`RouteScreen` → `RouteViewModel.compute()` → `RoutesRepository.getAlternatives()`
+(`CachingRoutesRepository` → Retrofit → DTO → `RoutesMapper` → `Route` domain)
+→ `CurveBlender` (נלמדת + ידנית/ברירת מחדל) → `FuelModel.cost(route, price)` לכל מסלול → `RouteRanker.rank()`
+→ `RouteUiState` → `RouteScreen` (מפה עם הפוליליינים בצבעים, הנבחר מודגש, כרטיסי עלות/זמן/דלק/אגרה).
 
 ---
 

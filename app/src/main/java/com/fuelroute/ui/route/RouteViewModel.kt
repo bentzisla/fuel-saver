@@ -74,14 +74,6 @@ data class RouteUiState(
     val departLinkFeedback: Int? = null,
 )
 
-object RouteCountMessages {
-    fun message(count: Int): Int? = when {
-        count <= 0 -> R.string.route_no_routes
-        count == 1 -> R.string.route_single
-        else -> null
-    }
-}
-
 @OptIn(FlowPreview::class)
 @HiltViewModel
 class RouteViewModel @Inject constructor(
