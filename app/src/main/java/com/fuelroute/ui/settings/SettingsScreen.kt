@@ -9,6 +9,7 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -47,6 +48,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fuelroute.BuildConfig
 import com.fuelroute.R
+import com.fuelroute.data.price.FuelGrades
 import com.fuelroute.data.settings.NAV_GOOGLE
 import com.fuelroute.data.settings.NAV_WAZE
 import com.fuelroute.service.BatteryOptimization
@@ -104,7 +106,10 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Text(
-                    text = stringResource(R.string.settings_price_grade, state.priceGrade),
+                    text = stringResource(
+                        R.string.settings_price_grade,
+                        stringResource(gradeLabelRes(state.priceGrade)),
+                    ),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -553,4 +558,11 @@ private fun BackupSection(viewModel: SettingsViewModel) {
 private fun defaultBackupFileName(): String {
     val stamp = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
     return "fuelroute-backup-$stamp.json"
+}
+
+@StringRes
+private fun gradeLabelRes(grade: String): Int = when (grade) {
+    FuelGrades.GASOLINE_98 -> R.string.vehicle_grade_98
+    FuelGrades.DIESEL -> R.string.vehicle_grade_diesel
+    else -> R.string.vehicle_grade_95
 }

@@ -70,6 +70,16 @@
     <string name="route_tradeoff_summary">חיסכון של %1$s ₪ בתמורה ל־%2$s דק׳ נוספות</string>
     <string name="route_delta_cost">‎+%1$s ₪ מהזול ביותר</string>
     <string name="route_delta_time">‎+%1$s דק׳ מהמהיר ביותר</string>
+    <string name="route_eta_label">הגעה</string>
+    <string name="route_total_cost_label">סה״כ</string>
+    <string name="route_toll_free">ללא אגרה</string>
+    <string name="route_reason_line">למה המסלול הזה? %1$s</string>
+    <string name="route_reason_both">הזול והמהיר ביותר — אין פשרה</string>
+    <string name="route_reason_saves">חוסך ₪%1$s לעומת המהיר, +%2$s דק׳</string>
+    <string name="route_reason_fastest">המהיר ביותר — +₪%1$s מהזול, חוסך %2$s דק׳</string>
+    <string name="route_reason_tradeoff">+₪%1$s מהזול, +%2$s דק׳ מהמהיר</string>
+    <string name="route_graph_title_for">מהירות לפי מרחק — %1$s</string>
+    <string name="route_graph_tap_expand">הקש להרחבה</string>
     <string name="route_error_no_network">אין חיבור לאינטרנט</string>
     <string name="route_error_quota">חריגה ממכסת השימוש בשירות המסלולים</string>
     <string name="route_error_forbidden">המפתח אינו מורשה לשירות המסלולים</string>
@@ -111,6 +121,7 @@
     <string name="vehicle_grade_95">95</string>
     <string name="vehicle_grade_98">98</string>
     <string name="vehicle_grade_diesel">דיזל</string>
+    <string name="vehicle_grade_diesel_hint">למנוע דיזל אין דרוג אוקטן</string>
     <string name="vehicle_rated_combined_label">צריכה משולבת (ליטר/100 ק"מ)</string>
     <string name="vehicle_displacement_label">נפח מנוע (ליטר)</string>
     <string name="vehicle_tank_capacity_label">קיבולת מיכל (ליטר)</string>
@@ -263,6 +274,19 @@
     <string name="curve_clear_manual_confirm_message">פעולה זו תמחק את העקומה הידנית השמורה. לא ניתן לשחזר אותה.</string>
     <string name="curve_delete_confirm">מחק</string>
     <string name="curve_delete_cancel">ביטול</string>
+    <string name="curve_quality_label">איכות הנתונים: %1$s</string>
+    <string name="curve_quality_none">אין נתונים</string>
+    <string name="curve_quality_low">נמוכה</string>
+    <string name="curve_quality_medium">בינונית</string>
+    <string name="curve_quality_high">גבוהה</string>
+    <string name="curve_quality_hint">איכות הנתונים נקבעת לפי סך הק״מ הנלמדים: פחות מ־20 ק״מ = נמוכה, עד 100 ק״מ = בינונית, ומעל = גבוהה.</string>
+    <string name="curve_samples">מספר דגימות: %1$s</string>
+    <string name="curve_calibration">מקדם כיול צריכת דלק: %1$s</string>
+    <string name="curve_blend_split">כ־%1$s%% מהעקומה מבוססת על למידה, השאר על %2$s</string>
+    <string name="curve_confidence_hint">גודל הנקודה והתווית שלידה מציינים כמה ק״מ נמדדו באותה מהירות.</string>
+    <string name="curve_km_suffix">ק״מ</string>
+    <string name="curve_basis_title">מה הבסיס?</string>
+    <string name="curve_basis_body" formatted="false">העקומה משלבת נתוני מדידה אמיתיים מהרכב (למידה), עקומה ידנית אם הוגדרה, ועקומת ברירת מחדל. בכל מהירות המשקל של הלמידה הוא w = ק״מ/(ק״מ+20): 20 ק״מ מדודים נותנים 50% השפעה, ו־80 ק״מ נותנים 80%.</string>
 
     <string name="settings_title">הגדרות</string>
     <string name="settings_fuel_price_label">מחיר דלק (₪ לליטר)</string>

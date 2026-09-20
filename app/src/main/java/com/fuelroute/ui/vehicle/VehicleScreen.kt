@@ -237,8 +237,15 @@ private fun VehicleForm(state: VehicleUiState, viewModel: VehicleViewModel) {
         text = stringResource(R.string.vehicle_grade_label),
         style = MaterialTheme.typography.titleSmall,
     )
+    if (state.fuelType == FuelType.DIESEL) {
+        Text(
+            text = stringResource(R.string.vehicle_grade_diesel_hint),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FuelGrades.ALL.forEach { grade ->
+        FuelGrades.forFuelType(state.fuelType).forEach { grade ->
             FilterChip(
                 selected = state.grade == grade,
                 onClick = { viewModel.onGradeSelect(grade) },

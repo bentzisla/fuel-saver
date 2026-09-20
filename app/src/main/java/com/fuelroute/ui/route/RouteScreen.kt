@@ -8,6 +8,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -24,10 +26,12 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Star as StarOutline
@@ -57,9 +61,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import android.widget.Toast
@@ -85,6 +92,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import kotlin.math.ceil
 
 @Composable
 fun RouteScreen(
@@ -103,6 +111,8 @@ fun RouteScreen(
     val visibleRecents = state.history.filterNot { place ->
         state.favorites.any { favorite -> FavoritesRepository.matches(favorite, place.placeId, place.label) }
     }
+    val departureMs = state.departureTimeMs ?: System.currentTimeMillis()
+    val selectedCost = state.results.getOrNull(state.selectedIndex)
 
     val context = LocalContext.current
     val departLinkFeedback = state.departLinkFeedback
@@ -132,7 +142,7 @@ fun RouteScreen(
                 selectedIndex = state.selectedIndex,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(240.dp),
+                    .height(320.dp),
             )
         }
 
@@ -165,6 +175,11 @@ fun RouteScreen(
                             onSelect = viewModel::onOriginSelect,
                             suggestions = state.originSuggestions,
                             label = stringResource(R.string.route_origin_label),
+                            trailingIcon = if (state.origin.isNotBlank()) {
+                                { ClearFieldButton(onClick = viewModel::clearOrigin) }
+                            } else {
+                                null
+                            },
                         )
                         TextButton(onClick = onCurrentLocationClick) {
                             Text(stringResource(R.string.route_use_current_location))
@@ -189,21 +204,24 @@ fun RouteScreen(
                     label = stringResource(R.string.route_destination_label),
                     trailingIcon = if (state.destination.isNotBlank()) {
                         {
-                            IconButton(onClick = viewModel::onToggleDestinationFavorite) {
-                                Icon(
-                                    imageVector = if (destinationIsFavorite) {
-                                        Icons.Filled.Star
-                                    } else {
-                                        Icons.Outlined.StarOutline
-                                    },
-                                    contentDescription = stringResource(
-                                        if (destinationIsFavorite) {
-                                            R.string.route_favorite_remove
+                            Row {
+                                IconButton(onClick = viewModel::onToggleDestinationFavorite) {
+                                    Icon(
+                                        imageVector = if (destinationIsFavorite) {
+                                            Icons.Filled.Star
                                         } else {
-                                            R.string.route_favorite_add
+                                            Icons.Outlined.StarOutline
                                         },
-                                    ),
-                                )
+                                        contentDescription = stringResource(
+                                            if (destinationIsFavorite) {
+                                                R.string.route_favorite_remove
+                                            } else {
+                                                R.string.route_favorite_add
+                                            },
+                                        ),
+                                    )
+                                }
+                                ClearFieldButton(onClick = viewModel::clearDestination)
                             }
                         }
                     } else {
@@ -309,6 +327,41 @@ fun RouteScreen(
                 }
             }
 
+            selectedCost?.let { cost ->
+                item {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { detailIndex = state.selectedIndex },
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = stringResource(
+                                        R.string.route_graph_title_for,
+                                        "${state.selectedIndex + 1}. ${stringResource(cost.route.routeLabelRes())}",
+                                    ),
+                                    style = MaterialTheme.typography.titleSmall,
+                                )
+                                Text(
+                                    text = stringResource(R.string.route_graph_tap_expand),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            RouteSpeedGraph(cost = cost, modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+                }
+            }
+
             itemsIndexed(state.results) { index, cost ->
                 val cheapest = badges.cheapestIndex?.let { state.results[it] }
                 val fastest = badges.fastestIndex?.let { state.results[it] }
@@ -317,8 +370,9 @@ fun RouteScreen(
                     index = index,
                     isCheapest = badges.cheapestIndex == index,
                     isFastest = badges.fastestIndex == index,
-                    costPremium = cheapest?.let { (cost.totalCost - it.totalCost).coerceAtLeast(0.0) } ?: 0.0,
-                    timePenaltyMinutes = fastest?.let { (cost.durationMinutes - it.durationMinutes).coerceAtLeast(0.0) } ?: 0.0,
+                    cheapest = cheapest,
+                    fastest = fastest,
+                    departureMs = departureMs,
                     isSelected = index == state.selectedIndex,
                     onClick = {
                         viewModel.selectResult(index)
@@ -509,6 +563,9 @@ private fun TrafficResolution.labelRes(): Int = when (this) {
 private fun formatDateTime(epochMs: Long): String =
     SimpleDateFormat("dd/MM HH:mm", Locale.getDefault()).format(Date(epochMs))
 
+private fun formatTime(epochMs: Long): String =
+    SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(epochMs))
+
 @Composable
 private fun CurrentLocationCard(
     address: String?,
@@ -672,6 +729,16 @@ private fun FavoriteEditDialog(
 }
 
 @Composable
+private fun ClearFieldButton(onClick: () -> Unit) {
+    IconButton(onClick = onClick) {
+        Icon(
+            imageVector = Icons.Filled.Close,
+            contentDescription = stringResource(R.string.route_clear),
+        )
+    }
+}
+
+@Composable
 private fun PlaceField(
     value: String,
     onValueChange: (String) -> Unit,
@@ -765,11 +832,14 @@ private fun RouteCard(
     index: Int,
     isCheapest: Boolean,
     isFastest: Boolean,
-    costPremium: Double,
-    timePenaltyMinutes: Double,
+    cheapest: RouteCost?,
+    fastest: RouteCost?,
+    departureMs: Long,
     isSelected: Boolean,
     onClick: () -> Unit,
 ) {
+    val reason = routeReason(cost, isCheapest, isFastest, cheapest, fastest)
+    val etaMillis = departureMs + (cost.durationMinutes * 60_000.0).toLong()
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -831,37 +901,22 @@ private fun RouteCard(
                 )
             }
 
-            if (costPremium > 0.005) {
+            if (costPremium(cost, cheapest) > 0.005) {
                 Text(
-                    text = stringResource(R.string.route_delta_cost, format(costPremium, 2)),
+                    text = stringResource(R.string.route_delta_cost, format(costPremium(cost, cheapest), 2)),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            if (timePenaltyMinutes > 0.5) {
+            if (timePenalty(cost, fastest) > 0.5) {
                 Text(
-                    text = stringResource(R.string.route_delta_time, format(timePenaltyMinutes, 0)),
+                    text = stringResource(R.string.route_delta_time, format(timePenalty(cost, fastest), 0)),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 
             HorizontalDivider()
-
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                InfoColumn(
-                    label = stringResource(R.string.route_fuel_cost_label),
-                    value = "₪ ${format(cost.fuelCost, 1)}",
-                )
-                InfoColumn(
-                    label = stringResource(R.string.route_fuel_label),
-                    value = "${format(cost.fuelLiters, 1)} L",
-                )
-                InfoColumn(
-                    label = stringResource(R.string.route_toll_label),
-                    value = if (cost.route.tollUnknown) "—" else "₪ ${format(cost.tollCost, 1)}",
-                )
-            }
 
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 InfoColumn(
@@ -873,10 +928,35 @@ private fun RouteCard(
                     value = "${format(cost.distanceKm, 1)} ${stringResource(R.string.route_units_km)}",
                 )
                 InfoColumn(
-                    label = stringResource(R.string.route_avg_speed_label),
-                    value = "${format(cost.avgSpeedKmh, 0)} ${stringResource(R.string.route_units_kmh)}",
+                    label = stringResource(R.string.route_fuel_label),
+                    value = "${format(cost.fuelLiters, 1)} L",
                 )
             }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                InfoColumn(
+                    label = stringResource(R.string.route_total_cost_label),
+                    value = "₪ ${format(cost.totalCost, 2)}",
+                )
+                InfoColumn(
+                    label = stringResource(R.string.route_toll_label),
+                    value = when {
+                        cost.route.tollUnknown -> "—"
+                        cost.tollCost <= 0.005 -> stringResource(R.string.route_toll_free)
+                        else -> "₪ ${format(cost.tollCost, 1)}"
+                    },
+                )
+                InfoColumn(
+                    label = stringResource(R.string.route_eta_label),
+                    value = formatTime(etaMillis),
+                )
+            }
+
+            Text(
+                text = stringResource(R.string.route_reason_line, reason),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
 
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -900,6 +980,38 @@ private fun RouteCard(
             }
         }
     }
+}
+
+private fun costPremium(cost: RouteCost, cheapest: RouteCost?): Double =
+    cheapest?.let { (cost.totalCost - it.totalCost).coerceAtLeast(0.0) } ?: 0.0
+
+private fun timePenalty(cost: RouteCost, fastest: RouteCost?): Double =
+    fastest?.let { (cost.durationMinutes - it.durationMinutes).coerceAtLeast(0.0) } ?: 0.0
+
+@Composable
+private fun routeReason(
+    cost: RouteCost,
+    isCheapest: Boolean,
+    isFastest: Boolean,
+    cheapest: RouteCost?,
+    fastest: RouteCost?,
+): String {
+    if (isCheapest && isFastest) return stringResource(R.string.route_reason_both)
+    if (isCheapest) {
+        val saved = fastest?.let { (it.totalCost - cost.totalCost).coerceAtLeast(0.0) } ?: 0.0
+        val extra = timePenalty(cost, fastest)
+        return stringResource(R.string.route_reason_saves, format(saved, 2), format(extra, 0))
+    }
+    if (isFastest) {
+        val premium = costPremium(cost, cheapest)
+        val savedTime = cheapest?.let { (it.durationMinutes - cost.durationMinutes).coerceAtLeast(0.0) } ?: 0.0
+        return stringResource(R.string.route_reason_fastest, format(premium, 2), format(savedTime, 0))
+    }
+    return stringResource(
+        R.string.route_reason_tradeoff,
+        format(costPremium(cost, cheapest), 2),
+        format(timePenalty(cost, fastest), 0),
+    )
 }
 
 @Composable
@@ -1023,27 +1135,9 @@ private fun RouteDetailDialog(
                 item {
                     RouteSpeedGraph(
                         cost = cost,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(140.dp),
-                    )
-                }
-                item {
-                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text(
-                            text = stringResource(R.string.route_detail_graph_distance_axis),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            text = stringResource(R.string.route_detail_graph_speed_axis),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                        chartHeight = 180.dp,
+                    )
                 }
 
                 item {
@@ -1113,7 +1207,7 @@ private fun SegmentRow(index: Int, segment: SegmentCost) {
 
 private data class SpeedProfilePoint(val distanceKm: Double, val speedKmh: Double)
 
-/** Cumulative-distance/speed profile for the compact detail graph. */
+/** Cumulative-distance/speed profile for the route graph. */
 private fun speedProfile(cost: RouteCost): List<SpeedProfilePoint> {
     if (cost.segments.isEmpty()) {
         return listOf(SpeedProfilePoint(cost.distanceKm.coerceAtLeast(0.0), cost.avgSpeedKmh))
@@ -1125,52 +1219,192 @@ private fun speedProfile(cost: RouteCost): List<SpeedProfilePoint> {
     }
 }
 
+private val GraphYAxisWidth = 44.dp
+private val GraphChartHeight = 200.dp
+
+/** Rounds the graph's top speed to a friendly tick so the Y-axis labels stay readable. */
+private fun niceSpeedMax(raw: Double): Double {
+    val value = raw.coerceAtLeast(10.0)
+    val step = when {
+        value <= 30.0 -> 10.0
+        value <= 60.0 -> 20.0
+        value <= 120.0 -> 30.0
+        else -> 50.0
+    }
+    return ceil(value / step) * step
+}
+
+/**
+ * Readable speed-vs-distance graph: labelled km/h (Y) and km (X) axes, a congestion
+ * colour band under a smoothed speed line, and a traffic legend.
+ */
 @Composable
-private fun RouteSpeedGraph(cost: RouteCost, modifier: Modifier = Modifier) {
-    val lineColor = MaterialTheme.colorScheme.primary
+private fun RouteSpeedGraph(
+    cost: RouteCost,
+    modifier: Modifier = Modifier,
+    chartHeight: Dp = GraphChartHeight,
+) {
+    val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
     val gridColor = MaterialTheme.colorScheme.outlineVariant
+    val lineColor = MaterialTheme.colorScheme.primary
     val points = remember(cost) { speedProfile(cost) }
-    val segments = cost.segments
-    Canvas(modifier = modifier) {
-        if (points.isEmpty()) return@Canvas
-        val maxDistance = points.maxOf { it.distanceKm }.coerceAtLeast(0.1)
-        val maxSpeed = (points.maxOf { it.speedKmh } * 1.15).coerceAtLeast(10.0)
+    val maxDistance = (points.maxOfOrNull { it.distanceKm } ?: 0.0).coerceAtLeast(0.1)
+    val maxSpeed = niceSpeedMax(points.maxOfOrNull { it.speedKmh } ?: 0.0)
 
-        fun x(distanceKm: Double): Float = (distanceKm / maxDistance * size.width).toFloat()
-        fun y(speedKmh: Double): Float =
-            (size.height - speedKmh / maxSpeed * size.height).toFloat()
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row {
+            Column(
+                modifier = Modifier
+                    .width(GraphYAxisWidth)
+                    .height(chartHeight)
+                    .padding(end = 4.dp),
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(format(maxSpeed, 0), style = MaterialTheme.typography.labelSmall, color = labelColor)
+                Text(format(maxSpeed / 2.0, 0), style = MaterialTheme.typography.labelSmall, color = labelColor)
+                Text("0", style = MaterialTheme.typography.labelSmall, color = labelColor)
+            }
+            Canvas(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(chartHeight),
+            ) {
+                if (points.isEmpty()) return@Canvas
+                fun x(distanceKm: Double): Float = (distanceKm / maxDistance * size.width).toFloat()
+                fun y(speedKmh: Double): Float =
+                    (size.height - (speedKmh / maxSpeed).coerceIn(0.0, 1.0) * size.height).toFloat()
 
-        listOf(0.25f, 0.5f, 0.75f).forEach { fraction ->
-            drawLine(
-                color = gridColor,
-                start = Offset(0f, size.height * fraction),
-                end = Offset(size.width, size.height * fraction),
-                strokeWidth = 1f,
-            )
+                // Vertical grid at 0/25/50/75/100 %.
+                listOf(0.0, 0.25, 0.5, 0.75, 1.0).forEach { fraction ->
+                    drawLine(
+                        color = gridColor.copy(alpha = 0.6f),
+                        start = Offset(size.width * fraction.toFloat(), 0f),
+                        end = Offset(size.width * fraction.toFloat(), size.height),
+                        strokeWidth = 1f,
+                    )
+                }
+                // Horizontal grid + baseline.
+                listOf(0.0, 0.5, 1.0).forEach { fraction ->
+                    drawLine(
+                        color = gridColor,
+                        start = Offset(0f, size.height * fraction.toFloat()),
+                        end = Offset(size.width, size.height * fraction.toFloat()),
+                        strokeWidth = if (fraction == 1.0) 2f else 1f,
+                    )
+                }
+
+                // Congestion colour band under the line, one quad per segment.
+                for (index in 0 until points.size - 1) {
+                    val start = points[index]
+                    val end = points[index + 1]
+                    val level = cost.segments.getOrNull(index + 1)?.congestion
+                        ?: cost.segments.getOrNull(index)?.congestion
+                        ?: CongestionLevel.NORMAL
+                    val band = Path().apply {
+                        moveTo(x(start.distanceKm), size.height)
+                        lineTo(x(start.distanceKm), y(start.speedKmh))
+                        lineTo(x(end.distanceKm), y(end.speedKmh))
+                        lineTo(x(end.distanceKm), size.height)
+                        close()
+                    }
+                    drawPath(path = band, color = level.graphColor().copy(alpha = 0.25f))
+                }
+
+                // Smoothed speed line.
+                if (points.size == 1) {
+                    drawCircle(
+                        color = lineColor,
+                        radius = 4.dp.toPx(),
+                        center = Offset(x(points[0].distanceKm), y(points[0].speedKmh)),
+                    )
+                } else {
+                    val line = Path().apply {
+                        moveTo(x(points[0].distanceKm), y(points[0].speedKmh))
+                        for (index in 1 until points.size - 1) {
+                            val point = points[index]
+                            val next = points[index + 1]
+                            val midX = (x(point.distanceKm) + x(next.distanceKm)) / 2f
+                            val midY = (y(point.speedKmh) + y(next.speedKmh)) / 2f
+                            quadraticTo(x(point.distanceKm), y(point.speedKmh), midX, midY)
+                        }
+                        val last = points.last()
+                        lineTo(x(last.distanceKm), y(last.speedKmh))
+                    }
+                    drawPath(
+                        path = line,
+                        color = lineColor,
+                        style = Stroke(width = 5f, cap = StrokeCap.Round, join = StrokeJoin.Round),
+                    )
+                }
+
+                // Congestion dots on top of the line.
+                points.forEachIndexed { index, point ->
+                    val level = cost.segments.getOrNull(index)?.congestion ?: return@forEachIndexed
+                    drawCircle(
+                        color = level.graphColor(),
+                        radius = 4.dp.toPx(),
+                        center = Offset(x(point.distanceKm), y(point.speedKmh)),
+                    )
+                }
+            }
         }
-        drawLine(
-            color = gridColor,
-            start = Offset(0f, size.height),
-            end = Offset(size.width, size.height),
-            strokeWidth = 2f,
+
+        // X-axis labels under the plot (0 .. distance in km).
+        Row(modifier = Modifier.fillMaxWidth()) {
+            Spacer(modifier = Modifier.width(GraphYAxisWidth))
+            Row(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                listOf(0.0, 0.25, 0.5, 0.75, 1.0).forEach { fraction ->
+                    Text(
+                        text = format(maxDistance * fraction, 0),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = labelColor,
+                    )
+                }
+            }
+        }
+        Text(
+            text = stringResource(R.string.route_detail_graph_distance_axis),
+            style = MaterialTheme.typography.labelSmall,
+            color = labelColor,
+            modifier = Modifier.align(Alignment.End),
         )
 
-        if (points.size >= 2) {
-            val path = Path()
-            points.forEachIndexed { index, point ->
-                val px = x(point.distanceKm)
-                val py = y(point.speedKmh)
-                if (index == 0) path.moveTo(px, py) else path.lineTo(px, py)
-            }
-            drawPath(path = path, color = lineColor, style = Stroke(width = 4f))
-        }
+        GraphLegend()
+    }
+}
 
-        points.forEachIndexed { index, point ->
-            drawCircle(
-                color = segments.getOrNull(index)?.congestion?.graphColor() ?: lineColor,
-                radius = 5.dp.toPx(),
-                center = Offset(x(point.distanceKm), y(point.speedKmh)),
-            )
+@Composable
+private fun GraphLegend() {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = stringResource(R.string.route_detail_graph_speed_axis),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        CongestionLevel.values().forEach { level ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .background(level.graphColor(), CircleShape),
+                )
+                Text(
+                    text = stringResource(level.labelRes()),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }

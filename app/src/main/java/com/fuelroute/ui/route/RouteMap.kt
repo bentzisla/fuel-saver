@@ -35,9 +35,10 @@ import com.google.maps.android.compose.rememberUpdatedMarkerState
 /**
  * Draws every route and highlights the user's [selectedIndex] one.
  *
- * The selected polyline is drawn last (on top) with a white casing so it stands out from the
- * muted alternatives, and the camera re-fits to the selected route whenever the selection
- * changes. Each polyline gets a numbered badge so it can be matched to its result card.
+ * The selected polyline is drawn last (on top) with a white casing and a thicker stroke, while
+ * every alternative keeps its own distinct colour so all routes stay legible at a glance; the
+ * camera re-fits to the selected route whenever the selection changes. Each polyline gets a
+ * numbered badge (matching its colour) so it can be matched to its result card.
  */
 @OptIn(MapsComposeExperimentalApi::class)
 @Composable
@@ -65,20 +66,20 @@ fun RouteMap(
         cameraPositionState = cameraPositionState,
         onMapLoaded = { mapReady = true },
     ) {
-        // Muted alternatives first, so the selected route is painted on top of them.
+        // Alternatives first with distinct colours, selected route painted on top.
         polylines.forEachIndexed { index, points ->
             if (points != null && index != selectedIndex) {
                 Polyline(
                     points = points,
-                    color = OtherColor,
-                    width = 5f,
+                    color = routeColor(index),
+                    width = 6f,
                 )
             }
         }
 
         polylines.getOrNull(selectedIndex)?.let { points ->
-            Polyline(points = points, color = SelectedCasing, width = 13f)
-            Polyline(points = points, color = SelectedColor, width = 9f)
+            Polyline(points = points, color = SelectedCasing, width = 14f)
+            Polyline(points = points, color = routeColor(selectedIndex), width = 10f)
         }
 
         polylines.forEachIndexed { index, points ->
@@ -88,7 +89,11 @@ fun RouteMap(
                     state = rememberUpdatedMarkerState(labelPoint),
                     anchor = Offset(0.5f, 0.5f),
                 ) {
-                    RouteNumberBadge(number = index + 1, selected = index == selectedIndex)
+                    RouteNumberBadge(
+                        number = index + 1,
+                        selected = index == selectedIndex,
+                        color = routeColor(index),
+                    )
                 }
             }
         }
@@ -106,11 +111,11 @@ fun RouteMap(
 }
 
 @Composable
-private fun RouteNumberBadge(number: Int, selected: Boolean) {
+private fun RouteNumberBadge(number: Int, selected: Boolean, color: Color) {
     Box(
         modifier = Modifier
-            .size(22.dp)
-            .background(if (selected) SelectedColor else OtherColor, CircleShape)
+            .size(if (selected) 24.dp else 22.dp)
+            .background(color, CircleShape)
             .border(width = if (selected) 2.dp else 1.dp, color = Color.White, shape = CircleShape)
             .padding(2.dp),
         contentAlignment = Alignment.Center,
@@ -124,6 +129,16 @@ private fun RouteNumberBadge(number: Int, selected: Boolean) {
     }
 }
 
-private val SelectedColor = Color(0xFF1B6B4A)
 private val SelectedCasing = Color(0xFFFFFFFF)
-private val OtherColor = Color(0xFF607D8B)
+
+private val RouteColors = listOf(
+    Color(0xFF1B6B4A), // green
+    Color(0xFF1565C0), // blue
+    Color(0xFFEF6C00), // orange
+    Color(0xFF6A1B9A), // purple
+    Color(0xFF00838F), // teal
+    Color(0xFFAD1457), // pink
+)
+
+private fun routeColor(index: Int): Color =
+    RouteColors[((index % RouteColors.size) + RouteColors.size) % RouteColors.size]
