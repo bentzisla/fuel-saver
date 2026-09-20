@@ -93,7 +93,7 @@ Phases 0 and 1 (~2.5 days) should not wait.
       - `refuel`: add `pricePerLiter REAL`, `grade TEXT NOT NULL DEFAULT '95'`.
       Done when: install a v3 build, log a simulator drive, install v4 -> data intact; `MigrationTestHelper` test passes on device.
       -> v4 schema + `MIGRATION_3_4` + `app/schemas/` committed; build + unit tests green. Device migration test (androidTest) is 7.2.
-- [ ] **1.2 `vehicle` table + active vehicle.**
+- [x] **1.2 `vehicle` table + active vehicle.**
       `data/vehicle/VehicleRepository` backed by Room (`VehicleDao`), `activeVehicleId` in DataStore.
       One-time bootstrap on startup (`AppStartup`/Hilt initializer): if `vehicle` is empty, insert a row from the old
       DataStore profile (minting a UUID if `vehicle_id` was blank), set it active, and repoint orphaned rows:
@@ -101,7 +101,7 @@ Phases 0 and 1 (~2.5 days) should not wait.
       Delete the three `"default"` constants (`ObdEngine.kt`, `RouteViewModel.kt`, `RefuelViewModel.kt`); every consumer
       reads `activeVehicleId`. `VehicleScreen` gets a vehicle list (add / select / delete with confirmation).
       Done when: fresh install -> demo drive -> save profile -> curve still shows the km; two vehicles keep separate curves.
-- [ ] **1.3 Checkpointed persistence.**
+- [x] **1.3 Checkpointed persistence.**
       `ObdEngine.runLoop`: upsert bins every 30 s, not only in `finally`. Insert the `trip` row with `isOpen = 1` on
       `TripTransition.Started`, update totals at each checkpoint, close on `Ended`. On engine start, close orphaned open trips.
       Fold the duplicated `tripDao.insert` blocks into a `TripRecorder`.
@@ -122,34 +122,34 @@ Phases 0 and 1 (~2.5 days) should not wait.
 
 ## Phase 2 - Learning correctness (2.5 days) - *parallel with Phase 3*
 
-- [ ] **2.1 Sample gaps are dropped, not clamped.** Pass raw `dt` from `ObdEngine`; `SpeedBinAggregator` rejects `dt > 2 s`
+- [x] **2.1 Sample gaps are dropped, not clamped.** Pass raw `dt` from `ObdEngine`; `SpeedBinAggregator` rejects `dt > 2 s`
       for bins **and** trip totals. Remove `.coerceIn(0.0, 2.0)`.
       Test: a 40 s gap adds 0 km and 0 L.
-- [ ] **2.2 Idle vs creeping.** Bin 0 = `speed < 1` only; moving bins `floor(v/5) + 1`, center `(i-1)*5 + 2.5`.
+- [x] **2.2 Idle vs creeping.** Bin 0 = `speed < 1` only; moving bins `floor(v/5) + 1`, center `(i-1)*5 + 2.5`.
       Update `speedToBinIndex`, `binIndexToSpeedKmh`, `LearnedCurve` (skip bin 0 only), `CurveScreen` labels.
       Test: a 4 km/h sample lands in bin 1; existing tests updated.
-- [ ] **2.5 Supported-PID negotiation.** After init send `0100`/`0120`/`0140`/`0160`, build the set, poll only supported PIDs.
+- [x] **2.5 Supported-PID negotiation.** After init send `0100`/`0120`/`0140`/`0160`, build the set, poll only supported PIDs.
       Expose `supportedPids` and measured `sampleRateHz` in `LiveObdState`; show both on Stats.
       Test: simulator without `5E` -> no `015E` sent; Hz displayed.
-- [ ] **2.6 ELM init hardening.** Validate `ATZ` reply contains `ELM327`; add `ATAT1`, `ATST32`, `ATDPN`; init failure ->
+- [x] **2.6 ELM init hardening.** Validate `ATZ` reply contains `ELM327`; add `ATAT1`, `ATST32`, `ATDPN`; init failure ->
       `ObdStatus.Error(reason)`. `ATRV` every 10 s -> `batteryVoltage`.
       Test: a fake answering `?` to `ATZ` yields Error, not Connected.
-- [ ] **2.7 Reconnect / backoff.** `ObdTransport.sendCommand` returns `Result<String>` instead of `""`. `ObdEngine`: >= 5
+- [x] **2.7 Reconnect / backoff.** `ObdTransport.sendCommand` returns `Result<String>` instead of `""`. `ObdEngine`: >= 5
       consecutive failures -> disconnect -> backoff 2, 4, 8 ... 60 s for up to 3 min (trip-end window) -> give up.
       `BluetoothClassicTransport.connect`: secure -> `createInsecureRfcommSocketToServiceRecord` -> reflection
       `createRfcommSocket(1)`.
       Test: transport that dies after N calls -> status cycles Connected -> Connecting -> Connected, one trip recorded.
-- [ ] **2.8 Ignition-off detection.** `rpm == null` / `NO DATA` for 60 s, or voltage < 11.5 V -> force trip end, disconnect,
+- [x] **2.8 Ignition-off detection.** `rpm == null` / `NO DATA` for 60 s, or voltage < 11.5 V -> force trip end, disconnect,
       stop the service (do not spin forever on a powered dongle).
       Test: simulator "engine off" script ends the session.
-- [ ] **2.9 Cold-start learning.** `domain/learning/ColdStartLearner.kt`: for samples with coolant < 60 C accumulate
+- [x] **2.9 Cold-start learning.** `domain/learning/ColdStartLearner.kt`: for samples with coolant < 60 C accumulate
       `fuel - warmCurve(v) * d` into `learning_extras.coldStartExtraL` (running mean per trip start). Default 0.15 L until learned.
       Test: synthetic cold phase -> expected extra liters.
-- [ ] **2.10 VIN (mode `09 02`) with multi-frame assembly** (CAN `0:`/`1:` line-prefixed and legacy 3-line formats).
+- [x] **2.10 VIN (mode `09 02`) with multi-frame assembly** (CAN `0:`/`1:` line-prefixed and legacy 3-line formats).
       Read once after init; store `vehicle.vin`. If the VIN matches a known vehicle, switch `activeVehicleId` automatically;
       if unknown, prompt "רכב חדש? / קשר לרכב קיים".
       Test: two recorded VIN responses parse to the correct 17 chars.
-- [ ] **2.11 `RefuelCalibrator` in domain.** Pure, tested. Use only OBD fuel logged **between the two most recent full refuels**,
+- [x] **2.11 `RefuelCalibrator` in domain.** Pure, tested. Use only OBD fuel logged **between the two most recent full refuels**,
       not lifetime totals. Emit `Clamped` when hitting `[0.7, 1.4]`; show it in `RefuelScreen`.
       Tests: exact, clamped, insufficient data.
 
@@ -165,7 +165,7 @@ Deferred (car is gasoline; keep the code paths, low priority):
       `List<CongestionInterval(startM, endM, level)>` per leg **and** per route; no modeling in the data layer.
 - [x] **3.2 Length-weighted factor per step.** `speedFactor = sum(len_i * f_i) / sum(len_i)`; the dominant level is kept for
       display color only. Replaces `dominantCongestion`.
-- [ ] **3.3 Route-level fallback + resolution flag.** If leg intervals are empty, use `route.travelAdvisory.speedReadingIntervals`
+- [x] **3.3 Route-level fallback + resolution flag.** If leg intervals are empty, use `route.travelAdvisory.speedReadingIntervals`
       mapped on the route polyline. Add `trafficResolution: PER_SEGMENT | ROUTE_AVERAGE | NONE` to `Route`; result card shows
       "נתוני תנועה: לפי מקטע / ממוצע / אין".
 - [x] **3.4 Time normalization (replaces the double count).**
@@ -181,7 +181,7 @@ Deferred (car is gasoline; keep the code paths, low priority):
       Tests: `sum(t_i) == route.duration` for any input; JAM > NORMAL for equal distance; `NONE` equals uniform scaling;
       fixture route yields 5-10 L/100.
       -> Domain normalization landed (card 05); mapper `trafficScale`/`fallbackForTraffic` cleanup remains with card 06.
-- [ ] **3.5 Tolls.** `tollCost: Money?` with currency; `tollUnknown = (estimatedPrice == null)`. UI badge "אגרה לא ידועה";
+- [x] **3.5 Tolls.** `tollCost: Money?` with currency; `tollUnknown = (estimatedPrice == null)`. UI badge "אגרה לא ידועה";
       unknown-toll routes are never auto-highlighted as cheapest. Add `routeModifiers.vehicleInfo.emissionType` from `fuelType`.
       Check the `TollPass` enum for Israeli passes; add a setting only if one exists.
 - [x] **3.6 Cold-start term in prediction.** `FuelModel.cost(..., coldStart: Boolean)` adds `coldStartExtraL` once per route.
@@ -189,7 +189,7 @@ Deferred (car is gasoline; keep the code paths, low priority):
       -> `FuelModel.cost(..., coldStartLiters)` signature landed; auto-detect + manual toggle are card 06/08.
 - [x] **3.7 Remove `FuelType.ELECTRIC`** from the enum and UI (stored value already falls back to GASOLINE). Re-add only with a
       kWh model.
-- [ ] **3.8 Fail loudly on parse.** `parseDurationSeconds` throws `RoutesParseException` on malformed input;
+- [x] **3.8 Fail loudly on parse.** `parseDurationSeconds` throws `RoutesParseException` on malformed input;
       `distanceMeters: Int`. Surfaced through 4.5.
 - [x] **3.9 `domain/fuel/ModelConstants.kt`.** Every magic number (`SLOW 0.55`, `JAM 0.25`, `STOP_GO_WEIGHT 0.5`,
       `VOLUMETRIC_EFFICIENCY 0.85`, `CONFIDENCE_K_KM 20`, `MAX_EXTRAPOLATION_KMH 12.5`, `COLD_START_DEFAULT_L 0.15`) with a
@@ -200,20 +200,20 @@ Deferred (car is gasoline; keep the code paths, low priority):
 
 ## Phase 4 - Routes API request, caching, errors (1-2 days)
 
-- [ ] **4.1 `departureTime`** (ISO-8601 UTC) in `ComputeRoutesRequest`; date/time picker in `RouteScreen`, default "עכשיו";
+- [x] **4.1 `departureTime`** (ISO-8601 UTC) in `ComputeRoutesRequest`; date/time picker in `RouteScreen`, default "עכשיו";
       clamp past -> now. Stored in `route_search.departureTimeMs`.
       Done when: same route at 07:00 vs 22:00 returns different `duration`.
-- [ ] **4.2 `routeModifiers`** (emissionType, tollPasses if applicable, optional `avoidTolls`).
+- [x] **4.2 `routeModifiers`** (emissionType, tollPasses if applicable, optional `avoidTolls`).
       Done when: MockWebServer test sees them in the request body.
-- [ ] **4.3 `requestedReferenceRoutes: ["FUEL_EFFICIENT"]`** behind a debug setting; if returned, label it and log the
+- [x] **4.3 `requestedReferenceRoutes: ["FUEL_EFFICIENT"]`** behind a debug setting; if returned, label it and log the
       comparison with our pick.
-- [ ] **4.4 `CachingRoutesRepository` decorator.** In-memory LRU keyed on (origin key, destination key, departure rounded to
+- [x] **4.4 `CachingRoutesRepository` decorator.** In-memory LRU keyed on (origin key, destination key, departure rounded to
       10 min), TTL 10 min; "רענן" bypass button.
       Test: second call within TTL does not hit the service.
-- [ ] **4.5 Error taxonomy.** `sealed class RoutesError { NoNetwork, Quota, Forbidden, NoRoute, SingleRouteOnly, Invalid(msg),
+- [x] **4.5 Error taxonomy.** `sealed class RoutesError { NoNetwork, Quota, Forbidden, NoRoute, SingleRouteOnly, Invalid(msg),
       Parse, Unknown }` mapped from `HttpException` / `IOException`; Hebrew strings with a suggested action; single-route case
       shows "נמצא מסלול אחד בלבד - אין חלופות להשוואה". Remove the raw `e.message` from `RouteViewModel`.
-- [ ] **4.6 Make the key restriction apply to REST.** Send `X-Android-Package: com.fuelroute` and `X-Android-Cert: <SHA-1>`
+- [x] **4.6 Make the key restriction apply to REST.** Send `X-Android-Package: com.fuelroute` and `X-Android-Cert: <SHA-1>`
       on Routes and Places calls (Maps Platform honors Android-restricted keys for web services when these headers are present).
       Set a hard daily quota cap on the Routes SKU in Cloud Console. Document in `PLAN.md` sections 2 and 9.
       Done when: 403 without the headers, 200 with them, on the restricted key.
@@ -222,41 +222,41 @@ Deferred (car is gasoline; keep the code paths, low priority):
 
 ## Phase 5 - Automatic logging and service robustness (2 days)
 
-- [ ] **5.1 `BluetoothAclReceiver`** for `ACTION_ACL_CONNECTED`, filtered to `lastDeviceAddress`, guarded by `autoConnect`
+- [x] **5.1 `BluetoothAclReceiver`** for `ACTION_ACL_CONNECTED`, filtered to `lastDeviceAddress`, guarded by `autoConnect`
       -> `ObdLoggingService.start`. (Bluetooth broadcasts that require `BLUETOOTH_CONNECT` are an allowed background-FGS
       trigger; `connectedDevice` is the right type on API 34+.)
       Done when: phone locked, dongle powers up -> notification appears without opening the app.
-- [ ] **5.2 `PARTIAL_WAKE_LOCK`** (`FuelRoute:obd`) held while Connected, 4 h timeout renewed at each checkpoint, released on stop.
+- [x] **5.2 `PARTIAL_WAKE_LOCK`** (`FuelRoute:obd`) held while Connected, 4 h timeout renewed at each checkpoint, released on stop.
       Done when: 20 min screen-off -> sample rate unchanged.
-- [ ] **5.3 Battery-optimization exemption prompt** (`ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`) with rationale, from Stats.
+- [x] **5.3 Battery-optimization exemption prompt** (`ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`) with rationale, from Stats.
       Done when: `adb shell dumpsys deviceidle whitelist` lists the package.
-- [ ] **5.4 `PermissionGate` composable.** `BLUETOOTH_CONNECT`/`SCAN`, `POST_NOTIFICATIONS`, location (route tab only).
+- [x] **5.4 `PermissionGate` composable.** `BLUETOOTH_CONNECT`/`SCAN`, `POST_NOTIFICATIONS`, location (route tab only).
       Denied -> rationale + settings deep-link; permanently denied -> disabled features explained, no crash.
       Done when: denying each permission leaves the app usable.
-- [ ] **5.5 Service lifecycle.** `START_REDELIVER_INTENT`; notification tap deep-links to the live dashboard; stale indicator
+- [x] **5.5 Service lifecycle.** `START_REDELIVER_INTENT`; notification tap deep-links to the live dashboard; stale indicator
       when the last sample is > 10 s old.
       Done when: killing the process restarts the service and reconnects.
-- [ ] **5.6 Dashboard while driving.** Keep-screen-on toggle, large-text layout, zero required interaction. One-line note in
+- [x] **5.6 Dashboard while driving.** Keep-screen-on toggle, large-text layout, zero required interaction. One-line note in
       Settings: a permanently plugged-in ELM327 drains the car battery.
 
 ---
 
 ## Phase 6 - Unreachable features, validation, product defaults (3 days)
 
-- [ ] **6.1 `ui/history/HistoryScreen`** reading `route_search`: list + "חסכת X ₪ סה"כ". Reachable from the Route tab.
-- [ ] **6.2 Predicted vs actual.** On trip start, link to a `route_search` from the last 30 min (auto) or via a
+- [x] **6.1 `ui/history/HistoryScreen`** reading `route_search`: list + "חסכת X ₪ סה"כ". Reachable from the Route tab.
+- [x] **6.2 Predicted vs actual.** On trip start, link to a `route_search` from the last 30 min (auto) or via a
       "יצאתי במסלול הזה" button that arms the link. Show per-trip error and rolling MAPE on Stats - this is the app's
       accuracy metric.
       Done when: after one linked drive Stats shows "דיוק חיזוי: ±N%".
-- [ ] **6.3 `tankCapacityL`**: refuel sanity check ("ליטרים > נפח מיכל?") and remaining range from PID `2F`.
-- [ ] **6.4 `data/price/FuelPriceRepository`.** Price + `grade` (95/98/diesel) + `manuallyPinned`; a full refuel updates the
+- [x] **6.3 `tankCapacityL`**: refuel sanity check ("ליטרים > נפח מיכל?") and remaining range from PID `2F`.
+- [x] **6.4 `data/price/FuelPriceRepository`.** Price + `grade` (95/98/diesel) + `manuallyPinned`; a full refuel updates the
       price only when not pinned. Verify a data.gov.il dataset for the regulated 95 price exists before adding a monthly
       WorkManager fetch.
-- [ ] **6.5 Ranking defaults.** `valuePerMinute` default 0.5 ₪/min; results always show both "הזול ביותר" and
+- [x] **6.5 Ranking defaults.** `valuePerMinute` default 0.5 ₪/min; results always show both "הזול ביותר" and
       "המהיר ביותר" badges plus the delta in ₪ and minutes.
 - [ ] **6.6 Debug calibration screen.** Edit `ModelConstants` overrides at runtime; "fit stop-go weight / congestion factors
       against linked trips" (least squares over 6.2 data).
-- [ ] **6.7 Multi-vehicle polish.** Vehicle switcher in the top bar; per-vehicle stats; VIN auto-switch from 2.10 surfaced
+- [x] **6.7 Multi-vehicle polish.** Vehicle switcher in the top bar; per-vehicle stats; VIN auto-switch from 2.10 surfaced
       as a toast ("זוהה: <name>").
 
 ---
@@ -328,6 +328,22 @@ v4 is already installed on the user's device with real learned data.
       Tested with the Desktop Head Unit (no emulator needed).
       See `remediation/tasks/15-android-auto-dashboard.md`.
       -> Done (CarAppService + PaneTemplate + LiveCostCalculator). DHU check not run (no car/emulator).
+
+---
+
+## Phase 9 - Data lifecycle & calibration (closes 1.4, 1.5, 6.6)
+
+Three original-plan items that had no task card. Added 2026-09-20, run as one final wave (sequenced — all three touch
+`ui/settings` + `di/`).
+
+- [ ] **9.1 Retention (1.4).** `retentionDays` setting (default 90) + `androidx.work` daily `RetentionWorker`
+      (`ObdSampleDao.deleteOlderThan`), also run on service stop. See `remediation/tasks/16-retention.md`.
+- [ ] **9.2 Export/import (1.5).** `BackupRepository` (kotlinx JSON of all tables except `obd_sample` + settings +
+      price), via `ACTION_CREATE_DOCUMENT`/`ACTION_OPEN_DOCUMENT`, merge semantics, `backup_rules.xml`. Includes
+      `favorite_destination`. See `remediation/tasks/17-backup-export.md`.
+- [ ] **9.3 Debug calibration (6.6).** Runtime `ModelConstants` overrides (DataStore) + `ui/debug/CalibrationScreen`
+      + a global fuel-correction fit over linked trips (`CalibrationFitter`). Segment-level fit deferred (needs stored
+      per-route geometry). See `remediation/tasks/18-debug-calibration.md`.
 
 ---
 

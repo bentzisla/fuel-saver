@@ -43,7 +43,13 @@ Wave 8 (parallel):             11-history-predicted-vs-actual  13-favorite-desti
 Wave 9 (parallel):             14-zero-touch-obd-logging      15-android-auto-dashboard
                                (14 needs 07 + 03; 15 needs 03 + 02 + 07/14)
 Wave 10:                       09-tests-docs-hook       (needs everything; also closes Phase 0.4 doc fixes)
+Wave 11 (SEQUENTIAL):          16-retention  17-backup-export  18-debug-calibration   (Phase 9: 1.4 / 1.5 / 6.6)
 ```
+
+**`16/17/18` must run sequentially** — all three touch `ui/settings/SettingsScreen.kt`, `SettingsViewModel.kt`,
+`data/settings/SettingsRepository.kt`, and `di/AppModule.kt`, so parallel dispatch would clobber shared files. Order:
+16 (retention) → 17 (backup) → 18 (calibration). 16 adds `androidx.work` (the orchestrator already added
+`work-runtime-ktx:2.11.2` to the version catalog).
 
 **`09-tests-docs-hook` moved to last** (was Wave 6): it must also cover the Phase 8 cards' tests, fixtures and docs.
 
