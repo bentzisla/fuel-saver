@@ -127,7 +127,10 @@ fun StatsScreen(
     val onPermissionsGranted: () -> Unit = remember(viewModel) {
         {
             viewModel.refreshDevices()
-            viewModel.autoConnect()
+            // Do NOT call autoConnect() here: PermissionGate invokes onGranted on every
+            // (re)composition while already granted, which would re-arm the connection and
+            // fight a manual disconnect. Zero-touch auto-connect is handled by the ACL
+            // receiver; here we only refresh the bonded-device list.
         }
     }
 

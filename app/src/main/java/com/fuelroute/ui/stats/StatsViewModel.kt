@@ -204,9 +204,12 @@ class StatsViewModel @Inject constructor(
     fun autoConnect() {
         viewModelScope.launch {
             val settings = settingsRepository.settings.first()
+            // Never auto-connect after a manual disconnect. Only an explicit connect/demo
+            // (or the ACL receiver, gated by the same latch) may re-arm. This also fixes the
+            // PermissionGate -> onGranted -> autoConnect re-arm loop that re-started logging
+            // on every recomposition of the Stats screen.
+            if (settings.manualDisconnect) return@launch
             if (settings.autoConnect && !settings.lastDeviceAddress.isNullOrBlank()) {
-                // Explicit (re-)arm: clear the sticky manual-disconnect latch.
-                settingsRepository.saveManualDisconnect(false)
                 lastAddress = settings.lastDeviceAddress
                 lastName = settings.lastDeviceName ?: settings.lastDeviceAddress
                 if (!engine.isRunning) engine.reset()
