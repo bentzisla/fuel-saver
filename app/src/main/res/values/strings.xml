@@ -259,4 +259,23 @@
     <string name="overlay_no_data">--</string>
     <string name="overlay_unit_l100">ל׳/100 ק״מ</string>
     <string name="overlay_unit_kmh">קמ״ש</string>
+
+    <!-- Android Auto car screen (card 15). Personal sideload only; never promise Play distribution. -->
+    <string name="car_title">FuelRoute — מחוון חי</string>
+    <string name="car_cost_per_hour">עלות לשעה</string>
+    <string name="car_consumption">צריכה כרגע</string>
+    <string name="car_consumption_l100">%1$s ל׳/100 ק״מ</string>
+    <string name="car_consumption_lph">%1$s ל׳/שעה</string>
+    <string name="car_trip_cost">עלות הנסיעה</string>
+    <string name="car_money">₪ %1$s</string>
+    <string name="car_speed">מהירות</string>
+    <string name="car_speed_value">%1$s קמ״ש</string>
+    <string name="car_distance_value">סה״כ %1$s ק״מ</string>
+    <string name="car_value_unknown">--</string>
+    <string name="car_connecting">מתחבר לדונגל OBD…</string>
+    <string name="car_disconnected">לא מחובר לדונגל OBD</string>
+    <string name="car_disconnected_reason">לא מחובר לדונגל OBD (%1$s)</string>
+    <string name="car_error">שגיאה: %1$s</string>
+    <string name="car_error_unknown">שגיאת חיבור לדונגל OBD</string>
+    <string name="car_connect">התחבר</string>
 </resources>

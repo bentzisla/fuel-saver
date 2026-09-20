@@ -29,4 +29,9 @@ object ModelConstants {
     // Provenance: default price per liter and value-of-time defaults.
     const val DEFAULT_FUEL_PRICE = 7.0
     const val DEFAULT_VALUE_PER_MINUTE = 0.5
+
+    // Provenance: card 15 — 1 Hz car-screen display. EMA weight for a new sample;
+    // lower = smoother/less flicker, higher = more responsive. ~0.35 settles in a
+    // few seconds at 1 Hz without hiding real acceleration changes.
+    const val LIVE_EMA_ALPHA = 0.35 // TODO(calibrate)
 }

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Declares that FuelRoute provides a template-based Android Auto app (projected). -->
+<automotiveApp>
+    <uses name="template" />
+</automotiveApp>
