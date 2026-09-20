@@ -14,8 +14,10 @@ import com.fuelroute.domain.learning.TripDetector
 import com.fuelroute.domain.model.ObdSample
 import com.fuelroute.domain.model.SpeedBinStats
 import com.fuelroute.domain.model.VehicleProfile
+import com.fuelroute.domain.obd.ConnectPolicy
 import com.fuelroute.domain.obd.ElmProtocol
 import com.fuelroute.domain.obd.ObdConnectionPolicy
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -70,11 +72,20 @@ class ObdEngine @Inject constructor(
 
     private var job: Job? = null
 
+    /**
+     * Set by [stop]/[disconnect]/[reset] to interrupt a reconnect backoff loop and the run
+     * loop promptly, even while a blocking `connect()` is in flight. Volatile because a
+     * stop may be requested from the UI thread while the engine loop runs on `Default`.
+     */
+    @Volatile
+    private var stopRequested = false
+
     val isRunning: Boolean
         get() = job?.isActive == true
 
     fun start(transport: ObdTransport, vehicle: VehicleProfile) {
         if (job?.isActive == true) return
+        stopRequested = false
         val vehicleId = vehicle.id
         job = scope.launch {
             // Every fresh attempt starts from a clean slate: a stale error/VIN from the
@@ -89,11 +100,14 @@ class ObdEngine @Inject constructor(
                 )
             }
             val connected = transport.connect()
+            if (stopRequested) return@launch
             if (connected.isFailure) {
                 // Terminal: the run loop is never entered, so the logging service can stop
                 // instead of lingering on the foreground notification.
                 val cause = connected.exceptionOrNull()
-                val reason = if (cause is SocketTimeoutException) "CONNECT TIMEOUT" else "CONNECT"
+                val reason = (cause as? ObdConnectException)?.reason
+                    ?: if (cause is SocketTimeoutException) ObdConnectionPolicy.ERROR_CONNECT_TIMEOUT
+                    else ObdConnectionPolicy.ERROR_CONNECT
                 Log.w(TAG, "OBD connect failed ($reason)", cause)
                 mutableLive.update { it.copy(status = ObdStatus.Error, lastError = reason) }
                 return@launch
@@ -118,6 +132,7 @@ class ObdEngine @Inject constructor(
     }
 
     fun stop() {
+        stopRequested = true
         job?.cancel()
         job = null
         mutableLive.update { it.copy(status = ObdStatus.Disconnected) }
@@ -218,8 +233,13 @@ class ObdEngine @Inject constructor(
         var tripIdleSeconds = 0.0
         var tripMaxSpeed = 0.0
         // Price snapshot used for actualCost at trip close; refreshed with the 30 s bin flush.
-        var pricePerLiter = runCatching { fuelPriceRepository.current(vehicle.grade).pricePerLiter }
-            .getOrDefault(0.0)
+        var pricePerLiter = try {
+            fuelPriceRepository.current(vehicle.grade).pricePerLiter
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Throwable) {
+            0.0
+        }
         var lastBinPersistMs = System.currentTimeMillis()
         var lastSamplePersistMs = 0L
         var lastVoltageMs = 0L
@@ -235,6 +255,9 @@ class ObdEngine @Inject constructor(
             mutableLive.update { it.copy(supportedPids = supportedPids, vin = vin) }
 
             while (true) {
+                // A manual stop between polls must unwind immediately instead of waiting for
+                // the next cancellation point.
+                if (stopRequested) return
                 val now = System.currentTimeMillis()
 
                 val rawSpeed = transport.sendCommand(ElmProtocol.command(ElmProtocol.PID_SPEED))
@@ -319,9 +342,13 @@ class ObdEngine @Inject constructor(
 
                 if (now - lastBinPersistMs >= SPEED_BIN_PERSIST_INTERVAL_MS) {
                     speedBinDao.upsertAll(bins.values.map { it.toEntity() })
-                    pricePerLiter = runCatching {
+                    pricePerLiter = try {
                         fuelPriceRepository.current(vehicle.grade).pricePerLiter
-                    }.getOrDefault(pricePerLiter)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Throwable) {
+                        pricePerLiter
+                    }
                     if (tripRecorder.isOpen) {
                         tripRecorder.checkpoint(
                             vehicleId = vehicleId,
@@ -352,7 +379,7 @@ class ObdEngine @Inject constructor(
                 val instantL100 = if (speedKmh > 1.0 && fuelRate != null) fuelRate / speedKmh * 100.0 else null
 
                 val badReason = when {
-                    rawSpeed.contains("SEARCHING", ignoreCase = true) -> "SEARCHING"
+                    rawSpeed.contains("SEARCHING", ignoreCase = true) -> ObdConnectionPolicy.ERROR_SEARCHING
                     rawSpeed.contains("NO DATA", ignoreCase = true) ||
                         rawSpeed.contains("NODATA", ignoreCase = true) -> "NO DATA"
                     speed == null && rawSpeed.isNotBlank() -> "PARSE"
@@ -394,10 +421,19 @@ class ObdEngine @Inject constructor(
                     transport.disconnect()
                     mutableLive.update { it.copy(status = ObdStatus.Connecting, lastError = "RECONNECT") }
                     if (!reconnectWithBackoff(transport)) {
+                        if (stopRequested) return
                         mutableLive.update { it.copy(status = ObdStatus.Error, lastError = "RECONNECT FAILED") }
                         return
                     }
-                    initializeAdapter(transport)
+                    // A fresh socket must be re-initialized exactly like a first connect;
+                    // an adapter that no longer answers ATZ is a real failure, not a retry.
+                    if (!initializeAdapter(transport)) {
+                        transport.disconnect()
+                        mutableLive.update {
+                            it.copy(status = ObdStatus.Error, lastError = it.lastError ?: "INIT")
+                        }
+                        return
+                    }
                     settleProtocol(transport)
                     supportedPids = negotiatePids(transport)
                     mutableLive.update { it.copy(status = ObdStatus.Connected, supportedPids = supportedPids) }
@@ -446,25 +482,41 @@ class ObdEngine @Inject constructor(
         }
 
     /**
-     * Retries `connect()` with 2, 4, 8, … 60 s backoff until [ObdConnectionPolicy.MAX_RECONNECT_WINDOW_MS]
-     * is exhausted. Returns true as soon as a connect succeeds.
+     * Retries `connect()` with 2, 4, 8 s backoff, capped at
+     * [ObdConnectionPolicy.MAX_RECONNECT_ATTEMPTS] attempts (and the
+     * [ObdConnectionPolicy.MAX_RECONNECT_WINDOW_MS] window). Stops early once a stop is
+     * requested or the dongle is no longer ACL-connected, so an absent adapter is not
+     * hammered. Returns true as soon as a connect succeeds.
      */
     private suspend fun reconnectWithBackoff(transport: ObdTransport): Boolean {
         var waitedMs = 0L
         var attempt = 0
-        while (waitedMs < ObdConnectionPolicy.MAX_RECONNECT_WINDOW_MS) {
+        while (ObdConnectionPolicy.shouldRetryReconnect(attempt, isDeviceConnected(transport)) &&
+            waitedMs < ObdConnectionPolicy.MAX_RECONNECT_WINDOW_MS
+        ) {
+            // A stop requested while `connect()` was blocking must abort the loop instead
+            // of exhausting the remaining attempts.
+            if (!ConnectPolicy.shouldContinueReconnect(stopRequested)) return false
             val backoffMs = ObdConnectionPolicy.backoffDelayMs(attempt)
             delay(backoffMs)
             waitedMs += backoffMs
+            if (!ConnectPolicy.shouldContinueReconnect(stopRequested)) return false
             if (transport.connect().isSuccess) {
-                Log.i(TAG, "reconnected after ${waitedMs}ms")
+                Log.i(TAG, "reconnected on attempt ${attempt + 1} after ${waitedMs}ms")
                 return true
             }
             attempt++
         }
-        Log.e(TAG, "reconnect gave up after ${waitedMs}ms")
+        Log.e(TAG, "reconnect gave up after $attempt attempt(s) / ${waitedMs}ms")
         return false
     }
+
+    /**
+     * The simulated transport has no ACL concept; only a real Bluetooth transport can report
+     * the dongle as gone, in which case retrying is pointless.
+     */
+    private fun isDeviceConnected(transport: ObdTransport): Boolean =
+        (transport as? BluetoothClassicTransport)?.isDeviceAclConnected ?: true
 
     private fun ObdSample.toEntity(vehicleId: String) = ObdSampleEntity(
         vehicleId = vehicleId,

@@ -71,8 +71,13 @@ object RoutesMapper {
             routeCursor += leg.steps.sumOf { it.distanceMeters }
         }
 
-        val prices = dto.travelAdvisory?.tollInfo?.estimatedPrice
-        val toll = prices?.firstOrNull()?.let { it.units + it.nanos / 1e9 }
+        // `TOLLS` is always requested (see ComputeRoutesRequest defaults). Per the Routes API,
+        // `travelAdvisory.tollInfo` is omitted when the route has no toll road, while a present
+        // `tollInfo` with an empty `estimatedPrice` means tolls exist but the amount is unknown.
+        // Absence therefore means "no toll", not "couldn't determine".
+        val tollInfo = dto.travelAdvisory?.tollInfo
+        val toll = tollInfo?.estimatedPrice?.firstOrNull()?.let { it.units + it.nanos / 1e9 }
+        val tollUnknown = tollInfo != null && toll == null
 
         return Route(
             id = "route-$index",
@@ -81,8 +86,8 @@ object RoutesMapper {
             staticDurationSeconds = staticSec,
             durationSeconds = durationSec,
             segments = segments,
-            tollCost = toll,
-            tollUnknown = prices.isNullOrEmpty(),
+            tollCost = toll ?: if (tollInfo == null) 0.0 else null,
+            tollUnknown = tollUnknown,
             trafficResolution = when {
                 usedPerSegment -> TrafficResolution.PER_SEGMENT
                 usedRouteAverage -> TrafficResolution.ROUTE_AVERAGE

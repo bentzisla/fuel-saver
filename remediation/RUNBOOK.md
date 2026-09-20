@@ -52,6 +52,9 @@ Wave 16 (parallel, disjoint):  27-route-graph  28-destination-clear  30-fuel-typ
 Wave 17:                       29-history-saved-label    (needs 25 if it landed)
 Wave 18:                       31-settings-reorg         (needs 17/18/20/21 content)
 Wave 19:                       33-calibration-ux         (needs 18 + 32)
+Wave 20 (parallel, disjoint):  36-curve-interactive  37-versioning  38-route-graph-minimize  39-toll-message  40-map-layout-fit  41-keyboard-block  42-android-auto-car
+Wave 21:                       34-obd-disconnect-sticky   (must precede 35)
+Wave 22:                       35-obd-connect-reliability (needs 34)
 ```
 
 **`16/17/18` must run sequentially** — all three touch `ui/settings/SettingsScreen.kt`, `SettingsViewModel.kt`,
@@ -83,6 +86,44 @@ Phase 11 (cards 27-33) is the second round of UX feedback. Ordering notes:
   merges back to `master` when the phase gate is green. Do not commit directly to `master` during a phase.
 - **Version:** bump `versionName`/`versionCode` in `app/build.gradle.kts` at phase end (patch/minor per scope), and the
   Settings footer (card 19) picks it up automatically.
+
+#### Versioning policy (card 37)
+`MAJOR.MINOR.PATCH`. `MAJOR` stays `0` for this personal app (reserved for a breaking rewrite); only the orchestrator
+moves it. The bump happens at the end of a phase (or a card, when a card ships alone) and is part of that phase's
+commit — sub-agents never bump or commit.
+
+- **bugfix → patch:** `0.2.0` → `0.2.1`. A card whose scope is only fixing a bug (e.g. 34, 35).
+- **feature / wave of features → minor:** `0.2.1` → `0.3.0`, patch resets to `0`. A card that adds product scope, or a
+  whole wave/phase of mixed work (the default for a phase).
+- **`versionCode` is monotonic:** always `minor * 100 + patch` (so `0.3.1` → `301`). Android rejects a code that does
+  not strictly increase, so never reuse or lower it — recomputing it from `versionName` keeps the two fields in sync.
+
+Bump with the helper (from the repo root, PowerShell 5.1):
+
+```
+powershell -ExecutionPolicy Bypass -File .\scripts\bump-version.ps1 -Patch              # bugfix: 0.2.0 -> 0.2.1
+powershell -ExecutionPolicy Bypass -File .\scripts\bump-version.ps1 -Minor              # feature/wave: 0.2.1 -> 0.3.0
+powershell -ExecutionPolicy Bypass -File .\scripts\bump-version.ps1 -Patch -DryRun      # preview only, no write
+```
+
+`scripts/bump-version.ps1` reads `versionName`/`versionCode` from `app/build.gradle.kts`, requires exactly one of
+`-Minor`/`-Patch`, rewrites both fields exactly once, and writes the file back as ASCII. It is deterministic (the same
+starting version always yields the same result) and safe to re-run: each invocation advances the version by exactly one
+step, so run it once per phase/card end. The Settings footer (card 19) reads the values through `BuildConfig` and needs
+no further edit.
+
+### Phase 12 ordering note
+- **20 is the big parallel wave**; its 7 cards are file-disjoint EXCEPT:
+  - `38-route-graph-minimize`, `39-toll-message`, `40-map-layout-fit`, `41-keyboard-block` all touch
+    `ui/route/RouteScreen.kt`. Do NOT run those four in parallel with each other. From that group, only `38` is
+    range-independent from `41` (38 = results/graph region, 41 = input/ime region) — see the per-card "limit edits to"
+    notes. To be safe the orchestrator may split Wave 20 into two sub-waves.
+  - `39` also touches `RoutesMapper`/`RoutesError` (data layer) — keep it apart from any `data/routes` edit (none in
+    this wave).
+- **34 → 35 sequential**: both edit `data/obd/*`; 35 builds on 34's sticky-disconnect + timeout.
+- **Gradle parallelism warning (learned the hard way):** running several `gradlew` builds concurrently corrupts the
+  shared Kotlin/KSP incremental caches. Sub-agents may EDIT in parallel, but only ONE may run `gradlew` at a time — the
+  orchestrator runs the serial gate after each wave; never let N sub-agents build simultaneously.
 
 **`09-tests-docs-hook` moved to last** (was Wave 6): it must also cover the Phase 8 cards' tests, fixtures and docs.
 

@@ -61,11 +61,11 @@ class RoutesMapperTest {
     }
 
     @Test
-    fun `missing toll info marks the toll unknown`() {
+    fun `missing toll info means the route is toll free`() {
         val route = RoutesMapper.toDomain(routeResponse(travelAdvisory = null)).single()
 
-        assertNull(route.tollCost)
-        assertTrue(route.tollUnknown)
+        assertEquals(0.0, route.tollCost!!, 1e-9)
+        assertFalse(route.tollUnknown)
     }
 
     @Test

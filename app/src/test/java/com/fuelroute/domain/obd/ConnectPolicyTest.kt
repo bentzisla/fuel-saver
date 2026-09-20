@@ -49,4 +49,18 @@ class ConnectPolicyTest {
         assertTrue(ConnectPolicy.shouldAutoStartOnAdapterOn("aa:bb", setOf("AA:BB")))
         assertTrue(ConnectPolicy.shouldAutoStartOnAdapterOn("AA:BB", setOf("CC:DD", "AA:BB")))
     }
+
+    @Test
+    fun `manual disconnect latch suppresses auto-connect until cleared`() {
+        // Set by StatsViewModel.disconnect()/reset(); sticky until an explicit reconnect.
+        assertTrue(ConnectPolicy.shouldSuppressAutoConnect(manualDisconnect = true))
+        // Cleared by connect()/connectDemo()/autoConnect()/retry().
+        assertFalse(ConnectPolicy.shouldSuppressAutoConnect(manualDisconnect = false))
+    }
+
+    @Test
+    fun `reconnect loop continues only while no stop was requested`() {
+        assertTrue(ConnectPolicy.shouldContinueReconnect(stopRequested = false))
+        assertFalse(ConnectPolicy.shouldContinueReconnect(stopRequested = true))
+    }
 }

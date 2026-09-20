@@ -72,6 +72,10 @@ class BluetoothAclReceiver : BroadcastReceiver() {
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
                 val settings = settingsRepository.settings.first()
+                if (ConnectPolicy.shouldSuppressAutoConnect(settings.manualDisconnect)) {
+                    Log.i(TAG, "ACL_CONNECTED ignored: manual disconnect latch is set")
+                    return@launch
+                }
                 val resolved = decideStart(
                     autoConnect = settings.autoConnect,
                     lastDeviceAddress = settings.lastDeviceAddress,
@@ -132,6 +136,10 @@ class BluetoothAclReceiver : BroadcastReceiver() {
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
                 val settings = settingsRepository.settings.first()
+                if (ConnectPolicy.shouldSuppressAutoConnect(settings.manualDisconnect)) {
+                    Log.i(TAG, "STATE_ON ignored: manual disconnect latch is set")
+                    return@launch
+                }
                 if (!settings.autoConnect) return@launch
                 val bonded = runCatching {
                     adapter.bondedDevices.orEmpty().map { BondedObdDevice(it.address, deviceName(it)) }

@@ -341,6 +341,8 @@ private fun obdErrorText(code: String?): String = when {
     code.startsWith("bad ATZ") -> stringResource(R.string.stats_error_atz)
     code == "CONNECT TIMEOUT" -> stringResource(R.string.stats_error_connect_timeout)
     code == "CONNECT" -> stringResource(R.string.stats_error_connect)
+    code == "SOCKET CLOSED" -> stringResource(R.string.stats_error_socket_closed)
+    code == "SECURITY" -> stringResource(R.string.stats_error_security)
     code == "INIT" -> stringResource(R.string.stats_error_init)
     code == "SEARCHING" -> stringResource(R.string.stats_error_searching)
     code == "NO DATA" -> stringResource(R.string.stats_error_no_data)

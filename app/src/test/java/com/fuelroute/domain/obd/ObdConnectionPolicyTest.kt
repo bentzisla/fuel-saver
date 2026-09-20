@@ -112,4 +112,44 @@ class ObdConnectionPolicyTest {
         assertEquals(60_000L, ObdConnectionPolicy.backoffDelayMs(5))
         assertEquals(60_000L, ObdConnectionPolicy.backoffDelayMs(20))
     }
+
+    @Test
+    fun `connect chain is attempted three times`() {
+        assertEquals(3, ObdConnectionPolicy.connectAttempts())
+        assertEquals(ObdConnectionPolicy.CONNECT_ATTEMPTS, ObdConnectionPolicy.connectAttempts())
+        // attempt is 1-based: 1 and 2 may retry, the 3rd is the last.
+        assertTrue(ObdConnectionPolicy.shouldRetryConnect(1))
+        assertTrue(ObdConnectionPolicy.shouldRetryConnect(2))
+        assertFalse(ObdConnectionPolicy.shouldRetryConnect(3))
+        assertFalse(ObdConnectionPolicy.shouldRetryConnect(4))
+    }
+
+    @Test
+    fun `workaround order is secure then insecure then channel 1`() {
+        assertEquals(
+            listOf(
+                ObdConnectionPolicy.ConnectVariant.SECURE_RFCOMM,
+                ObdConnectionPolicy.ConnectVariant.INSECURE_RFCOMM,
+                ObdConnectionPolicy.ConnectVariant.CHANNEL_1,
+            ),
+            ObdConnectionPolicy.connectVariants(),
+        )
+    }
+
+    @Test
+    fun `reconnect retries while attempts remain and the dongle is connected`() {
+        // 0-based attempt: three attempts (0, 1, 2) are allowed while ACL-connected.
+        assertTrue(ObdConnectionPolicy.shouldRetryReconnect(0, deviceConnected = true))
+        assertTrue(ObdConnectionPolicy.shouldRetryReconnect(1, deviceConnected = true))
+        assertTrue(ObdConnectionPolicy.shouldRetryReconnect(2, deviceConnected = true))
+        // Attempt 3 exceeds the cap → give up.
+        assertFalse(ObdConnectionPolicy.shouldRetryReconnect(3, deviceConnected = true))
+    }
+
+    @Test
+    fun `reconnect gives up immediately once the dongle is not connected`() {
+        assertFalse(ObdConnectionPolicy.shouldRetryReconnect(0, deviceConnected = false))
+        assertFalse(ObdConnectionPolicy.shouldRetryReconnect(1, deviceConnected = false))
+        assertFalse(ObdConnectionPolicy.shouldRetryReconnect(2, deviceConnected = false))
+    }
 }

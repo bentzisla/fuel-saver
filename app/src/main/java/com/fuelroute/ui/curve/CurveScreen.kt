@@ -2,6 +2,8 @@ package com.fuelroute.ui.curve
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -32,7 +35,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -45,6 +50,7 @@ import com.fuelroute.R
 import com.fuelroute.domain.fuel.CurveDataQuality
 import com.fuelroute.domain.model.SpeedPoint
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.log10
@@ -270,6 +276,9 @@ private fun qualityColor(quality: CurveDataQuality): Color = when (quality) {
 
 @Composable
 private fun ChartCard(state: CurveUiState) {
+    val kmSuffix = stringResource(R.string.curve_km_suffix)
+    var selectedBin by remember(state.learnedPoints) { mutableStateOf<LearnedPoint?>(null) }
+
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(
@@ -283,11 +292,16 @@ private fun ChartCard(state: CurveUiState) {
                 effectivePoints = state.effectivePoints,
                 manualPoints = state.manualPoints,
                 learnedPoints = state.learnedPoints,
-                kmSuffix = stringResource(R.string.curve_km_suffix),
+                selectedPoint = selectedBin,
+                onSelect = { selectedBin = it },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(260.dp),
             )
+
+            selectedBin?.let { point ->
+                CurveBinChip(point = point, kmSuffix = kmSuffix)
+            }
 
             Text(
                 text = stringResource(R.string.curve_x_axis),
@@ -353,7 +367,8 @@ private fun CurveChart(
     effectivePoints: List<SpeedPoint>,
     manualPoints: List<SpeedPoint>,
     learnedPoints: List<LearnedPoint>,
-    kmSuffix: String,
+    selectedPoint: LearnedPoint?,
+    onSelect: (LearnedPoint?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val textMeasurer = rememberTextMeasurer()
@@ -361,11 +376,49 @@ private fun CurveChart(
     val axisColor = MaterialTheme.colorScheme.outline
     val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
 
-    Canvas(modifier = modifier) {
-        val xMin = 0.0
-        val xMax = 140.0
-        val xStep = 20.0
-
+    Canvas(
+        modifier = modifier
+            .pointerInput(learnedPoints) {
+                detectTapGestures { offset ->
+                    onSelect(
+                        nearestLearnedPoint(
+                            points = learnedPoints,
+                            xPx = offset.x,
+                            widthPx = size.width.toFloat(),
+                            leftPadPx = PlotLeftPad.toPx(),
+                            rightPadPx = PlotRightPad.toPx(),
+                        ),
+                    )
+                }
+            }
+            .pointerInput(learnedPoints) {
+                detectDragGestures(
+                    onDragStart = { offset ->
+                        onSelect(
+                            nearestLearnedPoint(
+                                points = learnedPoints,
+                                xPx = offset.x,
+                                widthPx = size.width.toFloat(),
+                                leftPadPx = PlotLeftPad.toPx(),
+                                rightPadPx = PlotRightPad.toPx(),
+                            ),
+                        )
+                    },
+                    onDrag = { change, _ ->
+                        change.consume()
+                        onSelect(
+                            nearestLearnedPoint(
+                                points = learnedPoints,
+                                xPx = change.position.x,
+                                widthPx = size.width.toFloat(),
+                                leftPadPx = PlotLeftPad.toPx(),
+                                rightPadPx = PlotRightPad.toPx(),
+                            ),
+                        )
+                    },
+                )
+            },
+    ) {
         // Include the learned uncertainty band so it is never clipped by the Y range.
         val bandValues = learnedPoints.flatMap { point ->
             val half = uncertainty(point.distanceKm)
@@ -381,8 +434,8 @@ private fun CurveChart(
             bandValues
         val yRange = computeYRange(allY)
 
-        val leftPad = 38.dp.toPx()
-        val rightPad = 10.dp.toPx()
+        val leftPad = PlotLeftPad.toPx()
+        val rightPad = PlotRightPad.toPx()
         val topPad = 10.dp.toPx()
         val bottomPad = 24.dp.toPx()
         val plotLeft = leftPad
@@ -393,7 +446,7 @@ private fun CurveChart(
         val plotHeight = plotBottom - plotTop
 
         fun x(speed: Double): Float =
-            (plotLeft + (speed - xMin) / (xMax - xMin) * plotWidth).toFloat()
+            (plotLeft + (speed - X_MIN) / (X_MAX - X_MIN) * plotWidth).toFloat()
 
         fun y(value: Double): Float =
             (plotBottom - (value - yRange.min) / (yRange.max - yRange.min) * plotHeight).toFloat()
@@ -422,8 +475,8 @@ private fun CurveChart(
         }
 
         // Vertical gridlines + X tick labels (km/h).
-        var speed = xMin
-        while (speed <= xMax + 0.001) {
+        var speed = X_MIN
+        while (speed <= X_MAX + 0.001) {
             val px = x(speed)
             drawLine(
                 color = gridColor,
@@ -431,14 +484,14 @@ private fun CurveChart(
                 end = Offset(px, plotBottom),
                 strokeWidth = 1f,
             )
-            val layout = textMeasurer.measure(formatTick(speed, xStep), labelStyle)
+            val layout = textMeasurer.measure(formatTick(speed, X_STEP), labelStyle)
             val centered = (px - layout.size.width / 2f)
                 .coerceIn(0f, (size.width - layout.size.width).coerceAtLeast(0f))
             drawText(
                 textLayoutResult = layout,
                 topLeft = Offset(centered, plotBottom + 4.dp.toPx()),
             )
-            speed += xStep
+            speed += X_STEP
         }
 
         // Axis lines.
@@ -502,23 +555,97 @@ private fun CurveChart(
             )
         }
 
-        // Per-bin confidence (measured km) labels for the best-supported bins.
-        val kmLabelStyle = TextStyle(color = LearnedColor, fontSize = 9.sp)
-        learnedPoints
-            .filter { it.distanceKm > 0.0 }
-            .sortedByDescending { it.distanceKm }
-            .take(MAX_KM_LABELS)
-            .forEach { point ->
-                val layout = textMeasurer.measure(
-                    "${format(point.distanceKm, 1)} $kmSuffix",
-                    kmLabelStyle,
-                )
-                val left = (x(point.speedKmh) - layout.size.width / 2f)
-                    .coerceIn(0f, (size.width - layout.size.width).coerceAtLeast(0f))
-                val top = (y(point.litersPer100Km) - layout.size.height - 9.dp.toPx())
-                    .coerceAtLeast(0f)
-                drawText(textLayoutResult = layout, topLeft = Offset(left, top))
-            }
+        // Crosshair for the bin selected by tap/drag, drawn above the points.
+        selectedPoint?.let { point ->
+            val px = x(point.speedKmh)
+            val py = y(point.litersPer100Km)
+            val dash = PathEffect.dashPathEffect(floatArrayOf(10f, 10f))
+            drawLine(
+                color = axisColor.copy(alpha = 0.8f),
+                start = Offset(px, plotTop),
+                end = Offset(px, plotBottom),
+                strokeWidth = 1.5f,
+                pathEffect = dash,
+            )
+            drawLine(
+                color = axisColor.copy(alpha = 0.8f),
+                start = Offset(plotLeft, py),
+                end = Offset(plotRight, py),
+                strokeWidth = 1.5f,
+                pathEffect = dash,
+            )
+            drawCircle(
+                color = LearnedColor,
+                radius = 8.dp.toPx(),
+                center = Offset(px, py),
+                style = Stroke(width = 2.5f),
+            )
+        }
+    }
+}
+
+/**
+ * Small info chip shown for the bin nearest to the user's tap/drag on the curve:
+ * speed, consumption, measured km and the confidence (learning weight) for that bin.
+ */
+@Composable
+private fun CurveBinChip(
+    point: LearnedPoint,
+    kmSuffix: String,
+    modifier: Modifier = Modifier,
+) {
+    val container = MaterialTheme.colorScheme.surfaceVariant
+    val content = MaterialTheme.colorScheme.onSurfaceVariant
+    Column(
+        modifier = modifier
+            .background(container, RoundedCornerShape(8.dp))
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.curve_bin_speed, format(point.speedKmh, 0)),
+            style = MaterialTheme.typography.labelMedium,
+            color = content,
+        )
+        Text(
+            text = stringResource(R.string.curve_bin_consumption, format(point.litersPer100Km, 1)),
+            style = MaterialTheme.typography.labelSmall,
+            color = content,
+        )
+        Text(
+            text = stringResource(R.string.curve_bin_km, format(point.distanceKm, 1), kmSuffix),
+            style = MaterialTheme.typography.labelSmall,
+            color = content,
+        )
+        Text(
+            text = stringResource(
+                R.string.curve_bin_confidence,
+                (binConfidence(point.distanceKm) * 100.0).roundToInt().toString(),
+            ),
+            style = MaterialTheme.typography.labelSmall,
+            color = content,
+        )
+    }
+}
+
+/**
+ * Maps a horizontal touch position (px, Canvas-local) to the learned bin whose plotted
+ * X coordinate is nearest, using the same padding/domain as the Canvas.
+ */
+private fun nearestLearnedPoint(
+    points: List<LearnedPoint>,
+    xPx: Float,
+    widthPx: Float,
+    leftPadPx: Float,
+    rightPadPx: Float,
+): LearnedPoint? {
+    if (points.isEmpty()) return null
+    val plotLeft = leftPadPx
+    val plotRight = (widthPx - rightPadPx).coerceAtLeast(plotLeft + 1f)
+    val plotWidth = plotRight - plotLeft
+    return points.minByOrNull { point ->
+        val px = plotLeft + ((point.speedKmh - X_MIN) / (X_MAX - X_MIN) * plotWidth).toFloat()
+        abs(px - xPx)
     }
 }
 
@@ -554,9 +681,13 @@ private fun niceStep(rawStep: Double): Double {
     return nice * magnitude
 }
 
+/** Learning weight for a bin: w = km / (km + 20), the same confidence used by the blender. */
+private fun binConfidence(distanceKm: Double): Double =
+    if (distanceKm <= 0.0) 0.0 else distanceKm / (distanceKm + 20.0)
+
 /** Half-height of the learned uncertainty band, shrinking as measured distance grows. */
 private fun uncertainty(distanceKm: Double): Double {
-    val confidence = if (distanceKm <= 0.0) 0.0 else distanceKm / (distanceKm + 20.0)
+    val confidence = binConfidence(distanceKm)
     return 0.25 + 1.75 * (1.0 - confidence)
 }
 
@@ -588,8 +719,14 @@ private val ManualColor = Color(0xFF3F72AF)
 private val EffectiveColor = Color(0xFF1B6B4A)
 private val LearnedColor = Color(0xFFF2C14E)
 
-/** How many of the best-supported learned bins get an on-graph km label before clutter wins. */
-private const val MAX_KM_LABELS = 5
+/** Plot padding, shared by the Canvas mapping and the touch hit-testing. */
+private val PlotLeftPad = 38.dp
+private val PlotRightPad = 10.dp
+
+/** X (speed) axis domain, in km/h. */
+private const val X_MIN = 0.0
+private const val X_MAX = 140.0
+private const val X_STEP = 20.0
 
 private fun formatTick(value: Double, step: Double): String =
     format(value, if (step < 1.0) 1 else 0)

@@ -6,7 +6,6 @@ import com.fuelroute.testutil.Fixtures
 import kotlinx.serialization.decodeFromString
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -35,8 +34,8 @@ class RoutesFixtureTest {
             listOf(CongestionLevel.SLOW, CongestionLevel.TRAFFIC_JAM, CongestionLevel.NORMAL),
             default.segments.map { it.congestion },
         )
-        assertTrue(default.tollUnknown)
-        assertNull(default.tollCost)
+        assertFalse(default.tollUnknown)
+        assertEquals(0.0, default.tollCost!!, 1e-9)
 
         val tollRoad = routes[1]
         assertEquals(TrafficResolution.ROUTE_AVERAGE, tollRoad.trafficResolution)
@@ -71,8 +70,8 @@ class RoutesFixtureTest {
 
         assertEquals(10000.0, route.distanceMeters, 1e-6)
         assertEquals(2, route.segments.size)
-        assertTrue(route.tollUnknown)
-        assertNull(route.tollCost)
+        assertFalse(route.tollUnknown)
+        assertEquals(0.0, route.tollCost!!, 1e-9)
     }
 
     @Test

@@ -8,6 +8,7 @@
     <string name="nav_settings">הגדרות</string>
 
     <string name="route_title">בחירת מסלול</string>
+    <string name="route_map_content_description">מפת המסלולים והחלופות</string>
     <string name="route_origin_label">מוצא</string>
     <string name="route_destination_label">יעד</string>
     <string name="route_compute">חשב מסלול</string>
@@ -72,7 +73,7 @@
     <string name="route_delta_time">‎+%1$s דק׳ מהמהיר ביותר</string>
     <string name="route_eta_label">הגעה</string>
     <string name="route_total_cost_label">סה״כ</string>
-    <string name="route_toll_free">ללא אגרה</string>
+    <string name="route_toll_free">אין אגרה</string>
     <string name="route_reason_line">למה המסלול הזה? %1$s</string>
     <string name="route_reason_both">הזול והמהיר ביותר — אין פשרה</string>
     <string name="route_reason_saves">חוסך ₪%1$s לעומת המהיר, +%2$s דק׳</string>
@@ -80,6 +81,10 @@
     <string name="route_reason_tradeoff">+₪%1$s מהזול, +%2$s דק׳ מהמהיר</string>
     <string name="route_graph_title_for">מהירות לפי מרחק — %1$s</string>
     <string name="route_graph_tap_expand">הקש להרחבה</string>
+    <string name="route_graph_show">הצג גרף מהירות</string>
+    <string name="route_graph_hide">הסתר גרף מהירות</string>
+    <string name="route_graph_hide_hint">הקש לצמצום</string>
+    <string name="route_graph_description">גרף מהירות לפי מרחק לאורך המסלול — מראה איפה המסלול איטי/פקוק</string>
     <string name="route_error_no_network">אין חיבור לאינטרנט</string>
     <string name="route_error_quota">חריגה ממכסת השימוש בשירות המסלולים</string>
     <string name="route_error_forbidden">המפתח אינו מורשה לשירות המסלולים</string>
@@ -221,6 +226,8 @@
     <string name="stats_error_timeout">פסק זמן בתקשורת עם הדונגל</string>
     <string name="stats_error_reconnect">מנסה להתחבר מחדש…</string>
     <string name="stats_error_reconnect_failed">החיבור מחדש נכשל</string>
+    <string name="stats_error_security">אין הרשאת Bluetooth להתחבר לדונגל</string>
+    <string name="stats_error_socket_closed">החיבור לדונגל נסגר</string>
 
     <string name="history_title">היסטוריית חיפושים</string>
     <string name="history_empty">אין חיפושים קודמים עדיין</string>
@@ -286,8 +293,12 @@
     <string name="curve_samples">מספר דגימות: %1$s</string>
     <string name="curve_calibration">מקדם כיול צריכת דלק: %1$s</string>
     <string name="curve_blend_split">כ־%1$s%% מהעקומה מבוססת על למידה, השאר על %2$s</string>
-    <string name="curve_confidence_hint">גודל הנקודה והתווית שלידה מציינים כמה ק״מ נמדדו באותה מהירות.</string>
+    <string name="curve_confidence_hint">גודל הנקודה מציין כמה ק״מ נמדדו באותה מהירות. הקישו או גררו על הגרף כדי לראות פרטי פח.</string>
     <string name="curve_km_suffix">ק״מ</string>
+    <string name="curve_bin_speed">מהירות: %1$s קמ״ש</string>
+    <string name="curve_bin_consumption">צריכה: %1$s ל׳/100 ק״מ</string>
+    <string name="curve_bin_km">נמדד: %1$s %2$s</string>
+    <string name="curve_bin_confidence">ביטחון: %1$s%%</string>
     <string name="curve_basis_title">מה הבסיס?</string>
     <string name="curve_basis_body" formatted="false">העקומה משלבת נתוני מדידה אמיתיים מהרכב (למידה), עקומה ידנית אם הוגדרה, ועקומת ברירת מחדל. בכל מהירות המשקל של הלמידה הוא w = ק״מ/(ק״מ+20): 20 ק״מ מדודים נותנים 50% השפעה, ו־80 ק״מ נותנים 80%.</string>
 
@@ -403,6 +414,20 @@
     <string name="settings_auto_logging_intro">רישום אוטומטי ללא מגע</string>
     <string name="settings_auto_logging_intro_detail">כשהדונגל מתחבר, FuelRoute יתחיל לתעד צריכה, מהירות וסל״ד ברקע וישמור נסיעות. הנתונים נשארים במכשיר. נדרשות הרשאות Bluetooth והתראות, וכן פטור מאופטימיזציית סוללה כדי שהרישום ימשיך כשהמסך כבוי.</string>
     <string name="settings_auto_logging_enable">הפעל רישום אוטומטי</string>
+
+    <!-- Android Auto help + last-seen diagnostic (card 42). Sideload-only: "Unknown sources" required. -->
+    <string name="settings_section_android_auto">אנדרואיד אוטו</string>
+    <string name="settings_android_auto_title">תצוגה ברכב (Android Auto)</string>
+    <string name="settings_android_auto_last_seen">התחברות אחרונה למערכת הרכב: %1$s</string>
+    <string name="settings_android_auto_never">עדיין לא זוהתה התחברות למערכת הרכב — בצעו את הצעדים למטה.</string>
+    <string name="settings_android_auto_last_host">מארח שזוהה: %1$s</string>
+    <string name="settings_android_auto_checklist_title">הפעלה ראשונה (חובה):</string>
+    <string name="settings_android_auto_step_1">1. חברו את הטלפון לרכב (USB או אלחוטי) ופתחו את Android Auto.</string>
+    <string name="settings_android_auto_step_2">2. בטלפון: Android Auto ← הגדרות ← הקישו 10 פעמים על ״גרסה״ כדי להפעיל מצב מפתחים.</string>
+    <string name="settings_android_auto_step_3">3. בתפריט ⋮ בחרו ״הגדרות מפתחים״ והפעילו ״מקורות לא ידועים״.</string>
+    <string name="settings_android_auto_step_4">4. נתקו וחברו מחדש את הרכב, ואז בחרו את FuelRoute במסך האפליקציות ברכב.</string>
+    <string name="settings_android_auto_hint">בלי ״מקורות לא ידועים״ האפליקציה לא תופיע כלל ברשימה ברכב — זו הסיבה הנפוצה ביותר ל״לא מופיע״.</string>
+    <string name="settings_android_auto_diagnostic_hint">אם ״התחברות אחרונה״ ריקה, הטלפון מעולם לא התחבר למארח הרכב. לאבחון מפורט: adb logcat -s FuelRoute:*</string>
 
     <string name="overlay_close">✕</string>
     <string name="overlay_no_data">--</string>

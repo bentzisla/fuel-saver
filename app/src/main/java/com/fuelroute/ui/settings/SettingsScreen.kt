@@ -56,9 +56,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fuelroute.BuildConfig
 import com.fuelroute.R
 import com.fuelroute.data.price.FuelGrades
+import com.fuelroute.data.settings.AppSettings
 import com.fuelroute.data.settings.NAV_GOOGLE
 import com.fuelroute.data.settings.NAV_WAZE
+import com.fuelroute.data.settings.SettingsRepository
 import com.fuelroute.service.BatteryOptimization
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
 import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -297,6 +303,13 @@ fun SettingsScreen(
         }
 
         SettingsSection(
+            title = stringResource(R.string.settings_section_android_auto),
+            initiallyExpanded = false,
+        ) {
+            AndroidAutoHelpCard()
+        }
+
+        SettingsSection(
             title = stringResource(R.string.settings_section_about),
             initiallyExpanded = false,
         ) {
@@ -418,6 +431,89 @@ private fun VersionFooter() {
             )
         }
     }
+}
+
+/**
+ * "אנדרואיד אוטו" help card (card 42): a first-run checklist plus a last-seen diagnostic so the user
+ * can tell, without adb, whether the phone ever bound to the car host. Reads the DataStore directly
+ * through a minimal Hilt entry point (the same pattern as `CarEntryPoint`/`RetentionWorkerEntryPoint`)
+ * to avoid widening `SettingsViewModel`.
+ */
+@Composable
+private fun AndroidAutoHelpCard() {
+    val context = LocalContext.current
+    val settingsRepository = remember(context) {
+        EntryPointAccessors.fromApplication(
+            context.applicationContext,
+            CarDiagnosticsEntryPoint::class.java,
+        ).settingsRepository()
+    }
+    val settings by settingsRepository.settings.collectAsStateWithLifecycle(
+        initialValue = AppSettings(),
+    )
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.settings_android_auto_title),
+                style = MaterialTheme.typography.titleSmall,
+            )
+            val lastSeenMs = settings.carLastSeenMs
+            Text(
+                text = if (lastSeenMs != null) {
+                    stringResource(
+                        R.string.settings_android_auto_last_seen,
+                        formatTimestamp(lastSeenMs),
+                    )
+                } else {
+                    stringResource(R.string.settings_android_auto_never)
+                },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            settings.carLastHost?.let { host ->
+                Text(
+                    text = stringResource(R.string.settings_android_auto_last_host, host),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text(
+                text = stringResource(R.string.settings_android_auto_checklist_title),
+                style = MaterialTheme.typography.titleSmall,
+            )
+            listOf(
+                R.string.settings_android_auto_step_1,
+                R.string.settings_android_auto_step_2,
+                R.string.settings_android_auto_step_3,
+                R.string.settings_android_auto_step_4,
+            ).forEach { step ->
+                Text(
+                    text = stringResource(step),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Text(
+                text = stringResource(R.string.settings_android_auto_hint),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = stringResource(R.string.settings_android_auto_diagnostic_hint),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** Hilt access to the settings store for the car-diagnostics help card (card 42). */
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+interface CarDiagnosticsEntryPoint {
+    fun settingsRepository(): SettingsRepository
 }
 
 @Composable

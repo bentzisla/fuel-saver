@@ -351,21 +351,21 @@ Three original-plan items that had no task card. Added 2026-09-20, run as one fi
 
 Eight user-reported issues. Each has a card (19-26). High-priority bug first (20).
 
-- [ ] **10.1 App version display.** *(#8)* Settings footer with `versionName`/`versionCode` + build date.
+- [x] **10.1 App version display.** *(#8)* Settings footer with `versionName`/`versionCode` + build date.
       See `remediation/tasks/19-app-version.md`.
-- [ ] **10.2 OBD notification lingers.** *(#3, bug)* "מתעד צריכת דלק" shows ~80% of the time even far from the car.
+- [x] **10.2 OBD notification lingers.** *(#3, bug)* "מתעד צריכת דלק" shows ~80% of the time even far from the car.
       No connect timeout + eager auto-start + `sawActive` stop-gate. See `remediation/tasks/20-notification-lingering.md`.
-- [ ] **10.3 OBD connection controls.** *(#2)* Connect/disconnect/reset + real-time status + retry.
+- [x] **10.3 OBD connection controls.** *(#2)* Connect/disconnect/reset + real-time status + retry.
       See `remediation/tasks/21-obd-connection-ux.md`.
-- [ ] **10.4 Dashboard layout.** *(#4)* Reorganize/size the live dashboard.
+- [x] **10.4 Dashboard layout.** *(#4)* Reorganize/size the live dashboard.
       See `remediation/tasks/22-dashboard-layout.md`.
-- [ ] **10.5 Route results UX.** *(#5)* Map follows selected route, show duration, route-tap shows map/graph.
+- [x] **10.5 Route results UX.** *(#5)* Map follows selected route, show duration, route-tap shows map/graph.
       See `remediation/tasks/23-route-results-ux.md`.
-- [ ] **10.6 Curve screen.** *(#6)* Graph proportions + axis numbers + delete confirmation.
+- [x] **10.6 Curve screen.** *(#6)* Graph proportions + axis numbers + delete confirmation.
       See `remediation/tasks/24-curve-screen.md`.
-- [ ] **10.7 Combined rides.** *(#7)* Each drive = one "ride" combining recommended route + actual measurement.
+- [x] **10.7 Combined rides.** *(#7)* Each drive = one "ride" combining recommended route + actual measurement.
       See `remediation/tasks/25-combined-rides.md`.
-- [ ] **10.8 Android Auto not showing.** *(#1)* Host-validator/category fix + DHU procedure.
+- [x] **10.8 Android Auto not showing.** *(#1)* Host-validator/category fix + DHU procedure.
       See `remediation/tasks/26-android-auto-debug.md`.
 
 ---
@@ -388,6 +388,31 @@ Second round of user feedback. Cards 27-33.
       See `remediation/tasks/32-curve-basis.md`.
 - [x] **11.7 Calibration UX.** *(#7)* Guided, explainable calibration flow + refuel-calibration linkage.
       See `remediation/tasks/33-calibration-ux.md`.
+
+---
+
+## Phase 12 - Round-3 UX fixes (2026-09-20)
+
+Third round of user feedback. Cards 34-42.
+
+- [x] **12.1 OBD disconnect must fully stop.** *(#1a, bug)* Sticky "user disconnected" latch; stop reconnect/auto-start
+      re-arm. See `remediation/tasks/34-obd-disconnect-sticky.md`.
+- [x] **12.2 OBD connection reliability.** *(#1b, bug)* Connect retry + RFCOMM workaround chain + specific error
+      reasons. See `remediation/tasks/35-obd-connect-reliability.md`.
+- [x] **12.3 Interactive curve graph.** *(#2)* Remove on-curve clutter; tap/drag crosshair for per-bin detail.
+      See `remediation/tasks/36-curve-interactive.md`.
+- [x] **12.4 Versioning policy.** *(#3)* Semver bump helper + policy (minor=feature, patch=bugfix).
+      See `remediation/tasks/37-versioning.md`.
+- [x] **12.5 Route graph minimize/explain.** *(#4)* Collapse the on-page route graph by default + explain it.
+      See `remediation/tasks/38-route-graph-minimize.md`.
+- [x] **12.6 Toll message.** *(#5)* "אגרה לא ידועה" only when truly unknown; else "אין אגרה"/nothing.
+      See `remediation/tasks/39-toll-message.md`.
+- [x] **12.7 Map layout fit.** *(#6)* Camera padding + responsive height + visual integration.
+      See `remediation/tasks/40-map-layout-fit.md`.
+- [x] **12.8 Keyboard black block.** *(#7)* Fix IME/edge-to-edge insets hiding the route input.
+      See `remediation/tasks/41-keyboard-block.md`.
+- [x] **12.9 Android Auto on the car.** *(#8)* Car lifecycle diagnostics + first-run "Unknown sources" checklist.
+      See `remediation/tasks/42-android-auto-car.md`.
 
 ---
 

@@ -37,8 +37,9 @@ import com.google.maps.android.compose.rememberUpdatedMarkerState
  *
  * The selected polyline is drawn last (on top) with a white casing and a thicker stroke, while
  * every alternative keeps its own distinct colour so all routes stay legible at a glance; the
- * camera re-fits to the selected route whenever the selection changes. Each polyline gets a
- * numbered badge (matching its colour) so it can be matched to its result card.
+ * camera re-fits whenever the selection changes, framing the selected route together with every
+ * alternative so none of them (nor their badges) is clipped. Each polyline gets a numbered badge
+ * (matching its colour) so it can be matched to its result card.
  */
 @OptIn(MapsComposeExperimentalApi::class)
 @Composable
@@ -101,14 +102,21 @@ fun RouteMap(
 
     LaunchedEffect(mapReady, polylines, selectedIndex) {
         if (!mapReady) return@LaunchedEffect
+        // Fit to the selected route, but include every alternative so no polyline or badge falls
+        // outside the viewport; the generous padding keeps the edge markers clear of the frame.
         val selected = polylines.getOrNull(selectedIndex)
-        val target = selected ?: polylines.filterNotNull().flatten()
+        val target = (listOfNotNull(selected) + polylines.filterNotNull()).flatten()
         if (target.size < 2) return@LaunchedEffect
         val builder = LatLngBounds.Builder()
         target.forEach { builder.include(it) }
-        cameraPositionState.move(CameraUpdateFactory.newLatLngBounds(builder.build(), 80))
+        cameraPositionState.move(
+            CameraUpdateFactory.newLatLngBounds(builder.build(), MapBoundsPadding),
+        )
     }
 }
+
+/** Pixels of padding around the fitted route bounds so polylines and badges are never clipped. */
+private const val MapBoundsPadding = 120
 
 @Composable
 private fun RouteNumberBadge(number: Int, selected: Boolean, color: Color) {

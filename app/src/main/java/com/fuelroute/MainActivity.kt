@@ -2,10 +2,12 @@ package com.fuelroute
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.mutableStateOf
+import androidx.core.view.WindowCompat
 import com.fuelroute.nav.FuelRouteNavHost
 import com.fuelroute.service.ObdLoggingService
 import com.fuelroute.ui.theme.FuelRouteTheme
@@ -17,8 +19,14 @@ class MainActivity : ComponentActivity() {
     private val openStats = mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
+        // Edge-to-edge before super.onCreate so the window is laid out behind the system bars
+        // and the IME; Compose consumes the resulting insets (Scaffold + imePadding).
         enableEdgeToEdge()
+        super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        // Compose draws behind the keyboard, so the window must resize (not pan) when the IME
+        // appears; RouteScreen then lifts its inputs with imePadding().
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         openStats.value = intent.wantsStats()
         setContent {
             FuelRouteTheme {
