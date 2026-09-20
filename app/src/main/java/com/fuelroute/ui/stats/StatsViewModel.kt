@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -218,8 +219,10 @@ class StatsViewModel @Inject constructor(
     /** User-initiated disconnect: stops logging and clears the visible error/device. */
     fun disconnect() {
         _connectingName.value = null
-        // Sticky latch: nothing may auto-re-arm logging until the user reconnects.
-        viewModelScope.launch { settingsRepository.saveManualDisconnect(true) }
+        // Sticky latch — must be persisted BEFORE stopping so a racing ACL/STATE broadcast
+        // (the dongle is often still connected at this instant) can't re-arm logging. The
+        // async launch below was racy: the receiver could read the old (false) value.
+        runBlocking { settingsRepository.saveManualDisconnect(true) }
         engine.disconnect()
         ObdLoggingService.stop(appContext)
     }
@@ -227,7 +230,7 @@ class StatsViewModel @Inject constructor(
     /** Full reset: stops logging and wipes engine state so the next connect starts clean. */
     fun reset() {
         _connectingName.value = null
-        viewModelScope.launch { settingsRepository.saveManualDisconnect(true) }
+        runBlocking { settingsRepository.saveManualDisconnect(true) }
         engine.reset()
         ObdLoggingService.stop(appContext)
     }
