@@ -374,19 +374,19 @@ Eight user-reported issues. Each has a card (19-26). High-priority bug first (20
 
 Second round of user feedback. Cards 27-33.
 
-- [ ] **11.1 Route graph + results usability.** *(#1)* Rebuild the route graph (labelled axes, congestion band), show
+- [x] **11.1 Route graph + results usability.** *(#1)* Rebuild the route graph (labelled axes, congestion band), show
       time/distance/liters/₪/toll/ETA on cards, taller legible map. See `remediation/tasks/27-route-graph.md`.
-- [ ] **11.2 Destination "נקה" clear button.** *(#2)* Separate clear affordance on origin/destination fields.
+- [x] **11.2 Destination "נקה" clear button.** *(#2)* Separate clear affordance on origin/destination fields.
       See `remediation/tasks/28-destination-clear.md`.
-- [ ] **11.3 History "חסכת" only for driven routes.** *(#3)* Stop claiming savings for searches never driven.
+- [x] **11.3 History "חסכת" only for driven routes.** *(#3)* Stop claiming savings for searches never driven.
       See `remediation/tasks/29-history-saved-label.md`.
-- [ ] **11.4 Fuel type vs octane grade.** *(#4)* Disentangle `FuelType` from octane; diesel must not appear as an octane.
+- [x] **11.4 Fuel type vs octane grade.** *(#4)* Disentangle `FuelType` from octane; diesel must not appear as an octane.
       See `remediation/tasks/30-fuel-type-grade.md`.
-- [ ] **11.5 Settings reorganization.** *(#5)* Group the oversized Settings into sections.
+- [x] **11.5 Settings reorganization.** *(#5)* Group the oversized Settings into sections.
       See `remediation/tasks/31-settings-reorg.md`.
-- [ ] **11.6 Curve basis disclosure.** *(#6)* Show learned km/samples/blend confidence on the curve screen.
+- [x] **11.6 Curve basis disclosure.** *(#6)* Show learned km/samples/blend confidence on the curve screen.
       See `remediation/tasks/32-curve-basis.md`.
-- [ ] **11.7 Calibration UX.** *(#7)* Guided, explainable calibration flow + refuel-calibration linkage.
+- [x] **11.7 Calibration UX.** *(#7)* Guided, explainable calibration flow + refuel-calibration linkage.
       See `remediation/tasks/33-calibration-ux.md`.
 
 ---
