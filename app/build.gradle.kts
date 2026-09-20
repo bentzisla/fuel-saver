@@ -119,6 +119,9 @@ dependencies {
     implementation(libs.play.services.location)
     implementation(libs.places)
 
+    implementation(libs.androidx.car.app)
+    implementation(libs.androidx.car.app.projected)
+
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation(libs.junit)
