@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket
 import android.util.Log
-import com.fuelroute.domain.obd.ConnectPolicy
 import com.fuelroute.domain.obd.ObdConnectionPolicy
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -173,14 +172,14 @@ class BluetoothClassicTransport(
             }
         }
         val timedOut = try {
-            withTimeout(ConnectPolicy.CONNECT_TIMEOUT_MS) { connectJob.join() }
+            withTimeout(ObdConnectionPolicy.CONNECT_TIMEOUT_MS) { connectJob.join() }
             false
         } catch (_: TimeoutCancellationException) {
             true
         }
 
         if (timedOut) {
-            Log.w(TAG, "connect to ${device.address} timed out after ${ConnectPolicy.CONNECT_TIMEOUT_MS}ms")
+            Log.w(TAG, "connect to ${device.address} timed out after ${ObdConnectionPolicy.CONNECT_TIMEOUT_MS}ms")
             runCatching { s.close() }
             connectJob.cancel()
             return Result.failure(SocketTimeoutException(ObdConnectionPolicy.ERROR_CONNECT_TIMEOUT))

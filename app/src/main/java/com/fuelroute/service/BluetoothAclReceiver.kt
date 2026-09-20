@@ -14,7 +14,7 @@ import androidx.core.content.ContextCompat
 import com.fuelroute.data.settings.SettingsRepository
 import com.fuelroute.domain.obd.AutoConnectDebounce
 import com.fuelroute.domain.obd.BondedObdDevice
-import com.fuelroute.domain.obd.ConnectPolicy
+import com.fuelroute.domain.obd.ObdConnectionPolicy
 import com.fuelroute.domain.obd.ObdDeviceMatcher
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
@@ -72,7 +72,7 @@ class BluetoothAclReceiver : BroadcastReceiver() {
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
                 val settings = settingsRepository.settings.first()
-                if (ConnectPolicy.shouldSuppressAutoConnect(settings.manualDisconnect)) {
+                if (ObdConnectionPolicy.shouldSuppressAutoConnect(settings.manualDisconnect)) {
                     Log.i(TAG, "ACL_CONNECTED ignored: manual disconnect latch is set")
                     return@launch
                 }
@@ -136,7 +136,7 @@ class BluetoothAclReceiver : BroadcastReceiver() {
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
                 val settings = settingsRepository.settings.first()
-                if (ConnectPolicy.shouldSuppressAutoConnect(settings.manualDisconnect)) {
+                if (ObdConnectionPolicy.shouldSuppressAutoConnect(settings.manualDisconnect)) {
                     Log.i(TAG, "STATE_ON ignored: manual disconnect latch is set")
                     return@launch
                 }
@@ -149,7 +149,7 @@ class BluetoothAclReceiver : BroadcastReceiver() {
                     lastDeviceAddress = settings.lastDeviceAddress,
                     bonded = bonded,
                 ) ?: return@launch
-                if (!ConnectPolicy.shouldAutoStartOnAdapterOn(target, connectedAddresses)) {
+                if (!ObdConnectionPolicy.shouldAutoStartOnAdapterOn(target, connectedAddresses)) {
                     Log.i(TAG, "Bluetooth on but $target is not connected — not starting logging")
                     return@launch
                 }

@@ -1,11 +1,58 @@
 package com.fuelroute.domain.obd
 
 /**
- * Pure decision rules for keeping a flaky ELM327 link alive: when to reconnect,
- * how long to back off, and when the engine has clearly been switched off.
- * Kept free of Android/coroutine dependencies so it is unit-testable.
+ * Pure decision rules for the whole OBD connect lifecycle, shared by the Bluetooth transport,
+ * the engine, and the foreground logging service. Kept free of Android/coroutine types so it
+ * is unit-testable on the JVM.
+ *
+ * (This merges the former `ConnectPolicy`, which had grown as a second, overlapping object
+ * during parallel remediation work.)
  */
 object ObdConnectionPolicy {
+
+    // --- Connect lifecycle -----------------------------------------------------------------
+
+    /** Hard upper bound on a single Bluetooth connect attempt. */
+    const val CONNECT_TIMEOUT_MS = 15_000L
+
+    /**
+     * A freshly started logging service never stops itself during this window, so the engine
+     * state flow's initial `Disconnected` value cannot kill it before the first `Connecting`
+     * emission (the `Disconnected -> Connecting` transient).
+     */
+    const val STARTUP_GRACE_MS = 2_000L
+
+    /** Engine status names, mirrored from `ObdStatus` for the pure policy. */
+    const val STATUS_DISCONNECTED = "Disconnected"
+    const val STATUS_CONNECTING = "Connecting"
+    const val STATUS_CONNECTED = "Connected"
+    const val STATUS_ERROR = "Error"
+
+    // --- Connect retry / workaround chain (card 35) ----------------------------------------
+
+    /** How many times the full connect workaround chain is tried before giving up. */
+    const val CONNECT_ATTEMPTS = 3
+
+    /** Short pause between full connect-chain retries (not the long reconnect backoff). */
+    const val CONNECT_RETRY_BACKOFF_MS = 750L
+
+    /**
+     * Ordered Bluetooth SPP socket strategies. Cheap ELM327 dongles often reject the secure
+     * service-record lookup but accept the insecure variant, or only the raw channel 1.
+     */
+    enum class ConnectVariant { SECURE_RFCOMM, INSECURE_RFCOMM, CHANNEL_1 }
+
+    /** The workaround order: secure -> insecure -> reflection channel 1. */
+    fun connectVariants(): List<ConnectVariant> =
+        listOf(ConnectVariant.SECURE_RFCOMM, ConnectVariant.INSECURE_RFCOMM, ConnectVariant.CHANNEL_1)
+
+    /** Number of attempts the transport makes for a single `connect()` call. */
+    fun connectAttempts(): Int = CONNECT_ATTEMPTS
+
+    /** True while another full-chain connect attempt is allowed ([attempt] is 1-based). */
+    fun shouldRetryConnect(attempt: Int): Boolean = attempt < CONNECT_ATTEMPTS
+
+    // --- Reconnect / backoff ---------------------------------------------------------------
 
     /** Consecutive empty/failed speed replies that trigger a reconnect. */
     const val RECONNECT_AFTER_FAILURES = 5
@@ -16,43 +63,11 @@ object ObdConnectionPolicy {
     /** Backoff never grows beyond this. */
     const val BACKOFF_CAP_MS = 60_000L
 
-    /** RPM must stay unavailable this long before we treat the ignition as off. */
-    const val IGNITION_OFF_RPM_TIMEOUT_MS = 60_000L
-
-    /** Below this voltage the engine cannot be running. */
-    const val LOW_BATTERY_VOLTS = 11.5
-
-    /** How many times the full connect workaround chain is tried before giving up (card 35). */
-    const val CONNECT_ATTEMPTS = 3
-
-    /** Short pause between full connect-chain retries (not the long reconnect backoff). */
-    const val CONNECT_RETRY_BACKOFF_MS = 750L
-
-    /** Reconnect attempts after a dropped link before the status becomes `Error` (card 35). */
+    /** Reconnect attempts after a dropped link before the status becomes `Error`. */
     const val MAX_RECONNECT_ATTEMPTS = 3
 
-    /** Machine error codes surfaced through `LiveObdState.lastError`. */
-    const val ERROR_CONNECT = "CONNECT"
-    const val ERROR_CONNECT_TIMEOUT = "CONNECT TIMEOUT"
-    const val ERROR_SOCKET_CLOSED = "SOCKET CLOSED"
-    const val ERROR_SECURITY = "SECURITY"
-    const val ERROR_SEARCHING = "SEARCHING"
-
-    /**
-     * Ordered Bluetooth SPP socket strategies. Cheap ELM327 dongles often reject the secure
-     * service-record lookup but accept the insecure variant, or only the raw channel 1.
-     */
-    enum class ConnectVariant { SECURE_RFCOMM, INSECURE_RFCOMM, CHANNEL_1 }
-
-    /** The workaround order: secure → insecure → reflection channel 1. */
-    fun connectVariants(): List<ConnectVariant> =
-        listOf(ConnectVariant.SECURE_RFCOMM, ConnectVariant.INSECURE_RFCOMM, ConnectVariant.CHANNEL_1)
-
-    /** Number of attempts the transport makes for a single `connect()` call. */
-    fun connectAttempts(): Int = CONNECT_ATTEMPTS
-
-    /** True while another full-chain connect attempt is allowed ([attempt] is 1-based). */
-    fun shouldRetryConnect(attempt: Int): Boolean = attempt < CONNECT_ATTEMPTS
+    fun shouldReconnect(consecutiveFailures: Int): Boolean =
+        consecutiveFailures >= RECONNECT_AFTER_FAILURES
 
     /**
      * True while a dropped link should still be re-established: reconnect attempts remain
@@ -64,21 +79,31 @@ object ObdConnectionPolicy {
     fun shouldRetryReconnect(attempt: Int, deviceConnected: Boolean): Boolean =
         attempt < MAX_RECONNECT_ATTEMPTS && deviceConnected
 
-    fun shouldReconnect(consecutiveFailures: Int): Boolean =
-        consecutiveFailures >= RECONNECT_AFTER_FAILURES
-
-    /**
-     * Exponential backoff 2, 4, 8, 16, 32 s then a 60 s plateau (attempt >= 5).
-     */
+    /** Exponential backoff 2, 4, 8, 16, 32 s then a 60 s plateau (attempt >= 5). */
     fun backoffDelayMs(attempt: Int): Long {
         val safeAttempt = attempt.coerceIn(0, 5)
         return (2_000L shl safeAttempt).coerceAtMost(BACKOFF_CAP_MS)
     }
 
     /**
-     * True when the sample stream says the engine is off: either the battery has
-     * dropped below [LOW_BATTERY_VOLTS], or RPM has been missing for at least
-     * [IGNITION_OFF_RPM_TIMEOUT_MS].
+     * True while the engine's reconnect backoff loop should keep trying. Once a stop is
+     * requested (the engine's `stopRequested` flag set by `stop()`/`disconnect()`/`reset()`)
+     * the loop must return without further attempts, even if a blocking `connect()` just
+     * returned.
+     */
+    fun shouldContinueReconnect(stopRequested: Boolean): Boolean = !stopRequested
+
+    // --- Ignition-off detection ------------------------------------------------------------
+
+    /** RPM must stay unavailable this long before we treat the ignition as off. */
+    const val IGNITION_OFF_RPM_TIMEOUT_MS = 60_000L
+
+    /** Below this voltage the engine cannot be running. */
+    const val LOW_BATTERY_VOLTS = 11.5
+
+    /**
+     * True when the sample stream says the engine is off: either the battery has dropped below
+     * [LOW_BATTERY_VOLTS], or RPM has been missing for at least [IGNITION_OFF_RPM_TIMEOUT_MS].
      */
     fun shouldStopForIgnitionOff(
         rpmNullSinceMs: Long?,
@@ -88,4 +113,54 @@ object ObdConnectionPolicy {
         if (batteryVoltage != null && batteryVoltage < LOW_BATTERY_VOLTS) return true
         return rpmNullSinceMs != null && nowMs - rpmNullSinceMs >= IGNITION_OFF_RPM_TIMEOUT_MS
     }
+
+    // --- Logging-service lifecycle ---------------------------------------------------------
+
+    /**
+     * True when the logging service should stop itself because the engine reached a terminal
+     * state.
+     *
+     * @param status engine status name (`Disconnected`, `Connecting`, `Connected`, `Error`).
+     * @param elapsedMs time since the service started logging.
+     * @param sawData whether the engine ever reached `Connecting`/`Connected`, i.e. the connect
+     *   attempt was actually entered. Once true a terminal state is unambiguous and stops
+     *   immediately; when false we still wait out [STARTUP_GRACE_MS] so a slow start does not
+     *   kill the service on the initial `Disconnected` emission.
+     */
+    fun shouldAutoStop(status: String, elapsedMs: Long, sawData: Boolean): Boolean {
+        val terminal = status == STATUS_ERROR || status == STATUS_DISCONNECTED
+        if (!terminal) return false
+        if (sawData) return true
+        return elapsedMs >= STARTUP_GRACE_MS
+    }
+
+    // --- Auto-connect gating ---------------------------------------------------------------
+
+    /**
+     * True when an adapter `STATE_ON` broadcast should auto-start for [target].
+     *
+     * A resolved bonded/last-used target is not enough: the adapter must also be ACL-connected,
+     * so merely turning Bluetooth on with a paired-but-absent dongle does not summon the
+     * foreground notification.
+     */
+    fun shouldAutoStartOnAdapterOn(target: String?, connectedAddresses: Collection<String>): Boolean {
+        val address = target?.takeIf { it.isNotBlank() } ?: return false
+        return connectedAddresses.any { it.equals(address, ignoreCase = true) }
+    }
+
+    /**
+     * True when every auto-connect entry point must be suppressed because the user explicitly
+     * disconnected (card 34). The latch is sticky and is only cleared by an explicit reconnect,
+     * so this returns the latch verbatim.
+     */
+    fun shouldSuppressAutoConnect(manualDisconnect: Boolean): Boolean = manualDisconnect
+
+    // --- Machine error codes ---------------------------------------------------------------
+
+    /** Machine error codes surfaced through `LiveObdState.lastError`. */
+    const val ERROR_CONNECT = "CONNECT"
+    const val ERROR_CONNECT_TIMEOUT = "CONNECT TIMEOUT"
+    const val ERROR_SOCKET_CLOSED = "SOCKET CLOSED"
+    const val ERROR_SECURITY = "SECURITY"
+    const val ERROR_SEARCHING = "SEARCHING"
 }

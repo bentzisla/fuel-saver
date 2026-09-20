@@ -23,7 +23,7 @@ import com.fuelroute.data.obd.ObdTransport
 import com.fuelroute.data.obd.SimulatedObdTransport
 import com.fuelroute.data.settings.SettingsRepository
 import com.fuelroute.data.vehicle.VehicleRepository
-import com.fuelroute.domain.obd.ConnectPolicy
+import com.fuelroute.domain.obd.ObdConnectionPolicy
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -166,7 +166,7 @@ class ObdLoggingService : Service() {
                 if (state.status == ObdStatus.Connecting || state.status == ObdStatus.Connected) {
                     sawData = true
                 }
-                if (ConnectPolicy.shouldAutoStop(
+                if (ObdConnectionPolicy.shouldAutoStop(
                         status = state.status.name,
                         elapsedMs = System.currentTimeMillis() - startedAtMs,
                         sawData = sawData,

@@ -14,7 +14,6 @@ import com.fuelroute.domain.learning.TripDetector
 import com.fuelroute.domain.model.ObdSample
 import com.fuelroute.domain.model.SpeedBinStats
 import com.fuelroute.domain.model.VehicleProfile
-import com.fuelroute.domain.obd.ConnectPolicy
 import com.fuelroute.domain.obd.ElmProtocol
 import com.fuelroute.domain.obd.ObdConnectionPolicy
 import kotlinx.coroutines.CancellationException
@@ -500,11 +499,11 @@ class ObdEngine @Inject constructor(
         ) {
             // A stop requested while `connect()` was blocking must abort the loop instead
             // of exhausting the remaining attempts.
-            if (!ConnectPolicy.shouldContinueReconnect(stopRequested)) return false
+            if (!ObdConnectionPolicy.shouldContinueReconnect(stopRequested)) return false
             val backoffMs = ObdConnectionPolicy.backoffDelayMs(attempt)
             delay(backoffMs)
             waitedMs += backoffMs
-            if (!ConnectPolicy.shouldContinueReconnect(stopRequested)) return false
+            if (!ObdConnectionPolicy.shouldContinueReconnect(stopRequested)) return false
             if (transport.connect().isSuccess) {
                 Log.i(TAG, "reconnected on attempt ${attempt + 1} after ${waitedMs}ms")
                 return true
