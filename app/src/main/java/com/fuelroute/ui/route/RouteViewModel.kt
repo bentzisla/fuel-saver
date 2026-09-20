@@ -9,6 +9,8 @@ import com.fuelroute.data.location.Coordinates
 import com.fuelroute.data.location.LocationRepository
 import com.fuelroute.data.location.ReverseGeocoder
 import com.fuelroute.data.obd.LearnedCurveRepository
+import com.fuelroute.data.places.FavoriteDestination
+import com.fuelroute.data.places.FavoritesRepository
 import com.fuelroute.data.places.PlaceSuggestion
 import com.fuelroute.data.places.PlacesHistoryRepository
 import com.fuelroute.data.places.PlacesRepository
@@ -60,6 +62,7 @@ data class RouteUiState(
     val originSuggestions: List<PlaceSuggestion> = emptyList(),
     val destinationSuggestions: List<PlaceSuggestion> = emptyList(),
     val history: List<RecentPlace> = emptyList(),
+    val favorites: List<FavoriteDestination> = emptyList(),
     val locationError: Boolean = false,
     val isLoading: Boolean = false,
     val error: RoutesError? = null,
@@ -85,6 +88,7 @@ class RouteViewModel @Inject constructor(
     private val routesRepository: RoutesRepository,
     private val placesRepository: PlacesRepository,
     private val placesHistoryRepository: PlacesHistoryRepository,
+    private val favoritesRepository: FavoritesRepository,
     private val locationRepository: LocationRepository,
     private val reverseGeocoder: ReverseGeocoder,
     private val vehicleRepository: VehicleRepository,
@@ -120,6 +124,12 @@ class RouteViewModel @Inject constructor(
         viewModelScope.launch {
             placesHistoryRepository.history.collect { history ->
                 _uiState.update { it.copy(history = history) }
+            }
+        }
+
+        viewModelScope.launch {
+            favoritesRepository.favorites.collect { favorites ->
+                _uiState.update { it.copy(favorites = favorites) }
             }
         }
 
@@ -229,6 +239,74 @@ class RouteViewModel @Inject constructor(
         if (place.placeId != null && (place.latitude == null || place.longitude == null)) {
             resolveDestinationDetails(place.placeId, place.label)
         }
+    }
+
+    /** Star/unstar the currently resolved destination (label + exact placeId/coords). */
+    fun onToggleDestinationFavorite() {
+        val state = _uiState.value
+        val label = state.destination.trim()
+        if (label.isBlank()) return
+        viewModelScope.launch {
+            val existing = favoritesRepository.find(state.destinationPlaceId, label)
+            if (existing != null) {
+                favoritesRepository.remove(existing.id)
+            } else {
+                favoritesRepository.add(
+                    label = label,
+                    placeId = state.destinationPlaceId,
+                    lat = state.destinationLocation?.latitude,
+                    lng = state.destinationLocation?.longitude,
+                )
+            }
+        }
+    }
+
+    /** Star/unstar a recents chip. */
+    fun onToggleRecentFavorite(place: RecentPlace) {
+        viewModelScope.launch {
+            val existing = favoritesRepository.find(place.placeId, place.label)
+            if (existing != null) {
+                favoritesRepository.remove(existing.id)
+            } else {
+                favoritesRepository.add(place.label, place.placeId, place.latitude, place.longitude)
+            }
+        }
+    }
+
+    /**
+     * One tap on a favorite chip: fills the destination with its exact placeId/coordinates and
+     * immediately re-runs the search.
+     */
+    fun onFavoriteSelected(favorite: FavoriteDestination) {
+        _uiState.update {
+            it.copy(
+                destination = favorite.label,
+                destinationPlaceId = favorite.placeId,
+                destinationLocation = if (favorite.latitude != null && favorite.longitude != null) {
+                    Coordinates(favorite.latitude, favorite.longitude)
+                } else {
+                    null
+                },
+                destinationSuggestions = emptyList(),
+            )
+        }
+        destinationQuery.value = ""
+        if (favorite.placeId != null && (favorite.latitude == null || favorite.longitude == null)) {
+            resolveDestinationDetails(favorite.placeId, favorite.label)
+        }
+        compute()
+    }
+
+    fun renameFavorite(id: Long, label: String) {
+        viewModelScope.launch { favoritesRepository.rename(id, label) }
+    }
+
+    fun removeFavorite(id: Long) {
+        viewModelScope.launch { favoritesRepository.remove(id) }
+    }
+
+    fun moveFavorite(id: Long, newSortOrder: Int) {
+        viewModelScope.launch { favoritesRepository.move(id, newSortOrder) }
     }
 
     /**

@@ -20,17 +20,25 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.Star as StarOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -50,9 +58,12 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fuelroute.R
+import com.fuelroute.data.places.FavoriteDestination
+import com.fuelroute.data.places.FavoritesRepository
 import com.fuelroute.data.places.PlaceSuggestion
 import com.fuelroute.data.places.RecentPlace
 import com.fuelroute.data.routes.RoutesError
+import com.fuelroute.ui.favorites.FavoritesScreen
 import com.fuelroute.data.settings.NAV_WAZE
 import com.fuelroute.domain.model.CongestionLevel
 import com.fuelroute.domain.model.Route
@@ -75,7 +86,15 @@ fun RouteScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var detailIndex by remember { mutableStateOf<Int?>(null) }
+    var editingFavorite by remember { mutableStateOf<FavoriteDestination?>(null) }
+    var showManageFavorites by remember { mutableStateOf(false) }
     val badges = RouteInsights.badges(state.results)
+    val destinationIsFavorite = state.favorites.any { favorite ->
+        FavoritesRepository.matches(favorite, state.destinationPlaceId, state.destination)
+    }
+    val visibleRecents = state.history.filterNot { place ->
+        state.favorites.any { favorite -> FavoritesRepository.matches(favorite, place.placeId, place.label) }
+    }
 
     val context = LocalContext.current
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -152,14 +171,48 @@ fun RouteScreen(
                     onSelect = viewModel::onDestinationSelect,
                     suggestions = state.destinationSuggestions,
                     label = stringResource(R.string.route_destination_label),
+                    trailingIcon = if (state.destination.isNotBlank()) {
+                        {
+                            IconButton(onClick = viewModel::onToggleDestinationFavorite) {
+                                Icon(
+                                    imageVector = if (destinationIsFavorite) {
+                                        Icons.Filled.Star
+                                    } else {
+                                        Icons.Outlined.StarOutline
+                                    },
+                                    contentDescription = stringResource(
+                                        if (destinationIsFavorite) {
+                                            R.string.route_favorite_remove
+                                        } else {
+                                            R.string.route_favorite_add
+                                        },
+                                    ),
+                                )
+                            }
+                        }
+                    } else {
+                        null
+                    },
                 )
             }
 
-            if (state.destination.isBlank() && state.history.isNotEmpty()) {
+            if (state.destination.isBlank() || state.favorites.isNotEmpty()) {
+                item {
+                    FavoriteDestinations(
+                        favorites = state.favorites,
+                        onSelect = viewModel::onFavoriteSelected,
+                        onEdit = { editingFavorite = it },
+                        onManage = { showManageFavorites = true },
+                    )
+                }
+            }
+
+            if (state.destination.isBlank() && visibleRecents.isNotEmpty()) {
                 item {
                     RecentDestinations(
-                        history = state.history,
+                        history = visibleRecents,
                         onSelect = viewModel::onRecentSelected,
+                        onToggleFavorite = viewModel::onToggleRecentFavorite,
                     )
                 }
             }
@@ -292,6 +345,31 @@ fun RouteScreen(
                 onDismiss = { detailIndex = null },
             )
         }
+    }
+
+    editingFavorite?.let { favorite ->
+        FavoriteEditDialog(
+            initialLabel = favorite.label,
+            onDismiss = { editingFavorite = null },
+            onRename = { newLabel ->
+                viewModel.renameFavorite(favorite.id, newLabel)
+                editingFavorite = null
+            },
+            onDelete = {
+                viewModel.removeFavorite(favorite.id)
+                editingFavorite = null
+            },
+        )
+    }
+
+    if (showManageFavorites) {
+        FavoritesScreen(
+            favorites = state.favorites,
+            onMoveUp = { favorite -> viewModel.moveFavorite(favorite.id, favorite.sortOrder - 1) },
+            onMoveDown = { favorite -> viewModel.moveFavorite(favorite.id, favorite.sortOrder + 1) },
+            onDelete = { favorite -> viewModel.removeFavorite(favorite.id) },
+            onDismiss = { showManageFavorites = false },
+        )
     }
 }
 
@@ -451,6 +529,7 @@ private fun CurrentLocationCard(
 private fun RecentDestinations(
     history: List<RecentPlace>,
     onSelect: (RecentPlace) -> Unit,
+    onToggleFavorite: (RecentPlace) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
@@ -464,10 +543,115 @@ private fun RecentDestinations(
                     selected = false,
                     onClick = { onSelect(place) },
                     label = { Text(place.label) },
+                    trailingIcon = {
+                        Icon(
+                            imageVector = Icons.Outlined.StarOutline,
+                            contentDescription = stringResource(R.string.route_favorite_add),
+                            modifier = Modifier
+                                .size(FilterChipDefaults.IconSize)
+                                .clickable { onToggleFavorite(place) },
+                        )
+                    },
                 )
             }
         }
     }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FavoriteDestinations(
+    favorites: List<FavoriteDestination>,
+    onSelect: (FavoriteDestination) -> Unit,
+    onEdit: (FavoriteDestination) -> Unit,
+    onManage: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(R.string.route_favorites_title),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (favorites.isNotEmpty()) {
+                TextButton(onClick = onManage) {
+                    Text(stringResource(R.string.route_favorites_manage))
+                }
+            }
+        }
+        if (favorites.isEmpty()) {
+            Text(
+                text = stringResource(R.string.route_favorites_empty_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                favorites.forEach { favorite ->
+                    FilterChip(
+                        selected = false,
+                        onClick = { onSelect(favorite) },
+                        label = { Text(favorite.label) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Filled.Star,
+                                contentDescription = null,
+                                modifier = Modifier.size(FilterChipDefaults.IconSize),
+                            )
+                        },
+                        trailingIcon = {
+                            Icon(
+                                imageVector = Icons.Filled.MoreVert,
+                                contentDescription = stringResource(R.string.route_favorite_edit),
+                                modifier = Modifier
+                                    .size(FilterChipDefaults.IconSize)
+                                    .clickable { onEdit(favorite) },
+                            )
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FavoriteEditDialog(
+    initialLabel: String,
+    onDismiss: () -> Unit,
+    onRename: (String) -> Unit,
+    onDelete: () -> Unit,
+) {
+    var label by remember { mutableStateOf(initialLabel) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.route_favorite_rename_title)) },
+        text = {
+            OutlinedTextField(
+                value = label,
+                onValueChange = { label = it },
+                singleLine = true,
+                label = { Text(stringResource(R.string.route_favorite_label_label)) },
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onRename(label) },
+                enabled = label.isNotBlank(),
+            ) {
+                Text(stringResource(R.string.route_favorite_save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDelete) {
+                Text(stringResource(R.string.route_favorite_delete))
+            }
+        },
+    )
 }
 
 @Composable
@@ -477,6 +661,7 @@ private fun PlaceField(
     onSelect: (PlaceSuggestion) -> Unit,
     suggestions: List<PlaceSuggestion>,
     label: String,
+    trailingIcon: (@Composable () -> Unit)? = null,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         OutlinedTextField(
@@ -484,6 +669,7 @@ private fun PlaceField(
             onValueChange = onValueChange,
             label = { Text(label) },
             singleLine = true,
+            trailingIcon = trailingIcon,
             modifier = Modifier.fillMaxWidth(),
         )
 
