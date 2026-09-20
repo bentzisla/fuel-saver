@@ -395,23 +395,23 @@ Second round of user feedback. Cards 27-33.
 
 Third round of user feedback. Cards 34-42.
 
-- [ ] **12.1 OBD disconnect must fully stop.** *(#1a, bug)* Sticky "user disconnected" latch; stop reconnect/auto-start
+- [x] **12.1 OBD disconnect must fully stop.** *(#1a, bug)* Sticky "user disconnected" latch; stop reconnect/auto-start
       re-arm. See `remediation/tasks/34-obd-disconnect-sticky.md`.
-- [ ] **12.2 OBD connection reliability.** *(#1b, bug)* Connect retry + RFCOMM workaround chain + specific error
+- [x] **12.2 OBD connection reliability.** *(#1b, bug)* Connect retry + RFCOMM workaround chain + specific error
       reasons. See `remediation/tasks/35-obd-connect-reliability.md`.
-- [ ] **12.3 Interactive curve graph.** *(#2)* Remove on-curve clutter; tap/drag crosshair for per-bin detail.
+- [x] **12.3 Interactive curve graph.** *(#2)* Remove on-curve clutter; tap/drag crosshair for per-bin detail.
       See `remediation/tasks/36-curve-interactive.md`.
-- [ ] **12.4 Versioning policy.** *(#3)* Semver bump helper + policy (minor=feature, patch=bugfix).
+- [x] **12.4 Versioning policy.** *(#3)* Semver bump helper + policy (minor=feature, patch=bugfix).
       See `remediation/tasks/37-versioning.md`.
-- [ ] **12.5 Route graph minimize/explain.** *(#4)* Collapse the on-page route graph by default + explain it.
+- [x] **12.5 Route graph minimize/explain.** *(#4)* Collapse the on-page route graph by default + explain it.
       See `remediation/tasks/38-route-graph-minimize.md`.
-- [ ] **12.6 Toll message.** *(#5)* "אגרה לא ידועה" only when truly unknown; else "אין אגרה"/nothing.
+- [x] **12.6 Toll message.** *(#5)* "אגרה לא ידועה" only when truly unknown; else "אין אגרה"/nothing.
       See `remediation/tasks/39-toll-message.md`.
-- [ ] **12.7 Map layout fit.** *(#6)* Camera padding + responsive height + visual integration.
+- [x] **12.7 Map layout fit.** *(#6)* Camera padding + responsive height + visual integration.
       See `remediation/tasks/40-map-layout-fit.md`.
-- [ ] **12.8 Keyboard black block.** *(#7)* Fix IME/edge-to-edge insets hiding the route input.
+- [x] **12.8 Keyboard black block.** *(#7)* Fix IME/edge-to-edge insets hiding the route input.
       See `remediation/tasks/41-keyboard-block.md`.
-- [ ] **12.9 Android Auto on the car.** *(#8)* Car lifecycle diagnostics + first-run "Unknown sources" checklist.
+- [x] **12.9 Android Auto on the car.** *(#8)* Car lifecycle diagnostics + first-run "Unknown sources" checklist.
       See `remediation/tasks/42-android-auto-car.md`.
 
 ---
