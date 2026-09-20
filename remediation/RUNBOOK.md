@@ -44,12 +44,24 @@ Wave 9 (parallel):             14-zero-touch-obd-logging      15-android-auto-da
                                (14 needs 07 + 03; 15 needs 03 + 02 + 07/14)
 Wave 10:                       09-tests-docs-hook       (needs everything; also closes Phase 0.4 doc fixes)
 Wave 11 (SEQUENTIAL):          16-retention  17-backup-export  18-debug-calibration   (Phase 9: 1.4 / 1.5 / 6.6)
+Wave 12 (parallel, disjoint):  19-app-version  23-route-results-ux  24-curve-screen  26-android-auto-debug
+Wave 13:                       20-notification-lingering   (urgent bug)
+Wave 14:                       21-obd-connection-ux         (needs 20's connect timeout)
+Wave 15 (parallel):            22-dashboard-layout  25-combined-rides
 ```
 
 **`16/17/18` must run sequentially** — all three touch `ui/settings/SettingsScreen.kt`, `SettingsViewModel.kt`,
 `data/settings/SettingsRepository.kt`, and `di/AppModule.kt`, so parallel dispatch would clobber shared files. Order:
 16 (retention) → 17 (backup) → 18 (calibration). 16 adds `androidx.work` (the orchestrator already added
 `work-runtime-ktx:2.11.2` to the version catalog).
+
+Phase 10 (cards 19-26) is user-reported UX/bug work. Ordering notes:
+- **20 (notification) is the urgent bug** — run it first, before 21.
+- **20 → 21 sequential**: both touch `ObdEngine` + `ObdLoggingService`. 21's clean retry/reset builds on 20's
+  connect timeout.
+- **22 (ui/stats) and 25 (ui/history) are disjoint** and can parallelize; neither touches `ObdEngine` after 20/21.
+- **Wave 12's four cards touch `res/values/strings.xml`** in different packages — the orchestrator reconciles
+  `strings.xml` after the wave (or dispatches with a "minimize string edits" note) before committing.
 
 **`09-tests-docs-hook` moved to last** (was Wave 6): it must also cover the Phase 8 cards' tests, fixtures and docs.
 

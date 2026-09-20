@@ -347,6 +347,29 @@ Three original-plan items that had no task card. Added 2026-09-20, run as one fi
 
 ---
 
+## Phase 10 - UX polish & bugs (user requests, 2026-09-20)
+
+Eight user-reported issues. Each has a card (19-26). High-priority bug first (20).
+
+- [ ] **10.1 App version display.** *(#8)* Settings footer with `versionName`/`versionCode` + build date.
+      See `remediation/tasks/19-app-version.md`.
+- [ ] **10.2 OBD notification lingers.** *(#3, bug)* "מתעד צריכת דלק" shows ~80% of the time even far from the car.
+      No connect timeout + eager auto-start + `sawActive` stop-gate. See `remediation/tasks/20-notification-lingering.md`.
+- [ ] **10.3 OBD connection controls.** *(#2)* Connect/disconnect/reset + real-time status + retry.
+      See `remediation/tasks/21-obd-connection-ux.md`.
+- [ ] **10.4 Dashboard layout.** *(#4)* Reorganize/size the live dashboard.
+      See `remediation/tasks/22-dashboard-layout.md`.
+- [ ] **10.5 Route results UX.** *(#5)* Map follows selected route, show duration, route-tap shows map/graph.
+      See `remediation/tasks/23-route-results-ux.md`.
+- [ ] **10.6 Curve screen.** *(#6)* Graph proportions + axis numbers + delete confirmation.
+      See `remediation/tasks/24-curve-screen.md`.
+- [ ] **10.7 Combined rides.** *(#7)* Each drive = one "ride" combining recommended route + actual measurement.
+      See `remediation/tasks/25-combined-rides.md`.
+- [ ] **10.8 Android Auto not showing.** *(#1)* Host-validator/category fix + DHU procedure.
+      See `remediation/tasks/26-android-auto-debug.md`.
+
+---
+
 ## Manual steps outside the codebase
 
 - Cloud Console: second API key for Routes/Places REST with Android restriction + `X-Android-*` headers, hard daily quota cap,
