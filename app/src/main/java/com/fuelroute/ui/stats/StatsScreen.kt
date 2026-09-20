@@ -18,38 +18,51 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fuelroute.R
 import com.fuelroute.data.obd.LiveObdState
 import com.fuelroute.data.obd.ObdStatus
+import com.fuelroute.data.price.FuelGrades
+import com.fuelroute.data.price.FuelPriceRepository
 import com.fuelroute.data.settings.AppSettings
+import com.fuelroute.domain.fuel.ModelConstants
 import com.fuelroute.domain.fuel.RangeEstimator
 import com.fuelroute.domain.model.Trip
 import com.fuelroute.domain.model.VehicleProfile
 import com.fuelroute.ui.permission.PermissionGate
 import com.fuelroute.ui.permission.findActivity
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.flow.map
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -69,6 +82,19 @@ fun StatsScreen(
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+
+    // Fuel price used for the live trip cost (₪). Read directly through a minimal Hilt entry
+    // point (same pattern as `CarDiagnosticsEntryPoint`) instead of widening `StatsViewModel`.
+    val priceRepository = remember(context) {
+        EntryPointAccessors.fromApplication(
+            context.applicationContext,
+            StatsPriceEntryPoint::class.java,
+        ).fuelPriceRepository()
+    }
+    val fuelGrade = activeVehicle?.grade ?: FuelGrades.GASOLINE_95
+    val fuelPricePerLiter by remember(priceRepository, fuelGrade) {
+        priceRepository.price(fuelGrade).map { it.pricePerLiter }
+    }.collectAsStateWithLifecycle(initialValue = ModelConstants.DEFAULT_FUEL_PRICE)
 
     LaunchedEffect(vinEvent) {
         val name = vinEvent ?: return@LaunchedEffect
@@ -196,14 +222,15 @@ fun StatsScreen(
                 }
             }
             ObdStatus.Connected -> {
+                // Glanceable hierarchy: speed → instant consumption → trip totals →
+                // secondary engine chips → range → learned data → collapsed diagnostics.
                 item { SpeedGauge(state) }
-                item { MetricRow(state) }
+                item { InstantConsumptionRow(state) }
+                item { TripSummaryCard(state, pricePerLiter = fuelPricePerLiter) }
+                item { SecondaryChips(state) }
                 item { RangeEstimateCard(state, activeVehicle) }
-                if (state.lastError != null || state.lastRawReply != null) {
-                    item { DebugCard(state) }
-                }
-                item { TripSummaryCard(state) }
                 item { LearnedCard(state) }
+                item { DiagnosticsCard(state) }
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(
@@ -233,7 +260,7 @@ fun StatsScreen(
                     }
                 }
                 if (state.lastError != null || state.lastRawReply != null) {
-                    item { DebugCard(state) }
+                    item { DiagnosticsCard(state, initiallyExpanded = true) }
                 }
                 item {
                     PermissionGate(
@@ -492,9 +519,10 @@ private fun SpeedGauge(state: LiveObdState) {
     }
 }
 
+/** Instant consumption, side by side: L/100km and L/h — the two numbers drivers act on. */
 @Composable
-private fun MetricRow(state: LiveObdState) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+private fun InstantConsumptionRow(state: LiveObdState) {
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         MetricTile(
             label = stringResource(R.string.stats_inst_l100),
             value = state.instantL100?.let { format(it, 1) } ?: "-",
@@ -507,18 +535,64 @@ private fun MetricRow(state: LiveObdState) {
             unit = stringResource(R.string.stats_units_lph),
             modifier = Modifier.weight(1f),
         )
-        MetricTile(
-            label = stringResource(R.string.stats_coolant),
-            value = state.coolantTempC?.let { "${Math.round(it)}°" } ?: "-",
-            unit = "",
-            modifier = Modifier.weight(1f),
+    }
+}
+
+/**
+ * Secondary, glanceable engine readouts. A [FlowRow] keeps them wrapping cleanly instead of
+ * squeezing into one row, so large system fonts never clip a value.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SecondaryChips(state: LiveObdState) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = stringResource(R.string.stats_engine_title),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        MetricTile(
-            label = stringResource(R.string.stats_rpm),
-            value = state.rpm?.let { "${Math.round(it)}" } ?: "-",
-            unit = "",
-            modifier = Modifier.weight(1f),
-        )
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            MetricChip(
+                label = stringResource(R.string.stats_rpm),
+                value = state.rpm?.let { "${Math.round(it)}" } ?: "-",
+            )
+            MetricChip(
+                label = stringResource(R.string.stats_coolant),
+                value = state.coolantTempC?.let { "${Math.round(it)}°" } ?: "-",
+            )
+            MetricChip(
+                label = stringResource(R.string.stats_battery),
+                value = state.batteryVoltage?.let { "${format(it, 1)} V" } ?: "-",
+            )
+            MetricChip(
+                label = stringResource(R.string.stats_fuel_level),
+                value = state.fuelLevelPct?.let { "${format(it, 0)}%" } ?: "-",
+            )
+        }
+    }
+}
+
+@Composable
+private fun MetricChip(label: String, value: String) {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(text = value, style = MaterialTheme.typography.titleSmall)
+        }
     }
 }
 
@@ -554,59 +628,91 @@ private fun MetricTile(
     }
 }
 
+/**
+ * Card-03 diagnostics (sample rate, battery voltage, VIN, raw reply) tucked into a collapsed
+ * "אבחון" section so they never crowd the driving view. Expanded by default on an error so the
+ * failure detail is still one tap away (already open).
+ */
 @Composable
-private fun DebugCard(state: LiveObdState) {
+private fun DiagnosticsCard(state: LiveObdState, initiallyExpanded: Boolean = false) {
+    var expanded by remember { mutableStateOf(initiallyExpanded) }
     Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                text = stringResource(R.string.stats_debug_title),
-                style = MaterialTheme.typography.titleSmall,
-            )
-            state.lastError?.let {
+        Column(modifier = Modifier.padding(vertical = 4.dp)) {
+            TextButton(
+                onClick = { expanded = !expanded },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
                 Text(
-                    text = stringResource(R.string.stats_last_error) + ": " + it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
+                    text = stringResource(R.string.stats_debug_title) +
+                        if (expanded) " ▾" else " ▸",
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Start,
+                    style = MaterialTheme.typography.titleSmall,
                 )
             }
-            state.lastRawReply?.let {
-                Text(
-                    text = stringResource(R.string.stats_raw_reply) + ": " + it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Text(
-                text = stringResource(R.string.stats_sample_rate) + ": " + format(state.sampleRateHz, 1) + " Hz",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            state.batteryVoltage?.let {
-                Text(
-                    text = stringResource(R.string.stats_battery) + ": " + format(it, 1) + " V",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            state.vin?.let {
-                Text(
-                    text = stringResource(R.string.stats_vin) + ": " + it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            if (expanded) {
+                Column(
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    state.lastError?.let {
+                        Text(
+                            text = stringResource(R.string.stats_last_error) + ": " + it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    state.lastRawReply?.let {
+                        Text(
+                            text = stringResource(R.string.stats_raw_reply) + ": " + it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Text(
+                        text = stringResource(R.string.stats_sample_rate) + ": " + format(state.sampleRateHz, 1) + " Hz",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    state.batteryVoltage?.let {
+                        Text(
+                            text = stringResource(R.string.stats_battery) + ": " + format(it, 1) + " V",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    state.vin?.let {
+                        Text(
+                            text = stringResource(R.string.stats_vin) + ": " + it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun TripSummaryCard(state: LiveObdState) {
+private fun TripSummaryCard(state: LiveObdState, pricePerLiter: Double) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 text = stringResource(R.string.stats_trip),
                 style = MaterialTheme.typography.titleMedium,
             )
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = stringResource(R.string.stats_trip_cost),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = "₪ ${format(state.tripFuelL * pricePerLiter, 2)}",
+                    style = MaterialTheme.typography.headlineMedium,
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 InfoColumn(
                     label = stringResource(R.string.stats_trip_distance),
@@ -734,6 +840,13 @@ private fun AutoLoggingStatusCard(settings: AppSettings) {
             }
         }
     }
+}
+
+/** Hilt access to the fuel-price store for the live trip cost (card 22). */
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+interface StatsPriceEntryPoint {
+    fun fuelPriceRepository(): FuelPriceRepository
 }
 
 private fun formatDate(epochMs: Long): String =

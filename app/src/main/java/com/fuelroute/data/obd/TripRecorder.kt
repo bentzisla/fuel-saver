@@ -17,6 +17,14 @@ class TripRecorder(private val tripDao: TripDao) {
     val isOpen: Boolean
         get() = tripId != null
 
+    /**
+     * Start timestamp of the currently-open (or just-closed) trip. The link wiring anchors
+     * [com.fuelroute.data.history.TripLinker.autoLink] on this value so the match always uses
+     * the same start that was written to the trip row.
+     */
+    val tripStartedAtMs: Long
+        get() = startedAtMs
+
     /** Closes rows left open by a previous crash/force-kill. */
     suspend fun closeLeftovers(nowMs: Long) {
         tripDao.closeOpenTrips(nowMs)

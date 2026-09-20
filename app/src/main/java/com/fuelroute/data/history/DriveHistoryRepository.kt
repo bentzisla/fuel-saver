@@ -9,6 +9,26 @@ import com.fuelroute.domain.history.PredictionAccuracy
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** Where a history row sits between "recommended" and "actually measured". */
+enum class RideState {
+    /** A search exists but no measured OBD outcome is available yet. */
+    WAITING_OBD,
+
+    /** Search and drive are paired and both predicted and actual numbers exist. */
+    LINKED,
+
+    /** A logged drive with no preceding search, so there is nothing to compare against. */
+    NO_PREDICTION,
+}
+
+/** A search the user can pick to pair with an unlinked drive. */
+data class LinkableSearch(
+    val id: Long,
+    val originLabel: String,
+    val destinationLabel: String,
+    val timestampMs: Long,
+)
+
 /**
  * One row of the History screen: a route search and, when the drive was logged, the
  * trip that took it. Orphan trips (a drive with no matching search) have a null search
@@ -35,6 +55,17 @@ data class DriveHistoryEntry(
 
     /** A search whose route was never actually driven (no linked OBD trip). */
     val isUndrivenSearch: Boolean get() = searchId != null && !hasActual
+
+    /** A logged drive the user can still pair with a search by hand. */
+    val canLinkManually: Boolean get() = tripId != null && searchId == null
+
+    /** The combined "ride" state label shown on the card. */
+    val rideState: RideState
+        get() = when {
+            searchId == null -> RideState.NO_PREDICTION
+            hasActual -> RideState.LINKED
+            else -> RideState.WAITING_OBD
+        }
 }
 
 data class DriveHistory(
@@ -51,6 +82,7 @@ data class DriveHistory(
 class DriveHistoryRepository @Inject constructor(
     private val routeSearchDao: RouteSearchDao,
     private val tripDao: TripDao,
+    private val tripLinker: TripLinker,
 ) {
 
     suspend fun recent(limit: Int = DEFAULT_LIMIT): DriveHistory {
@@ -74,6 +106,37 @@ class DriveHistoryRepository @Inject constructor(
 
         return DriveHistory(entries = entries, accuracyPct = accuracy)
     }
+
+    /**
+     * Searches that no trip owns yet, newest first, for the manual "קשר נסיעה" picker.
+     */
+    suspend fun linkCandidates(limit: Int = LINK_CANDIDATE_LIMIT): List<LinkableSearch> {
+        val linked = tripDao.recentClosed(LINKED_SCAN_LIMIT)
+            .mapNotNull { it.routeSearchId?.toLong() }
+            .toSet()
+        return routeSearchDao.recent(limit)
+            .filter { it.id !in linked }
+            .map {
+                LinkableSearch(
+                    id = it.id,
+                    originLabel = it.originLabel,
+                    destinationLabel = it.destinationLabel,
+                    timestampMs = it.timestampMs,
+                )
+            }
+    }
+
+    /** Manual pairing: links an orphan drive to the chosen search. */
+    suspend fun linkTrip(tripId: Long, searchId: Long) {
+        tripLinker.linkTrip(tripId, searchId)
+    }
+
+    /**
+     * One-tap pairing: links an orphan drive to the best unlinked search near its start.
+     * Returns true when a link was written.
+     */
+    suspend fun linkTripToNearest(tripId: Long, tripStartMs: Long): Boolean =
+        tripLinker.autoLink(tripId, tripStartMs) != null
 
     private fun RouteSearchEntity.toEntry(trip: TripEntity?): DriveHistoryEntry {
         val cost = selectedPredictedCost.takeIf { it > 0.0 } ?: cheapestCost
@@ -119,5 +182,7 @@ class DriveHistoryRepository @Inject constructor(
     companion object {
         const val DEFAULT_LIMIT = 50
         const val ACCURACY_WINDOW = 20
+        const val LINK_CANDIDATE_LIMIT = 30
+        private const val LINKED_SCAN_LIMIT = 500
     }
 }

@@ -313,6 +313,9 @@ class ObdEngine @Inject constructor(
                         tripRecorder.start(vehicleId, tripDetector.startedAtMs ?: sample.timestampMs)
                     }
                     is TripDetector.TripTransition.Ended -> {
+                        // Anchor the link on the start the recorder actually wrote, not the
+                        // detector transition, so a divergence can never mis-window the match.
+                        val startedAtMs = tripRecorder.tripStartedAtMs
                         val closedTripId = tripRecorder.end(
                             vehicleId = vehicleId,
                             endedAtMs = transition.endedAtMs,
@@ -323,7 +326,7 @@ class ObdEngine @Inject constructor(
                             pricePerLiter = pricePerLiter,
                         )
                         closedTripId?.let {
-                            tripLinker.autoLink(it, transition.startedAtMs, transition.endedAtMs)
+                            tripLinker.autoLink(it, startedAtMs, transition.endedAtMs)
                         }
                         tripDistance = 0.0
                         tripFuel = 0.0
@@ -453,6 +456,7 @@ class ObdEngine @Inject constructor(
             speedBinDao.upsertAll(bins.values.map { it.toEntity() })
             val end = tripDetector.forceEnd(lastSample?.timestampMs ?: System.currentTimeMillis())
             if (end is TripDetector.TripTransition.Ended) {
+                val startedAtMs = tripRecorder.tripStartedAtMs
                 val closedTripId = tripRecorder.end(
                     vehicleId = vehicleId,
                     endedAtMs = end.endedAtMs,
@@ -463,7 +467,7 @@ class ObdEngine @Inject constructor(
                     pricePerLiter = pricePerLiter,
                 )
                 closedTripId?.let {
-                    tripLinker.autoLink(it, end.startedAtMs, end.endedAtMs)
+                    tripLinker.autoLink(it, startedAtMs, end.endedAtMs)
                 }
             }
             transport.disconnect()

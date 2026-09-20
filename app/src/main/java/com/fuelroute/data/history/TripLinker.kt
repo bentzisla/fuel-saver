@@ -21,15 +21,39 @@ class TripLinker @Inject constructor(
 ) {
 
     /**
-     * Links a just-closed [tripId] to the nearest unlinked search within
-     * [TripMatcher.LINK_WINDOW_MS] before [tripStartMs]. No-op when nothing qualifies.
+     * Links a just-closed [tripId] to the search that best matches [tripStartMs]: the nearest
+     * unlinked search at/before the start within [TripMatcher.LINK_WINDOW_MS], preferring a
+     * destination match, and falling back to the nearest search shortly *after* the start (a
+     * user who begins moving and then searches the route). Returns the linked search id, or
+     * null when nothing qualifies.
      */
-    suspend fun autoLink(tripId: Long, tripStartMs: Long, nowMs: Long = System.currentTimeMillis()) {
+    suspend fun autoLink(
+        tripId: Long,
+        tripStartMs: Long,
+        nowMs: Long = System.currentTimeMillis(),
+        tripDestinationPlaceId: String? = null,
+        tripDestinationLabel: String? = null,
+    ): Long? {
         val candidates = routeSearchDao
             .recentWithinWindow(tripStartMs - TripMatcher.LINK_WINDOW_MS)
-            .map { RouteSearchCandidate(id = it.id, timestampMs = it.timestampMs) }
-        val match = TripMatcher.bestMatch(tripStartMs, candidates, linkedSearchIds()) ?: return
+            .map {
+                RouteSearchCandidate(
+                    id = it.id,
+                    timestampMs = it.timestampMs,
+                    destinationPlaceId = it.destinationPlaceId,
+                    destinationLabel = it.destinationLabel,
+                )
+            }
+        val match = TripMatcher.bestMatch(
+            tripStartMs = tripStartMs,
+            candidates = candidates,
+            linkedSearchIds = linkedSearchIds(),
+            afterWindowMs = TripMatcher.LINK_WINDOW_MS,
+            tripDestinationPlaceId = tripDestinationPlaceId,
+            tripDestinationLabel = tripDestinationLabel,
+        ) ?: return null
         tripDao.linkToRouteSearch(tripId, match.id.toInt(), nowMs)
+        return match.id
     }
 
     /** Explicit "יצאתי במסלול הזה": links [tripId] to [routeSearchId]. */

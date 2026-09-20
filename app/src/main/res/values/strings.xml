@@ -177,10 +177,13 @@
     <string name="stats_fuel_rate">צריכת דלק</string>
     <string name="stats_coolant">מנוע</string>
     <string name="stats_rpm">סל״ד</string>
+    <string name="stats_engine_title">נתוני מנוע</string>
+    <string name="stats_fuel_level">מפלס דלק</string>
     <string name="stats_trip">נסיעה נוכחית</string>
     <string name="stats_trip_distance">מרחק</string>
     <string name="stats_trip_fuel">דלק</string>
     <string name="stats_trip_time">זמן</string>
+    <string name="stats_trip_cost">עלות</string>
     <string name="stats_learned">נתוני למידה שנצברו</string>
     <string name="stats_learned_distance">ק״מ שנמדדו</string>
     <string name="stats_learned_bins">פחי מהירות</string>
@@ -245,6 +248,19 @@
     <string name="history_waiting_obd">ממתין לנתוני OBD</string>
     <string name="history_unlinked_drive">נסיעה ללא חיפוש מקדים</string>
     <string name="history_departed">יצאתי במסלול הזה</string>
+    <string name="history_ride_state_waiting">ממתין לנתוני OBD</string>
+    <string name="history_ride_state_linked">מקושר</string>
+    <string name="history_ride_state_no_prediction">ללא חיזוי</string>
+    <string name="history_ride_predicted">חזוי: %1$s ₪ • %2$s ל׳ • %3$s דק׳</string>
+    <string name="history_ride_actual">בפועל: %1$s ₪ • %2$s ל׳ • %3$s דק׳</string>
+    <string name="history_ride_actual_waiting">בפועל: ממתין לנתוני OBD</string>
+    <string name="history_link_ride">קשר נסיעה</string>
+    <string name="history_link_dialog_title">קישור נסיעה לחיפוש</string>
+    <string name="history_link_nearest">קישור אוטומטי לחיפוש הקרוב</string>
+    <string name="history_link_dialog_empty">אין חיפושים פנויים לקישור</string>
+    <string name="history_link_cancel">ביטול</string>
+    <string name="history_link_linked">הנסיעה קושרה לחיפוש</string>
+    <string name="history_link_none">לא נמצא חיפוש מתאים לקישור</string>
 
     <string name="notification_channel">רישום צריכת דלק</string>
     <string name="notification_title">FuelRoute</string>
