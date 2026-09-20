@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
+import androidx.work.WorkManager
 import com.fuelroute.data.learning.ColdStartRepository
 import com.fuelroute.data.learning.DefaultColdStartRepository
 import com.fuelroute.data.location.FusedLocationRepository
@@ -71,6 +72,16 @@ object AppModule {
     @Named("price")
     fun providePriceDataStore(@ApplicationContext context: Context): DataStore<Preferences> =
         context.priceDataStore
+
+    /**
+     * WorkManager is default-initialized by `androidx.startup` before `Application.onCreate`;
+     * exposing it via Hilt lets [com.fuelroute.service.RetentionScheduler] enqueue the daily
+     * retention job without a custom Configuration.
+     */
+    @Provides
+    @Singleton
+    fun provideWorkManager(@ApplicationContext context: Context): WorkManager =
+        WorkManager.getInstance(context)
 }
 
 @Module

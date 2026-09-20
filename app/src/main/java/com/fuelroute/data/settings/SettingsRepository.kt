@@ -6,9 +6,11 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.fuelroute.domain.fuel.ModelConstants
+import com.fuelroute.domain.retention.RetentionPolicy
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
@@ -30,6 +32,7 @@ data class AppSettings(
     val lastAutoStartMs: Long? = null,
     val lastObdError: String? = null,
     val autoConnectIntroSeen: Boolean = false,
+    val retentionDays: Int = RetentionPolicy.DEFAULT_RETENTION_DAYS,
 )
 
 interface SettingsRepository {
@@ -44,6 +47,7 @@ interface SettingsRepository {
     suspend fun saveLastAutoStart(value: Long?)
     suspend fun saveLastObdError(value: String?)
     suspend fun saveAutoConnectIntroSeen(value: Boolean)
+    suspend fun saveRetentionDays(value: Int)
 }
 
 @Singleton
@@ -65,6 +69,7 @@ class DataStoreSettingsRepository @Inject constructor(
                 lastAutoStartMs = prefs[Keys.LAST_AUTO_START_MS]?.takeIf { it > 0L },
                 lastObdError = prefs[Keys.LAST_OBD_ERROR]?.takeIf { it.isNotBlank() },
                 autoConnectIntroSeen = prefs[Keys.AUTO_CONNECT_INTRO_SEEN] ?: false,
+                retentionDays = prefs[Keys.RETENTION_DAYS] ?: RetentionPolicy.DEFAULT_RETENTION_DAYS,
             )
         }
 
@@ -108,6 +113,10 @@ class DataStoreSettingsRepository @Inject constructor(
         dataStore.edit { it[Keys.AUTO_CONNECT_INTRO_SEEN] = value }
     }
 
+    override suspend fun saveRetentionDays(value: Int) {
+        dataStore.edit { it[Keys.RETENTION_DAYS] = RetentionPolicy.applyRetentionDays(value) }
+    }
+
     private object Keys {
         val VALUE_PER_MINUTE = doublePreferencesKey("value_per_minute")
         val NAVIGATION_APP = stringPreferencesKey("navigation_app")
@@ -119,5 +128,6 @@ class DataStoreSettingsRepository @Inject constructor(
         val LAST_AUTO_START_MS = longPreferencesKey("last_auto_start_ms")
         val LAST_OBD_ERROR = stringPreferencesKey("last_obd_error")
         val AUTO_CONNECT_INTRO_SEEN = booleanPreferencesKey("auto_connect_intro_seen")
+        val RETENTION_DAYS = intPreferencesKey("retention_days")
     }
 }

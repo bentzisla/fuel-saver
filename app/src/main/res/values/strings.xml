@@ -239,6 +239,9 @@
     <string name="settings_show_overlay_hint">בועה קטנה עם הצריכה הנוכחית שנשארת על המסך כשהאפליקציה ברקע</string>
     <string name="settings_keep_screen_on">השאר מסך דלוק בזמן רישום</string>
     <string name="settings_keep_screen_on_hint">מונע כיבוי מסך כשהמחוונים החיים מוצגים</string>
+    <string name="settings_retention_label">שמירת דגימות OBD</string>
+    <string name="settings_retention_hint">דגימות גולמיות נמחקות אוטומטית אחרי התקופה שנבחרה</string>
+    <string name="settings_retention_days">%1$d ימים</string>
     <string name="settings_battery_optimization_rationale">כדי שרישום הדלק ימשיך לפעול כשהמסך כבוי, יש לפטור את FuelRoute מאופטימיזציית סוללה.</string>
     <string name="settings_battery_optimization_button">בטל אופטימיזציית סוללה</string>
     <string name="settings_elm_battery_note">שימו לב: דונגל ELM327 נשאר מחובר וצורך חשמל מהמצבר — נתקו אותו כשהרכב אינו בשימוש.</string>

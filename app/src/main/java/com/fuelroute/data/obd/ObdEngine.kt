@@ -76,9 +76,6 @@ class ObdEngine @Inject constructor(
         if (job?.isActive == true) return
         val vehicleId = vehicle.id
         job = scope.launch {
-            runCatching {
-                sampleDao.deleteOlderThan(System.currentTimeMillis() - SAMPLE_RETENTION_MS)
-            }
             mutableLive.update { it.copy(status = ObdStatus.Connecting) }
             val connected = transport.connect()
             if (connected.isFailure) {
@@ -457,7 +454,6 @@ class ObdEngine @Inject constructor(
         const val SAMPLE_PERSIST_INTERVAL_MS = 1_000L
         const val SPEED_BIN_PERSIST_INTERVAL_MS = 30_000L
         const val BATTERY_POLL_INTERVAL_MS = 10_000L
-        const val SAMPLE_RETENTION_MS = 90L * 24 * 60 * 60 * 1000
         private const val TAG = "FuelRoute"
         private const val MAX_RAW_REPLY_CHARS = 160
         private const val CONSECUTIVE_ERROR_THRESHOLD = 10

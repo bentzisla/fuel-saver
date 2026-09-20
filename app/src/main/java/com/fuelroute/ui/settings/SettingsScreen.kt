@@ -206,6 +206,27 @@ fun SettingsScreen(
             )
         }
 
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = stringResource(R.string.settings_retention_label),
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                text = stringResource(R.string.settings_retention_hint),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(30, 60, 90, 180, 365).forEach { days ->
+                    FilterChip(
+                        selected = state.retentionDays == days,
+                        onClick = { viewModel.onRetentionDaysChange(days) },
+                        label = { Text(stringResource(R.string.settings_retention_days, days)) },
+                    )
+                }
+            }
+        }
+
         if (!ignoringBattery) {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(

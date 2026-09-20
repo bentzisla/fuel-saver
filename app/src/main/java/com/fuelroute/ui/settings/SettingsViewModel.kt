@@ -31,6 +31,7 @@ data class SettingsUiState(
     val lastAutoStartMs: Long? = null,
     val lastObdError: String? = null,
     val autoConnectIntroSeen: Boolean = false,
+    val retentionDays: Int = com.fuelroute.domain.retention.RetentionPolicy.DEFAULT_RETENTION_DAYS,
 )
 
 @HiltViewModel
@@ -63,6 +64,7 @@ class SettingsViewModel @Inject constructor(
                 lastAutoStartMs = settings.lastAutoStartMs,
                 lastObdError = settings.lastObdError,
                 autoConnectIntroSeen = settings.autoConnectIntroSeen,
+                retentionDays = settings.retentionDays,
             )
         }
     }
@@ -107,5 +109,10 @@ class SettingsViewModel @Inject constructor(
     fun onAutoConnectIntroSeen() {
         _uiState.update { it.copy(autoConnectIntroSeen = true) }
         viewModelScope.launch { settingsRepository.saveAutoConnectIntroSeen(true) }
+    }
+
+    fun onRetentionDaysChange(days: Int) {
+        _uiState.update { it.copy(retentionDays = days) }
+        viewModelScope.launch { settingsRepository.saveRetentionDays(days) }
     }
 }

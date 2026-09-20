@@ -47,6 +47,9 @@ class ObdLoggingService : Service() {
     @Inject
     lateinit var settingsRepository: SettingsRepository
 
+    @Inject
+    lateinit var retentionPruner: RetentionPruner
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     // Deferred until first use: the Service constructor runs before Android attaches the
     // base Context, so resolving WindowManager (or any system service) here would NPE.
@@ -189,6 +192,9 @@ class ObdLoggingService : Service() {
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
         scope.cancel()
+        // Best-effort: prune expired raw samples immediately on stop (the daily worker is the
+        // guarantee; this is a short-lived detached scope so it isn't cancelled with the service).
+        CoroutineScope(Dispatchers.IO).launch { runCatching { retentionPruner.prune() } }
         super.onDestroy()
     }
 
