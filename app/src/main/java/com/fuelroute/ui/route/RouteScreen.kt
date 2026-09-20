@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -25,7 +27,10 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -55,17 +60,22 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -93,6 +103,8 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlin.math.ceil
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun RouteScreen(
@@ -104,6 +116,7 @@ fun RouteScreen(
     var detailIndex by remember { mutableStateOf<Int?>(null) }
     var editingFavorite by remember { mutableStateOf<FavoriteDestination?>(null) }
     var showManageFavorites by remember { mutableStateOf(false) }
+    var showSpeedGraph by remember { mutableStateOf(false) }
     val badges = RouteInsights.badges(state.results)
     val destinationIsFavorite = state.favorites.any { favorite ->
         FavoritesRepository.matches(favorite, state.destinationPlaceId, state.destination)
@@ -135,21 +148,47 @@ fun RouteScreen(
         if (granted) viewModel.useCurrentLocation() else permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
     }
 
-    Column(modifier = modifier.fillMaxSize()) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            // The Scaffold already pads the NavHost for the system bars; consume them here so
+            // imePadding() below doesn't add the navigation-bar height a second time (the
+            // "black gap above the keyboard" double-inset bug).
+            .consumeWindowInsets(WindowInsets.systemBars),
+    ) {
         if (state.results.isNotEmpty()) {
-            RouteMap(
-                routes = state.results.map { it.route },
-                selectedIndex = state.selectedIndex,
+            // Responsive map header: scales with the screen and shrinks as more result cards
+            // arrive, so it frames the routes without crowding the list.
+            val screenHeightDp = LocalConfiguration.current.screenHeightDp
+            val mapHeight = (screenHeightDp * when (state.results.size) {
+                1 -> 0.34f
+                2 -> 0.32f
+                else -> 0.28f
+            }).dp.coerceIn(MinMapHeight, MaxMapHeight)
+            val mapDescription = stringResource(R.string.route_map_content_description)
+            Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(320.dp),
-            )
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .height(mapHeight)
+                    .semantics { contentDescription = mapDescription },
+                shape = MaterialTheme.shapes.medium,
+            ) {
+                RouteMap(
+                    routes = state.results.map { it.route },
+                    selectedIndex = state.selectedIndex,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
 
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
+                // Lift the list (and the focused input) above the IME. The parent Column has
+                // already consumed the system bars, so only the keyboard height is added.
                 .imePadding(),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -329,34 +368,56 @@ fun RouteScreen(
 
             selectedCost?.let { cost ->
                 item {
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { detailIndex = state.selectedIndex },
-                    ) {
+                    Card(modifier = Modifier.fillMaxWidth()) {
                         Column(
                             modifier = Modifier.padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { showSpeedGraph = !showSpeedGraph },
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
                                     text = stringResource(
-                                        R.string.route_graph_title_for,
-                                        "${state.selectedIndex + 1}. ${stringResource(cost.route.routeLabelRes())}",
+                                        if (showSpeedGraph) {
+                                            R.string.route_graph_hide
+                                        } else {
+                                            R.string.route_graph_show
+                                        },
                                     ),
                                     style = MaterialTheme.typography.titleSmall,
                                 )
                                 Text(
-                                    text = stringResource(R.string.route_graph_tap_expand),
+                                    text = stringResource(
+                                        if (showSpeedGraph) {
+                                            R.string.route_graph_hide_hint
+                                        } else {
+                                            R.string.route_graph_tap_expand
+                                        },
+                                    ),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                            RouteSpeedGraph(cost = cost, modifier = Modifier.fillMaxWidth())
+                            Text(
+                                text = stringResource(R.string.route_graph_description),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            if (showSpeedGraph) {
+                                Text(
+                                    text = stringResource(
+                                        R.string.route_graph_title_for,
+                                        "${state.selectedIndex + 1}. ${stringResource(cost.route.routeLabelRes())}",
+                                    ),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                RouteSpeedGraph(cost = cost, modifier = Modifier.fillMaxWidth())
+                            }
                         }
                     }
                 }
@@ -747,6 +808,8 @@ private fun PlaceField(
     label: String,
     trailingIcon: (@Composable () -> Unit)? = null,
 ) {
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    val scope = rememberCoroutineScope()
     Column(modifier = Modifier.fillMaxWidth()) {
         OutlinedTextField(
             value = value,
@@ -754,7 +817,19 @@ private fun PlaceField(
             label = { Text(label) },
             singleLine = true,
             trailingIcon = trailingIcon,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .bringIntoViewRequester(bringIntoViewRequester)
+                .onFocusChanged { focusState ->
+                    if (focusState.isFocused) {
+                        scope.launch {
+                            // Let the IME start animating, then scroll the field back into view
+                            // so it stays visible above the keyboard.
+                            delay(ImeBringIntoViewDelayMs)
+                            bringIntoViewRequester.bringIntoView()
+                        }
+                    }
+                },
         )
 
         if (suggestions.isNotEmpty()) {
@@ -942,7 +1017,8 @@ private fun RouteCard(
                     label = stringResource(R.string.route_toll_label),
                     value = when {
                         cost.route.tollUnknown -> "—"
-                        cost.tollCost <= 0.005 -> stringResource(R.string.route_toll_free)
+                        cost.route.tollCost == null || cost.route.tollCost <= 0.005 ->
+                            stringResource(R.string.route_toll_free)
                         else -> "₪ ${format(cost.tollCost, 1)}"
                     },
                 )
@@ -1102,8 +1178,18 @@ private fun RouteDetailDialog(
                 }
                 item {
                     Text(
-                        text = stringResource(R.string.route_detail_toll, format(cost.tollCost, 2)),
+                        text = when {
+                            cost.route.tollUnknown -> stringResource(R.string.route_toll_unknown)
+                            cost.route.tollCost == null || cost.route.tollCost <= 0.005 ->
+                                stringResource(R.string.route_toll_free)
+                            else -> stringResource(R.string.route_detail_toll, format(cost.tollCost, 2))
+                        },
                         style = MaterialTheme.typography.bodyMedium,
+                        color = if (cost.route.tollUnknown) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
                     )
                 }
                 item {
@@ -1219,8 +1305,15 @@ private fun speedProfile(cost: RouteCost): List<SpeedProfilePoint> {
     }
 }
 
+/** Delay before re-scrolling a focused input into view, letting the IME animation start. */
+private const val ImeBringIntoViewDelayMs = 150L
+
 private val GraphYAxisWidth = 44.dp
 private val GraphChartHeight = 200.dp
+
+/** Bounds for the responsive route-map header so it neither disappears nor dominates the page. */
+private val MinMapHeight = 180.dp
+private val MaxMapHeight = 320.dp
 
 /** Rounds the graph's top speed to a friendly tick so the Y-axis labels stay readable. */
 private fun niceSpeedMax(raw: Double): Double {

@@ -4,10 +4,12 @@ import android.content.Intent
 import android.util.Log
 import androidx.car.app.Screen
 import androidx.car.app.Session
+import androidx.lifecycle.lifecycleScope
 import com.fuelroute.data.obd.ObdEngine
 import com.fuelroute.data.price.FuelPriceRepository
 import com.fuelroute.data.settings.SettingsRepository
 import com.fuelroute.data.vehicle.VehicleRepository
+import kotlinx.coroutines.launch
 
 /**
  * One car session. It never owns the OBD connection — it only hands the singleton repositories
@@ -18,12 +20,21 @@ class FuelRouteSession(
     private val fuelPriceRepository: FuelPriceRepository,
     private val vehicleRepository: VehicleRepository,
     private val settingsRepository: SettingsRepository,
+    private val hostPackage: String? = null,
 ) : Session() {
 
     override fun onCreateScreen(intent: Intent): Screen {
         // Confirms in `adb logcat -s FuelRoute:*` that the Android Auto host bound to the app and
-        // asked it for its first screen (card 26's DHU/device check).
-        Log.i(TAG, "car session created")
+        // asked it for its first screen (cards 26/42's DHU/device check).
+        Log.i(TAG, "car session created (screen requested, host=${hostPackage ?: "unknown"})")
+        // Persist a user-visible "car app last-seen" marker (card 42) so the Settings screen can show
+        // whether the phone ever reached the car host — without adb.
+        lifecycleScope.launch {
+            runCatching {
+                settingsRepository.saveCarLastSeen(System.currentTimeMillis())
+                hostPackage?.let { settingsRepository.saveCarLastHost(it) }
+            }.onFailure { Log.w(TAG, "failed to persist car last-seen", it) }
+        }
         return DashboardScreen(
             carContext = carContext,
             engine = engine,

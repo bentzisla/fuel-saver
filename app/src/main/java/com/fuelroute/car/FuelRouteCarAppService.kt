@@ -1,6 +1,7 @@
 package com.fuelroute.car
 
 import android.content.Context
+import android.util.Log
 import androidx.car.app.CarAppService
 import androidx.car.app.Session
 import androidx.car.app.validation.HostValidator
@@ -25,29 +26,59 @@ import dagger.hilt.components.SingletonComponent
  */
 class FuelRouteCarAppService : CarAppService() {
 
-    override fun createHostValidator(): HostValidator =
-        if (BuildConfig.DEBUG) {
+    /**
+     * Earliest lifecycle marker (card 42): the phone bound the car service. If this never shows in
+     * `adb logcat -s FuelRoute:*`, Android Auto never selected the app at all — almost always because
+     * "Unknown sources" is off or the app is not in the car launcher (see the Settings help card).
+     */
+    override fun onCreate() {
+        super.onCreate()
+        Log.i(TAG, "car service created (host may bind)")
+    }
+
+    override fun createHostValidator(): HostValidator {
+        return if (BuildConfig.DEBUG) {
             // Debug/DHU only: sideloaded development builds are tested against the Desktop Head
             // Unit, which is not a signed host, so accept any host so the DHU can connect.
+            Log.i(TAG, "car host validator: allow-all (debug build)")
             HostValidator.ALLOW_ALL_HOSTS_VALIDATOR
         } else {
+            Log.i(TAG, "car host validator: release allow-list (${ALLOWED_HOSTS.size} entries)")
             releaseHostValidator(applicationContext)
         }
+    }
 
     override fun onCreateSession(): Session {
         val entryPoint = EntryPointAccessors.fromApplication(
             applicationContext,
             CarEntryPoint::class.java,
         )
+        // Best-effort host diagnostics (card 42). The library validates the host before asking for a
+        // session, so reaching here normally means the host was accepted; logging both outcomes makes
+        // a rejected/mismatched host visible in `adb logcat -s FuelRoute:*`.
+        val host = hostInfo
+        if (host == null) {
+            Log.w(TAG, "car session requested but hostInfo is null")
+        } else {
+            val accepted = runCatching { createHostValidator().isValidHost(host) }.getOrDefault(false)
+            if (accepted) {
+                Log.i(TAG, "car host accepted: ${host.packageName} (uid=${host.uid})")
+            } else {
+                Log.w(TAG, "car host rejected by validator: ${host.packageName}")
+            }
+        }
         return FuelRouteSession(
             engine = entryPoint.obdEngine(),
             fuelPriceRepository = entryPoint.fuelPriceRepository(),
             vehicleRepository = entryPoint.vehicleRepository(),
             settingsRepository = entryPoint.settingsRepository(),
+            hostPackage = host?.packageName,
         )
     }
 
     private companion object {
+        const val TAG = "FuelRoute"
+
         /**
          * Release allow-list: the real Android Auto and Android Automotive OS hosts, by package
          * name + SHA-256 signing-certificate digest.

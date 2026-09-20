@@ -1,5 +1,6 @@
 package com.fuelroute.car
 
+import android.util.Log
 import androidx.car.app.CarContext
 import androidx.car.app.Screen
 import androidx.car.app.model.Action
@@ -60,6 +61,8 @@ class DashboardScreen(
     private var lastRenderedError: String? = null
 
     init {
+        // Confirms the host actually rendered the dashboard (card 42), after the session marker.
+        Log.i(TAG, "car dashboard screen created")
         lifecycleScope.launch {
             lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 val vehicle = runCatching { vehicleRepository.active() }.getOrNull()
@@ -237,6 +240,8 @@ class DashboardScreen(
     }
 
     private companion object {
+        const val TAG = "FuelRoute"
+
         /** ~1 Hz: the host rate-limits invalidate(), so coalesce the 4 Hz engine stream. */
         const val DISPLAY_REFRESH_MS = 1_000L
     }

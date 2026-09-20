@@ -35,6 +35,10 @@ data class AppSettings(
     val lastObdError: String? = null,
     val autoConnectIntroSeen: Boolean = false,
     val retentionDays: Int = RetentionPolicy.DEFAULT_RETENTION_DAYS,
+    /** Last time the Android Auto / Automotive host bound to the car app, or null if never (card 42). */
+    val carLastSeenMs: Long? = null,
+    /** Package name of the car host that bound last, for the Settings diagnostic (card 42). */
+    val carLastHost: String? = null,
 )
 
 interface SettingsRepository {
@@ -54,6 +58,14 @@ interface SettingsRepository {
     suspend fun saveLastObdError(value: String?)
     suspend fun saveAutoConnectIntroSeen(value: Boolean)
     suspend fun saveRetentionDays(value: Int)
+
+    /**
+     * Car-host "last seen" diagnostic (card 42). Default no-op so lightweight test fakes that do not
+     * model car usage still compile; [DataStoreSettingsRepository] overrides both.
+     */
+    suspend fun saveCarLastSeen(value: Long?) = Unit
+    suspend fun saveCarLastHost(value: String?) = Unit
+
     suspend fun saveModelOverrides(value: FuelModelOverrides)
 }
 
@@ -86,6 +98,8 @@ class DataStoreSettingsRepository @Inject constructor(
                 lastObdError = prefs[Keys.LAST_OBD_ERROR]?.takeIf { it.isNotBlank() },
                 autoConnectIntroSeen = prefs[Keys.AUTO_CONNECT_INTRO_SEEN] ?: false,
                 retentionDays = prefs[Keys.RETENTION_DAYS] ?: RetentionPolicy.DEFAULT_RETENTION_DAYS,
+                carLastSeenMs = prefs[Keys.CAR_LAST_SEEN_MS]?.takeIf { it > 0L },
+                carLastHost = prefs[Keys.CAR_LAST_HOST]?.takeIf { it.isNotBlank() },
             )
         }
 
@@ -133,6 +147,14 @@ class DataStoreSettingsRepository @Inject constructor(
         dataStore.edit { it[Keys.RETENTION_DAYS] = RetentionPolicy.applyRetentionDays(value) }
     }
 
+    override suspend fun saveCarLastSeen(value: Long?) {
+        dataStore.edit { it[Keys.CAR_LAST_SEEN_MS] = value ?: 0L }
+    }
+
+    override suspend fun saveCarLastHost(value: String?) {
+        dataStore.edit { it[Keys.CAR_LAST_HOST] = value.orEmpty() }
+    }
+
     override suspend fun saveModelOverrides(value: FuelModelOverrides) {
         dataStore.edit { it[Keys.MODEL_OVERRIDES] = json.encodeToString(value) }
     }
@@ -149,6 +171,8 @@ class DataStoreSettingsRepository @Inject constructor(
         val LAST_OBD_ERROR = stringPreferencesKey("last_obd_error")
         val AUTO_CONNECT_INTRO_SEEN = booleanPreferencesKey("auto_connect_intro_seen")
         val RETENTION_DAYS = intPreferencesKey("retention_days")
+        val CAR_LAST_SEEN_MS = longPreferencesKey("car_last_seen_ms")
+        val CAR_LAST_HOST = stringPreferencesKey("car_last_host")
         val MODEL_OVERRIDES = stringPreferencesKey("model_overrides")
     }
 

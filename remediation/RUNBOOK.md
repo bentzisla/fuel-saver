@@ -87,6 +87,31 @@ Phase 11 (cards 27-33) is the second round of UX feedback. Ordering notes:
 - **Version:** bump `versionName`/`versionCode` in `app/build.gradle.kts` at phase end (patch/minor per scope), and the
   Settings footer (card 19) picks it up automatically.
 
+#### Versioning policy (card 37)
+`MAJOR.MINOR.PATCH`. `MAJOR` stays `0` for this personal app (reserved for a breaking rewrite); only the orchestrator
+moves it. The bump happens at the end of a phase (or a card, when a card ships alone) and is part of that phase's
+commit — sub-agents never bump or commit.
+
+- **bugfix → patch:** `0.2.0` → `0.2.1`. A card whose scope is only fixing a bug (e.g. 34, 35).
+- **feature / wave of features → minor:** `0.2.1` → `0.3.0`, patch resets to `0`. A card that adds product scope, or a
+  whole wave/phase of mixed work (the default for a phase).
+- **`versionCode` is monotonic:** always `minor * 100 + patch` (so `0.3.1` → `301`). Android rejects a code that does
+  not strictly increase, so never reuse or lower it — recomputing it from `versionName` keeps the two fields in sync.
+
+Bump with the helper (from the repo root, PowerShell 5.1):
+
+```
+powershell -ExecutionPolicy Bypass -File .\scripts\bump-version.ps1 -Patch              # bugfix: 0.2.0 -> 0.2.1
+powershell -ExecutionPolicy Bypass -File .\scripts\bump-version.ps1 -Minor              # feature/wave: 0.2.1 -> 0.3.0
+powershell -ExecutionPolicy Bypass -File .\scripts\bump-version.ps1 -Patch -DryRun      # preview only, no write
+```
+
+`scripts/bump-version.ps1` reads `versionName`/`versionCode` from `app/build.gradle.kts`, requires exactly one of
+`-Minor`/`-Patch`, rewrites both fields exactly once, and writes the file back as ASCII. It is deterministic (the same
+starting version always yields the same result) and safe to re-run: each invocation advances the version by exactly one
+step, so run it once per phase/card end. The Settings footer (card 19) reads the values through `BuildConfig` and needs
+no further edit.
+
 ### Phase 12 ordering note
 - **20 is the big parallel wave**; its 7 cards are file-disjoint EXCEPT:
   - `38-route-graph-minimize`, `39-toll-message`, `40-map-layout-fit`, `41-keyboard-block` all touch
