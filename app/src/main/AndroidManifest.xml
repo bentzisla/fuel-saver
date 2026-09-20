@@ -61,7 +61,15 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="androidx.car.app.CarAppService" />
-                <category android:name="androidx.car.app.category.NAVIGATION" />
+                <!--
+                    POI, not NAVIGATION: this car screen is a fuel/OBD dashboard and has no
+                    navigation flow (no NavigationTemplate, no navigation-intent handling), so
+                    declaring NAVIGATION is a mismatch the host can reject (card 26). PaneTemplate
+                    is available to POI apps. If a real navigation flow is ever added, switch this
+                    back to androidx.car.app.category.NAVIGATION and add
+                    androidx.car.app.NAVIGATION_TEMPLATES.
+                -->
+                <category android:name="androidx.car.app.category.POI" />
             </intent-filter>
         </service>
 

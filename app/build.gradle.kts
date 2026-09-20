@@ -33,6 +33,7 @@ android {
         versionName = "0.1.0"
 
         buildConfigField("String", "MAPS_API_KEY", "\"$mapsApiKey\"")
+        buildConfigField("String", "BUILD_TIME", "\"${System.currentTimeMillis()}\"")
         manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
     }
 

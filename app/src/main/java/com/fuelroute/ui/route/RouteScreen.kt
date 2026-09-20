@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -52,6 +54,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -123,6 +129,7 @@ fun RouteScreen(
         if (state.results.isNotEmpty()) {
             RouteMap(
                 routes = state.results.map { it.route },
+                selectedIndex = state.selectedIndex,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(240.dp),
@@ -722,11 +729,19 @@ private fun ResultsSummary(costs: List<RouteCost>) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
-                text = stringResource(R.string.route_cheapest_summary, format(cheapest.totalCost, 2)),
+                text = stringResource(
+                    R.string.route_cheapest_summary,
+                    format(cheapest.totalCost, 2),
+                    format(cheapest.durationMinutes, 0),
+                ),
                 style = MaterialTheme.typography.bodyMedium,
             )
             Text(
-                text = stringResource(R.string.route_fastest_summary, format(fastest.durationMinutes, 0)),
+                text = stringResource(
+                    R.string.route_fastest_summary,
+                    format(fastest.durationMinutes, 0),
+                    format(fastest.totalCost, 2),
+                ),
                 style = MaterialTheme.typography.bodyMedium,
             )
             if (cheapest !== fastest) {
@@ -800,10 +815,21 @@ private fun RouteCard(
                 }
             }
 
-            Text(
-                text = "₪ ${format(cost.totalCost, 2)}",
-                style = MaterialTheme.typography.headlineSmall,
-            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                Text(
+                    text = "₪ ${format(cost.totalCost, 2)}",
+                    style = MaterialTheme.typography.headlineSmall,
+                )
+                Text(
+                    text = stringResource(R.string.route_duration_minutes, format(cost.durationMinutes, 0)),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 3.dp),
+                )
+            }
 
             if (costPremium > 0.005) {
                 Text(
@@ -902,6 +928,7 @@ private fun RouteDetailDialog(
 ) {
     val context = LocalContext.current
     val pricePerLiter = if (cost.fuelLiters > 0.0) cost.fuelCost / cost.fuelLiters else 0.0
+    var showSegments by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
@@ -928,46 +955,119 @@ private fun RouteDetailDialog(
                     text = stringResource(R.string.route_detail_title),
                     style = MaterialTheme.typography.titleLarge,
                 )
-                Text(
-                    text = "₪ ${format(cost.totalCost, 2)}",
-                    style = MaterialTheme.typography.headlineSmall,
-                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.Bottom,
+                ) {
+                    Text(
+                        text = "₪ ${format(cost.totalCost, 2)}",
+                        style = MaterialTheme.typography.headlineSmall,
+                    )
+                    Text(
+                        text = stringResource(R.string.route_duration_minutes, format(cost.durationMinutes, 0)),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 3.dp),
+                    )
+                }
             }
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    text = stringResource(
-                        R.string.route_detail_fuel,
-                        format(cost.fuelLiters, 2),
-                        format(pricePerLiter, 2),
-                        format(cost.fuelCost, 2),
-                    ),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Text(
-                    text = stringResource(R.string.route_detail_toll, format(cost.tollCost, 2)),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Text(
-                    text = stringResource(R.string.route_detail_total, format(cost.totalCost, 2)),
-                    style = MaterialTheme.typography.titleSmall,
-                )
-
-                OutlinedButton(
-                    onClick = onDeparted,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(stringResource(R.string.route_departed_button))
+            LazyColumn(
+                modifier = Modifier.heightIn(max = 440.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                item {
+                    Text(
+                        text = stringResource(
+                            R.string.route_detail_fuel,
+                            format(cost.fuelLiters, 2),
+                            format(pricePerLiter, 2),
+                            format(cost.fuelCost, 2),
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+                item {
+                    Text(
+                        text = stringResource(R.string.route_detail_toll, format(cost.tollCost, 2)),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+                item {
+                    Text(
+                        text = stringResource(R.string.route_detail_total, format(cost.totalCost, 2)),
+                        style = MaterialTheme.typography.titleSmall,
+                    )
                 }
 
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                item {
+                    OutlinedButton(
+                        onClick = onDeparted,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(R.string.route_departed_button))
+                    }
+                }
 
-                Text(
-                    text = stringResource(R.string.route_detail_segments_title, cost.segments.size),
-                    style = MaterialTheme.typography.titleSmall,
-                )
-                LazyColumn(modifier = Modifier.height(260.dp)) {
+                item {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                }
+
+                item {
+                    Text(
+                        text = stringResource(R.string.route_detail_graph_title),
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                }
+                item {
+                    RouteSpeedGraph(
+                        cost = cost,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(140.dp),
+                    )
+                }
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.route_detail_graph_distance_axis),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = stringResource(R.string.route_detail_graph_speed_axis),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                item {
+                    TextButton(
+                        onClick = { showSegments = !showSegments },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = if (showSegments) {
+                                stringResource(R.string.route_detail_hide_segments)
+                            } else {
+                                stringResource(R.string.route_detail_show_segments, cost.segments.size)
+                            },
+                        )
+                    }
+                }
+
+                if (showSegments) {
+                    item {
+                        Text(
+                            text = stringResource(R.string.route_detail_segments_title, cost.segments.size),
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                    }
                     items(cost.segments.size) { index ->
                         SegmentRow(index = index, segment = cost.segments[index])
                     }
@@ -1009,6 +1109,76 @@ private fun SegmentRow(index: Int, segment: SegmentCost) {
             style = MaterialTheme.typography.bodyMedium,
         )
     }
+}
+
+private data class SpeedProfilePoint(val distanceKm: Double, val speedKmh: Double)
+
+/** Cumulative-distance/speed profile for the compact detail graph. */
+private fun speedProfile(cost: RouteCost): List<SpeedProfilePoint> {
+    if (cost.segments.isEmpty()) {
+        return listOf(SpeedProfilePoint(cost.distanceKm.coerceAtLeast(0.0), cost.avgSpeedKmh))
+    }
+    var cumulative = 0.0
+    return cost.segments.map { segment ->
+        cumulative += segment.distanceKm
+        SpeedProfilePoint(cumulative, segment.effectiveSpeedKmh)
+    }
+}
+
+@Composable
+private fun RouteSpeedGraph(cost: RouteCost, modifier: Modifier = Modifier) {
+    val lineColor = MaterialTheme.colorScheme.primary
+    val gridColor = MaterialTheme.colorScheme.outlineVariant
+    val points = remember(cost) { speedProfile(cost) }
+    val segments = cost.segments
+    Canvas(modifier = modifier) {
+        if (points.isEmpty()) return@Canvas
+        val maxDistance = points.maxOf { it.distanceKm }.coerceAtLeast(0.1)
+        val maxSpeed = (points.maxOf { it.speedKmh } * 1.15).coerceAtLeast(10.0)
+
+        fun x(distanceKm: Double): Float = (distanceKm / maxDistance * size.width).toFloat()
+        fun y(speedKmh: Double): Float =
+            (size.height - speedKmh / maxSpeed * size.height).toFloat()
+
+        listOf(0.25f, 0.5f, 0.75f).forEach { fraction ->
+            drawLine(
+                color = gridColor,
+                start = Offset(0f, size.height * fraction),
+                end = Offset(size.width, size.height * fraction),
+                strokeWidth = 1f,
+            )
+        }
+        drawLine(
+            color = gridColor,
+            start = Offset(0f, size.height),
+            end = Offset(size.width, size.height),
+            strokeWidth = 2f,
+        )
+
+        if (points.size >= 2) {
+            val path = Path()
+            points.forEachIndexed { index, point ->
+                val px = x(point.distanceKm)
+                val py = y(point.speedKmh)
+                if (index == 0) path.moveTo(px, py) else path.lineTo(px, py)
+            }
+            drawPath(path = path, color = lineColor, style = Stroke(width = 4f))
+        }
+
+        points.forEachIndexed { index, point ->
+            drawCircle(
+                color = segments.getOrNull(index)?.congestion?.graphColor() ?: lineColor,
+                radius = 5.dp.toPx(),
+                center = Offset(x(point.distanceKm), y(point.speedKmh)),
+            )
+        }
+    }
+}
+
+private fun CongestionLevel.graphColor(): Color = when (this) {
+    CongestionLevel.NORMAL -> Color(0xFF2E7D32)
+    CongestionLevel.SLOW -> Color(0xFFF9A825)
+    CongestionLevel.TRAFFIC_JAM -> Color(0xFFC62828)
 }
 
 @StringRes

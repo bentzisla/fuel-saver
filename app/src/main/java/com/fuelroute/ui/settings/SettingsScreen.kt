@@ -45,6 +45,7 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.fuelroute.BuildConfig
 import com.fuelroute.R
 import com.fuelroute.data.settings.NAV_GOOGLE
 import com.fuelroute.data.settings.NAV_WAZE
@@ -270,6 +271,35 @@ fun SettingsScreen(
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+
+        VersionFooter()
+    }
+}
+
+@Composable
+private fun VersionFooter() {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = stringResource(
+                    R.string.settings_version_label,
+                    BuildConfig.VERSION_NAME,
+                    BuildConfig.VERSION_CODE,
+                ),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                text = stringResource(
+                    R.string.settings_build_date_label,
+                    formatTimestamp(BuildConfig.BUILD_TIME.toLong()),
+                ),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 

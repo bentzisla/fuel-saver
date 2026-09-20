@@ -24,6 +24,7 @@
     <string name="route_label_alternate">מסלול חלופי</string>
     <string name="route_label_fuel_efficient">מסלול חסכוני בדלק</string>
     <string name="route_units_min">ד׳</string>
+    <string name="route_duration_minutes">%1$s דק׳</string>
     <string name="route_units_km">ק״מ</string>
     <string name="route_units_kmh">קמ״ש</string>
     <string name="route_use_current_location">מיקום נוכחי</string>
@@ -64,8 +65,8 @@
     <string name="route_traffic_route_average">ממוצע</string>
     <string name="route_traffic_none">אין</string>
     <string name="route_fastest">המהיר ביותר</string>
-    <string name="route_cheapest_summary">הזול ביותר: ₪ %1$s</string>
-    <string name="route_fastest_summary">המהיר ביותר: %1$s דק׳</string>
+    <string name="route_cheapest_summary">הזול ביותר: ₪ %1$s • %2$s דק׳</string>
+    <string name="route_fastest_summary">המהיר ביותר: %1$s דק׳ • ₪ %2$s</string>
     <string name="route_tradeoff_summary">חיסכון של %1$s ₪ בתמורה ל־%2$s דק׳ נוספות</string>
     <string name="route_delta_cost">‎+%1$s ₪ מהזול ביותר</string>
     <string name="route_delta_time">‎+%1$s דק׳ מהמהיר ביותר</string>
@@ -94,6 +95,11 @@
     <string name="route_detail_speed">מהירות</string>
     <string name="route_detail_l100">ל׳/100 ק״מ</string>
     <string name="route_detail_liters">ליטר</string>
+    <string name="route_detail_graph_title">מהירות לפי מרחק</string>
+    <string name="route_detail_graph_distance_axis">מרחק (ק״מ)</string>
+    <string name="route_detail_graph_speed_axis">מהירות (קמ״ש)</string>
+    <string name="route_detail_show_segments">הצג פירוט מקטעים (%1$d)</string>
+    <string name="route_detail_hide_segments">הסתר פירוט מקטעים</string>
     <string name="congestion_normal">רגיל</string>
     <string name="congestion_slow">איטי</string>
     <string name="congestion_jam">פקק</string>
@@ -225,6 +231,15 @@
     <string name="curve_adopt">אמץ לעקומה ידנית (snapshot)</string>
     <string name="curve_reset_learning">אפס למידה</string>
     <string name="curve_clear_manual">הסר עקומה ידנית</string>
+    <string name="curve_legend_band">תחום אי-ודאות</string>
+    <string name="curve_adopt_confirm_title">לאמץ את הלמידה לעקומה ידנית?</string>
+    <string name="curve_adopt_confirm_message">העקומה הנוכחית תישמר כעקומה ידנית, ונתוני הלמידה יאופסו. הפעולה בלתי הפיכה.</string>
+    <string name="curve_reset_confirm_title">לאפס נתוני למידה?</string>
+    <string name="curve_reset_confirm_message">פעולה זו תמחק את כל נתוני המדידה שנלמדו מהרכב. לא ניתן לשחזר אותם.</string>
+    <string name="curve_clear_manual_confirm_title">להסיר את העקומה הידנית?</string>
+    <string name="curve_clear_manual_confirm_message">פעולה זו תמחק את העקומה הידנית השמורה. לא ניתן לשחזר אותה.</string>
+    <string name="curve_delete_confirm">מחק</string>
+    <string name="curve_delete_cancel">ביטול</string>
 
     <string name="settings_title">הגדרות</string>
     <string name="settings_fuel_price_label">מחיר דלק (₪ לליטר)</string>
@@ -246,6 +261,8 @@
     <string name="settings_battery_optimization_button">בטל אופטימיזציית סוללה</string>
     <string name="settings_elm_battery_note">שימו לב: דונגל ELM327 נשאר מחובר וצורך חשמל מהמצבר — נתקו אותו כשהרכב אינו בשימוש.</string>
     <string name="settings_autosaved">ההגדרות נשמרות אוטומטית</string>
+    <string name="settings_version_label">גרסה: %1$s (%2$d)</string>
+    <string name="settings_build_date_label">נבנה ב־: %1$s</string>
 
     <string name="settings_backup_title">גיבוי נתונים</string>
     <string name="settings_backup_hint">ייצוא נתוני הלמידה, הנסיעות וההגדרות לקובץ, או מיזוג מקובץ גיבוי קיים.</string>
