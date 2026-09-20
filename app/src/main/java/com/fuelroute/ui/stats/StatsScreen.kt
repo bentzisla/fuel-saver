@@ -146,8 +146,24 @@ fun StatsScreen(
 
         item { AutoLoggingStatusCard(settings) }
 
+        item { ConnectionStatusCard(state = state, connectingName = connectingName) }
+
         when (state.status) {
             ObdStatus.Disconnected -> {
+                // A failed attempt leaves status Disconnected (the service stops itself)
+                // but keeps `lastError`; surface the retry/reset actions prominently then.
+                if (state.lastError != null) {
+                    item {
+                        Button(onClick = viewModel::retry, modifier = Modifier.fillMaxWidth()) {
+                            Text(stringResource(R.string.stats_retry))
+                        }
+                    }
+                    item {
+                        OutlinedButton(onClick = viewModel::reset, modifier = Modifier.fillMaxWidth()) {
+                            Text(stringResource(R.string.stats_reset))
+                        }
+                    }
+                }
                 item {
                     PermissionGate(
                         permissions = requiredPermissions,
@@ -173,6 +189,11 @@ fun StatsScreen(
                         )
                     }
                 }
+                item {
+                    OutlinedButton(onClick = viewModel::disconnect, modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.stats_disconnect))
+                    }
+                }
             }
             ObdStatus.Connected -> {
                 item { SpeedGauge(state) }
@@ -184,17 +205,32 @@ fun StatsScreen(
                 item { TripSummaryCard(state) }
                 item { LearnedCard(state) }
                 item {
-                    OutlinedButton(onClick = viewModel::stop, modifier = Modifier.fillMaxWidth()) {
-                        Text(stringResource(R.string.stats_stop))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = viewModel::disconnect,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(stringResource(R.string.stats_disconnect))
+                        }
+                        OutlinedButton(
+                            onClick = viewModel::reset,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(stringResource(R.string.stats_reset))
+                        }
                     }
                 }
             }
             ObdStatus.Error -> {
                 item {
-                    Text(
-                        text = stringResource(R.string.stats_error),
-                        color = MaterialTheme.colorScheme.error,
-                    )
+                    Button(onClick = viewModel::retry, modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.stats_retry))
+                    }
+                }
+                item {
+                    OutlinedButton(onClick = viewModel::reset, modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.stats_reset))
+                    }
                 }
                 if (state.lastError != null || state.lastRawReply != null) {
                     item { DebugCard(state) }
@@ -237,6 +273,84 @@ fun StatsScreen(
     }
 }
 
+/**
+ * Always-present status line: explains the current connection state (and, on failure, the
+ * reason from `LiveObdState.lastError`) instead of leaving the user guessing.
+ */
+@Composable
+private fun ConnectionStatusCard(
+    state: LiveObdState,
+    connectingName: String?,
+) {
+    val hasError = state.lastError != null
+    val title = when (state.status) {
+        ObdStatus.Connecting -> connectingName?.let {
+            stringResource(R.string.stats_status_connecting_to, it)
+        } ?: stringResource(R.string.stats_status_connecting)
+
+        ObdStatus.Connected -> state.deviceName?.let {
+            stringResource(R.string.stats_status_connected, it)
+        } ?: stringResource(R.string.stats_status_connected_plain)
+
+        ObdStatus.Error -> stringResource(R.string.stats_error)
+
+        ObdStatus.Disconnected -> if (hasError) {
+            stringResource(R.string.stats_error)
+        } else {
+            stringResource(R.string.stats_status_disconnected)
+        }
+    }
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                color = if (hasError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+            )
+            if (hasError) {
+                Text(
+                    text = obdErrorText(state.lastError),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            if (state.status == ObdStatus.Connected) {
+                state.vin?.takeIf { it.isNotBlank() }?.let {
+                    Text(
+                        text = stringResource(R.string.stats_status_vin, it),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (state.supportedPids.isNotEmpty()) {
+                    Text(
+                        text = stringResource(R.string.stats_status_pids, state.supportedPids.size),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Maps the engine's machine error codes to a human-readable Hebrew reason. */
+@Composable
+private fun obdErrorText(code: String?): String = when {
+    code == null -> stringResource(R.string.stats_status_disconnected)
+    code.startsWith("bad ATZ") -> stringResource(R.string.stats_error_atz)
+    code == "CONNECT TIMEOUT" -> stringResource(R.string.stats_error_connect_timeout)
+    code == "CONNECT" -> stringResource(R.string.stats_error_connect)
+    code == "INIT" -> stringResource(R.string.stats_error_init)
+    code == "SEARCHING" -> stringResource(R.string.stats_error_searching)
+    code == "NO DATA" -> stringResource(R.string.stats_error_no_data)
+    code == "PARSE" -> stringResource(R.string.stats_error_parse)
+    code == "TIMEOUT" -> stringResource(R.string.stats_error_timeout)
+    code == "RECONNECT" -> stringResource(R.string.stats_error_reconnect)
+    code == "RECONNECT FAILED" -> stringResource(R.string.stats_error_reconnect_failed)
+    else -> code
+}
+
 @Composable
 private fun ConnectionCard(
     bonded: List<BluetoothDevice>,
@@ -263,7 +377,7 @@ private fun ConnectionCard(
                 }
 
                 Button(onClick = viewModel::connectDemo, modifier = Modifier.fillMaxWidth()) {
-                    Text(stringResource(R.string.stats_demo_row))
+                    Text(stringResource(R.string.stats_demo_button))
                 }
 
                 TextButton(onClick = viewModel::refreshDevices) {

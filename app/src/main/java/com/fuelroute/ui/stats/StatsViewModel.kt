@@ -74,6 +74,11 @@ class StatsViewModel @Inject constructor(
 
     private var lastHandledVin: String? = null
 
+    // Target of the most recent connect attempt (null = simulated demo), used by [retry]
+    // so the user can repeat the exact same attempt after a failure.
+    private var lastAddress: String? = null
+    private var lastName: String? = null
+
     init {
         refreshDevices()
 
@@ -172,13 +177,21 @@ class StatsViewModel @Inject constructor(
         return CurveBlender.blend(learned, manual ?: default)
     }
 
+    /** Starts a clearly-labelled simulated demo run (no dongle required). */
     fun connectDemo() {
+        lastAddress = null
+        lastName = null
+        if (!engine.isRunning) engine.reset()
+        _connectingName.value = null
         ObdLoggingService.start(appContext, null)
     }
 
     @SuppressLint("MissingPermission")
     fun connect(device: BluetoothDevice) {
-        _connectingName.value = device.name ?: device.address
+        lastAddress = device.address
+        lastName = device.name ?: device.address
+        if (!engine.isRunning) engine.reset()
+        _connectingName.value = lastName
         ObdLoggingService.start(appContext, device.address)
         viewModelScope.launch { settingsRepository.saveLastDeviceAddress(device.address) }
     }
@@ -187,12 +200,38 @@ class StatsViewModel @Inject constructor(
         viewModelScope.launch {
             val settings = settingsRepository.settings.first()
             if (settings.autoConnect && !settings.lastDeviceAddress.isNullOrBlank()) {
+                lastAddress = settings.lastDeviceAddress
+                lastName = settings.lastDeviceName ?: settings.lastDeviceAddress
+                if (!engine.isRunning) engine.reset()
+                _connectingName.value = lastName
                 ObdLoggingService.start(appContext, settings.lastDeviceAddress, auto = true)
             }
         }
     }
 
-    fun stop() {
+    /** User-initiated disconnect: stops logging and clears the visible error/device. */
+    fun disconnect() {
+        _connectingName.value = null
+        engine.disconnect()
         ObdLoggingService.stop(appContext)
     }
+
+    /** Full reset: stops logging and wipes engine state so the next connect starts clean. */
+    fun reset() {
+        _connectingName.value = null
+        engine.reset()
+        ObdLoggingService.stop(appContext)
+    }
+
+    /**
+     * Retries the last attempt (same dongle, or the demo) after a failure. Resets first so
+     * a stuck/errored engine cannot reject the new run, then re-arms the logging service.
+     */
+    fun retry() {
+        if (!engine.isRunning) engine.reset()
+        _connectingName.value = lastName
+        ObdLoggingService.start(appContext, lastAddress)
+    }
+
+    fun stop() = disconnect()
 }

@@ -189,6 +189,27 @@
     <string name="stats_vehicle_switch">בחירת רכב לסטטיסטיקה</string>
     <string name="stats_remaining_range">טווח משוער: %1$s ק״מ</string>
     <string name="stats_remaining_range_hint">הערכה לפי מפלס דלק %1$s%% וצריכה %2$s ל׳/100 ק״מ</string>
+    <string name="stats_status_disconnected">מנותק</string>
+    <string name="stats_status_connecting">מתחבר…</string>
+    <string name="stats_status_connecting_to">מתחבר ל־%1$s…</string>
+    <string name="stats_status_connected">מחובר (%1$s)</string>
+    <string name="stats_status_connected_plain">מחובר</string>
+    <string name="stats_status_vin">מחובר ל־VIN %1$s</string>
+    <string name="stats_status_pids">חיישנים נתמכים: %1$d</string>
+    <string name="stats_disconnect">התנתק</string>
+    <string name="stats_reset">אפס</string>
+    <string name="stats_retry">נסה שוב</string>
+    <string name="stats_demo_button">הדגמה — ללא דונגל</string>
+    <string name="stats_error_connect_timeout">לא נמצא דונגל (פסק זמן בחיבור)</string>
+    <string name="stats_error_connect">לא ניתן להתחבר לדונגל</string>
+    <string name="stats_error_init">שגיאת אתחול מתאם</string>
+    <string name="stats_error_atz">שגיאת ATZ — הדונגל לא זוהה</string>
+    <string name="stats_error_searching">בדיקת פרוטוקול…</string>
+    <string name="stats_error_no_data">אין נתונים מהדונגל</string>
+    <string name="stats_error_parse">תשובה לא מזוהה מהדונגל</string>
+    <string name="stats_error_timeout">פסק זמן בתקשורת עם הדונגל</string>
+    <string name="stats_error_reconnect">מנסה להתחבר מחדש…</string>
+    <string name="stats_error_reconnect_failed">החיבור מחדש נכשל</string>
 
     <string name="history_title">היסטוריית חיפושים</string>
     <string name="history_empty">אין חיפושים קודמים עדיין</string>

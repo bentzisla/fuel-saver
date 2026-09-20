@@ -77,7 +77,17 @@ class ObdEngine @Inject constructor(
         if (job?.isActive == true) return
         val vehicleId = vehicle.id
         job = scope.launch {
-            mutableLive.update { it.copy(status = ObdStatus.Connecting) }
+            // Every fresh attempt starts from a clean slate: a stale error/VIN from the
+            // previous run must not leak into the new status line.
+            mutableLive.update {
+                it.copy(
+                    status = ObdStatus.Connecting,
+                    lastError = null,
+                    deviceName = null,
+                    vin = null,
+                    supportedPids = emptySet(),
+                )
+            }
             val connected = transport.connect()
             if (connected.isFailure) {
                 // Terminal: the run loop is never entered, so the logging service can stop
@@ -91,7 +101,11 @@ class ObdEngine @Inject constructor(
 
             if (!initializeAdapter(transport)) {
                 transport.disconnect()
-                mutableLive.update { it.copy(status = ObdStatus.Error, lastError = "INIT") }
+                // Preserve the detailed `bad ATZ: …` reason set by initializeAdapter so the
+                // UI can tell the user the dongle did not answer like an ELM327.
+                mutableLive.update {
+                    it.copy(status = ObdStatus.Error, lastError = it.lastError ?: "INIT")
+                }
                 return@launch
             }
 
@@ -107,6 +121,26 @@ class ObdEngine @Inject constructor(
         job?.cancel()
         job = null
         mutableLive.update { it.copy(status = ObdStatus.Disconnected) }
+    }
+
+    /**
+     * Stops the run loop and clears the visible failure/device identity so the status line
+     * reads a clean "disconnected" instead of a stale error. Learned totals already shown
+     * on the dashboard are kept.
+     */
+    fun disconnect() {
+        stop()
+        mutableLive.update { it.copy(lastError = null, deviceName = null, vin = null) }
+    }
+
+    /**
+     * Full reset: stops the run loop and wipes [LiveObdState] (error, VIN, PIDs, device)
+     * so a subsequent [start] begins from a clean slate and can never be rejected by
+     * leftover state from a previous attempt.
+     */
+    fun reset() {
+        stop()
+        mutableLive.value = LiveObdState()
     }
 
     /** Sends the ELM init sequence and validates the `ATZ` banner. */
