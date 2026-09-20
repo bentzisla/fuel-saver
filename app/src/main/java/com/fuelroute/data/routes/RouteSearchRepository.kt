@@ -18,11 +18,33 @@ data class RouteSearch(
     val selectedRouteIndex: Int = 0,
     val departureTimeMs: Long? = null,
     val tollUnknown: Boolean = false,
+    val selectedPredictedCost: Double = 0.0,
+    val selectedPredictedLiters: Double = 0.0,
+    val selectedPredictedMinutes: Double = 0.0,
+    val pricePerLiterAtSearch: Double = 0.0,
+    val destinationPlaceId: String? = null,
+    val destinationLat: Double? = null,
+    val destinationLng: Double? = null,
 )
 
 interface RouteSearchRepository {
     suspend fun recent(limit: Int): List<RouteSearch>
-    suspend fun add(search: RouteSearch)
+
+    /** Inserts the search and returns its generated id so it can be updated later. */
+    suspend fun add(search: RouteSearch): Long
+
+    /** Stores which ranked route the user actually opened/navigated. */
+    suspend fun updateSelection(
+        id: Long,
+        selectedRouteIndex: Int,
+        selectedPredictedCost: Double,
+        selectedPredictedLiters: Double,
+        selectedPredictedMinutes: Double,
+        pricePerLiterAtSearch: Double,
+        destinationPlaceId: String?,
+        destinationLat: Double?,
+        destinationLng: Double?,
+    )
 }
 
 @Singleton
@@ -33,7 +55,7 @@ class DefaultRouteSearchRepository @Inject constructor(
     override suspend fun recent(limit: Int): List<RouteSearch> =
         dao.recent(limit).map { it.toDomain() }
 
-    override suspend fun add(search: RouteSearch) {
+    override suspend fun add(search: RouteSearch): Long =
         dao.insert(
             RouteSearchEntity(
                 originLabel = search.originLabel,
@@ -48,7 +70,37 @@ class DefaultRouteSearchRepository @Inject constructor(
                 selectedRouteIndex = search.selectedRouteIndex,
                 departureTimeMs = search.departureTimeMs,
                 tollUnknown = if (search.tollUnknown) 1 else 0,
+                selectedPredictedCost = search.selectedPredictedCost,
+                selectedPredictedLiters = search.selectedPredictedLiters,
+                selectedPredictedMinutes = search.selectedPredictedMinutes,
+                pricePerLiterAtSearch = search.pricePerLiterAtSearch,
+                destinationPlaceId = search.destinationPlaceId,
+                destinationLat = search.destinationLat,
+                destinationLng = search.destinationLng,
             ),
+        )
+
+    override suspend fun updateSelection(
+        id: Long,
+        selectedRouteIndex: Int,
+        selectedPredictedCost: Double,
+        selectedPredictedLiters: Double,
+        selectedPredictedMinutes: Double,
+        pricePerLiterAtSearch: Double,
+        destinationPlaceId: String?,
+        destinationLat: Double?,
+        destinationLng: Double?,
+    ) {
+        dao.updateSelection(
+            id = id,
+            index = selectedRouteIndex,
+            cost = selectedPredictedCost,
+            liters = selectedPredictedLiters,
+            minutes = selectedPredictedMinutes,
+            pricePerLiter = pricePerLiterAtSearch,
+            placeId = destinationPlaceId,
+            lat = destinationLat,
+            lng = destinationLng,
         )
     }
 
@@ -65,5 +117,12 @@ class DefaultRouteSearchRepository @Inject constructor(
         selectedRouteIndex = selectedRouteIndex,
         departureTimeMs = departureTimeMs,
         tollUnknown = tollUnknown != 0,
+        selectedPredictedCost = selectedPredictedCost,
+        selectedPredictedLiters = selectedPredictedLiters,
+        selectedPredictedMinutes = selectedPredictedMinutes,
+        pricePerLiterAtSearch = pricePerLiterAtSearch,
+        destinationPlaceId = destinationPlaceId,
+        destinationLat = destinationLat,
+        destinationLng = destinationLng,
     )
 }

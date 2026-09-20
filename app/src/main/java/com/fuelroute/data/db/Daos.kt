@@ -160,7 +160,26 @@ interface RefuelDao {
 interface RouteSearchDao {
 
     @Insert
-    suspend fun insert(search: RouteSearchEntity)
+    suspend fun insert(search: RouteSearchEntity): Long
+
+    /** Persists the route the user actually selected for an already-inserted search. */
+    @Query(
+        "UPDATE route_search SET selectedRouteIndex = :index, selectedPredictedCost = :cost, " +
+            "selectedPredictedLiters = :liters, selectedPredictedMinutes = :minutes, " +
+            "pricePerLiterAtSearch = :pricePerLiter, destinationPlaceId = :placeId, " +
+            "destinationLat = :lat, destinationLng = :lng WHERE id = :id"
+    )
+    suspend fun updateSelection(
+        id: Long,
+        index: Int,
+        cost: Double,
+        liters: Double,
+        minutes: Double,
+        pricePerLiter: Double,
+        placeId: String?,
+        lat: Double?,
+        lng: Double?,
+    )
 
     @Query("SELECT * FROM route_search ORDER BY timestampMs DESC LIMIT :limit")
     suspend fun recent(limit: Int): List<RouteSearchEntity>

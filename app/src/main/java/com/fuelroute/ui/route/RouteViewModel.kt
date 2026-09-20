@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import android.util.Log
 import com.fuelroute.R
+import com.fuelroute.data.history.TripLinker
 import com.fuelroute.data.location.Coordinates
 import com.fuelroute.data.location.LocationRepository
 import com.fuelroute.data.location.ReverseGeocoder
@@ -91,10 +92,14 @@ class RouteViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val fuelPriceRepository: FuelPriceRepository,
     private val routeSearchRepository: RouteSearchRepository,
+    private val tripLinker: TripLinker,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(RouteUiState())
     val uiState: StateFlow<RouteUiState> = _uiState.asStateFlow()
+
+    /** Id of the route_search row written by the most recent compute(), if any. */
+    private var lastSearchId: Long? = null
 
     private val originQuery = MutableStateFlow("")
     private val destinationQuery = MutableStateFlow("")
@@ -300,7 +305,38 @@ class RouteViewModel @Inject constructor(
         }
     }
 
-    fun selectResult(index: Int) = _uiState.update { it.copy(selectedIndex = index) }
+    fun selectResult(index: Int) {
+        _uiState.update { it.copy(selectedIndex = index) }
+        persistSelection(index)
+    }
+
+    /**
+     * "יצאתי במסלול הזה": manually links the most recent unlinked trip to the search
+     * the user is looking at, so it can be compared even if auto-linking missed it.
+     */
+    fun markDeparted() {
+        val searchId = lastSearchId ?: return
+        viewModelScope.launch { tripLinker.linkLatestUnlinkedTrip(searchId) }
+    }
+
+    private fun persistSelection(index: Int) {
+        val searchId = lastSearchId ?: return
+        val state = _uiState.value
+        val cost = state.results.getOrNull(index) ?: return
+        viewModelScope.launch {
+            routeSearchRepository.updateSelection(
+                id = searchId,
+                selectedRouteIndex = index,
+                selectedPredictedCost = cost.totalCost,
+                selectedPredictedLiters = cost.fuelLiters,
+                selectedPredictedMinutes = cost.durationMinutes,
+                pricePerLiterAtSearch = state.fuelPricePerLiter,
+                destinationPlaceId = state.destinationPlaceId,
+                destinationLat = state.destinationLocation?.latitude,
+                destinationLng = state.destinationLocation?.longitude,
+            )
+        }
+    }
 
     /** null = "now" (the departureTime field is omitted). Past values are clamped to now. */
     fun onDepartureTimeChange(epochMs: Long?) {
@@ -389,7 +425,7 @@ class RouteViewModel @Inject constructor(
                 ranked.firstOrNull()?.let { cheapest ->
                     val fastest = ranked.minByOrNull { it.durationMinutes }
                     if (fastest != null) {
-                        routeSearchRepository.add(
+                        lastSearchId = routeSearchRepository.add(
                             RouteSearch(
                                 originLabel = origin,
                                 destinationLabel = destination,
@@ -402,6 +438,13 @@ class RouteViewModel @Inject constructor(
                                 selectedRouteIndex = 0,
                                 departureTimeMs = state.departureTimeMs,
                                 tollUnknown = cheapest.route.tollUnknown,
+                                selectedPredictedCost = cheapest.totalCost,
+                                selectedPredictedLiters = cheapest.fuelLiters,
+                                selectedPredictedMinutes = cheapest.durationMinutes,
+                                pricePerLiterAtSearch = fuelPrice,
+                                destinationPlaceId = state.destinationPlaceId,
+                                destinationLat = state.destinationLocation?.latitude,
+                                destinationLng = state.destinationLocation?.longitude,
                             ),
                         )
                     }

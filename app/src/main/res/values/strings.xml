@@ -167,6 +167,15 @@
     <string name="history_empty">אין חיפושים קודמים עדיין</string>
     <string name="history_saved">חסכת %1$s ₪ לעומת המסלול המהיר</string>
     <string name="history_summary">עלות: %1$s ₪ • דלק חזוי: %2$s ל׳ • %3$s ק״מ • %4$s דק׳</string>
+    <string name="history_accuracy">דיוק חיזוי: ±%1$s%%</string>
+    <string name="history_predicted_price">מחיר שהוצע: %1$s ₪</string>
+    <string name="history_actual_price">מחיר בפועל: %1$s ₪</string>
+    <string name="history_delta">הפרש: %1$s ₪ (%2$s%%)</string>
+    <string name="history_liters">דלק: חזוי %1$s ל׳ • בפועל %2$s</string>
+    <string name="history_km">מרחק: %1$s ק״מ</string>
+    <string name="history_waiting_obd">ממתין לנתוני OBD</string>
+    <string name="history_unlinked_drive">נסיעה ללא חיפוש מקדים</string>
+    <string name="history_departed">יצאתי במסלול הזה</string>
 
     <string name="notification_channel">רישום צריכת דלק</string>
     <string name="notification_title">FuelRoute</string>

@@ -2,6 +2,7 @@ package com.fuelroute.data.obd
 
 import com.fuelroute.data.db.TripDao
 import com.fuelroute.data.db.TripEntity
+import com.fuelroute.domain.history.TripCost
 
 /**
  * Owns the lifecycle of the currently-open trip row. The run loop only has to call
@@ -49,6 +50,7 @@ class TripRecorder(private val tripDao: TripDao) {
         write(vehicleId, nowMs, distanceKm, fuelL, maxSpeedKmh, idleSeconds, open = true)
     }
 
+    /** Closes the open trip, snapshots its actual cost, and returns the trip id (or null). */
     suspend fun end(
         vehicleId: String,
         endedAtMs: Long,
@@ -56,9 +58,21 @@ class TripRecorder(private val tripDao: TripDao) {
         fuelL: Double,
         maxSpeedKmh: Double,
         idleSeconds: Double,
-    ) {
-        write(vehicleId, endedAtMs, distanceKm, fuelL, maxSpeedKmh, idleSeconds, open = false)
+        pricePerLiter: Double = 0.0,
+    ): Long? {
+        val id = tripId ?: return null
+        write(
+            vehicleId = vehicleId,
+            nowMs = endedAtMs,
+            distanceKm = distanceKm,
+            fuelL = fuelL,
+            maxSpeedKmh = maxSpeedKmh,
+            idleSeconds = idleSeconds,
+            open = false,
+            pricePerLiter = pricePerLiter,
+        )
         tripId = null
+        return id
     }
 
     private suspend fun write(
@@ -69,9 +83,11 @@ class TripRecorder(private val tripDao: TripDao) {
         maxSpeedKmh: Double,
         idleSeconds: Double,
         open: Boolean,
+        pricePerLiter: Double = 0.0,
     ) {
         val id = tripId ?: return
         val durationMs = (nowMs - startedAtMs).coerceAtLeast(0L)
+        val cost = TripCost(fuelL = fuelL, pricePerLiterAtTrip = pricePerLiter)
         tripDao.update(
             TripEntity(
                 id = id,
@@ -84,6 +100,8 @@ class TripRecorder(private val tripDao: TripDao) {
                 maxSpeedKmh = maxSpeedKmh,
                 idleSeconds = idleSeconds,
                 isOpen = if (open) 1 else 0,
+                actualCost = if (open) 0.0 else cost.actualCost,
+                pricePerLiterAtTrip = if (open) 0.0 else cost.pricePerLiterAtTrip,
             ),
         )
     }

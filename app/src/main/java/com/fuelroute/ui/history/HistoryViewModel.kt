@@ -2,8 +2,8 @@ package com.fuelroute.ui.history
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.fuelroute.data.routes.RouteSearch
-import com.fuelroute.data.routes.RouteSearchRepository
+import com.fuelroute.data.history.DriveHistoryEntry
+import com.fuelroute.data.history.DriveHistoryRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -12,13 +12,14 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class HistoryUiState(
-    val searches: List<RouteSearch> = emptyList(),
+    val entries: List<DriveHistoryEntry> = emptyList(),
+    val accuracyPct: Double? = null,
     val isLoading: Boolean = true,
 )
 
 @HiltViewModel
 class HistoryViewModel @Inject constructor(
-    private val repository: RouteSearchRepository,
+    private val repository: DriveHistoryRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(HistoryUiState())
@@ -30,8 +31,10 @@ class HistoryViewModel @Inject constructor(
 
     fun load() {
         viewModelScope.launch {
+            val history = repository.recent()
             _state.value = HistoryUiState(
-                searches = repository.recent(50),
+                entries = history.entries,
+                accuracyPct = history.accuracyPct,
                 isLoading = false,
             )
         }

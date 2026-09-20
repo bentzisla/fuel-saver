@@ -6,6 +6,8 @@ import com.fuelroute.data.db.ObdSampleEntity
 import com.fuelroute.data.db.SpeedBinDao
 import com.fuelroute.data.db.SpeedBinStatsEntity
 import com.fuelroute.data.db.TripDao
+import com.fuelroute.data.history.TripLinker
+import com.fuelroute.data.price.FuelPriceRepository
 import com.fuelroute.domain.learning.FuelRateCalculator
 import com.fuelroute.domain.learning.SpeedBinAggregator
 import com.fuelroute.domain.learning.TripDetector
@@ -57,6 +59,8 @@ class ObdEngine @Inject constructor(
     private val sampleDao: ObdSampleDao,
     private val speedBinDao: SpeedBinDao,
     private val tripDao: TripDao,
+    private val fuelPriceRepository: FuelPriceRepository,
+    private val tripLinker: TripLinker,
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -176,6 +180,9 @@ class ObdEngine @Inject constructor(
         var tripSeconds = 0.0
         var tripIdleSeconds = 0.0
         var tripMaxSpeed = 0.0
+        // Price snapshot used for actualCost at trip close; refreshed with the 30 s bin flush.
+        var pricePerLiter = runCatching { fuelPriceRepository.current(vehicle.grade).pricePerLiter }
+            .getOrDefault(0.0)
         var lastBinPersistMs = System.currentTimeMillis()
         var lastSamplePersistMs = 0L
         var lastVoltageMs = 0L
@@ -246,14 +253,18 @@ class ObdEngine @Inject constructor(
                         tripRecorder.start(vehicleId, tripDetector.startedAtMs ?: sample.timestampMs)
                     }
                     is TripDetector.TripTransition.Ended -> {
-                        tripRecorder.end(
+                        val closedTripId = tripRecorder.end(
                             vehicleId = vehicleId,
                             endedAtMs = transition.endedAtMs,
                             distanceKm = tripDistance,
                             fuelL = tripFuel,
                             maxSpeedKmh = tripMaxSpeed,
                             idleSeconds = tripIdleSeconds,
+                            pricePerLiter = pricePerLiter,
                         )
+                        closedTripId?.let {
+                            tripLinker.autoLink(it, transition.startedAtMs, transition.endedAtMs)
+                        }
                         tripDistance = 0.0
                         tripFuel = 0.0
                         tripSeconds = 0.0
@@ -271,6 +282,9 @@ class ObdEngine @Inject constructor(
 
                 if (now - lastBinPersistMs >= SPEED_BIN_PERSIST_INTERVAL_MS) {
                     speedBinDao.upsertAll(bins.values.map { it.toEntity() })
+                    pricePerLiter = runCatching {
+                        fuelPriceRepository.current(vehicle.grade).pricePerLiter
+                    }.getOrDefault(pricePerLiter)
                     if (tripRecorder.isOpen) {
                         tripRecorder.checkpoint(
                             vehicleId = vehicleId,
@@ -366,14 +380,18 @@ class ObdEngine @Inject constructor(
             speedBinDao.upsertAll(bins.values.map { it.toEntity() })
             val end = tripDetector.forceEnd(lastSample?.timestampMs ?: System.currentTimeMillis())
             if (end is TripDetector.TripTransition.Ended) {
-                tripRecorder.end(
+                val closedTripId = tripRecorder.end(
                     vehicleId = vehicleId,
                     endedAtMs = end.endedAtMs,
                     distanceKm = tripDistance,
                     fuelL = tripFuel,
                     maxSpeedKmh = tripMaxSpeed,
                     idleSeconds = tripIdleSeconds,
+                    pricePerLiter = pricePerLiter,
                 )
+                closedTripId?.let {
+                    tripLinker.autoLink(it, end.startedAtMs, end.endedAtMs)
+                }
             }
             transport.disconnect()
             mutableLive.update {
