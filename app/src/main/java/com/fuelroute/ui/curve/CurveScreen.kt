@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fuelroute.R
+import com.fuelroute.domain.fuel.CurveDataQuality
 import com.fuelroute.domain.model.SpeedPoint
 import java.util.Locale
 import kotlin.math.ceil
@@ -181,10 +182,40 @@ private fun ConfirmDestructiveDialog(
 private fun SummaryCard(state: CurveUiState) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = stringResource(R.string.curve_quality_label, qualityLabel(state.quality)),
+                style = MaterialTheme.typography.titleSmall,
+                color = qualityColor(state.quality),
+            )
+            Text(
+                text = stringResource(R.string.curve_quality_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
             if (state.totalKm > 0.0) {
                 Text(
                     text = stringResource(R.string.curve_based_on, format(state.totalKm, 1)),
                     style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    text = stringResource(
+                        R.string.curve_blend_split,
+                        (state.learnedShare * 100.0).roundToInt().toString(),
+                        stringResource(
+                            if (state.hasManualCurve) {
+                                R.string.curve_legend_manual
+                            } else {
+                                R.string.curve_legend_default
+                            },
+                        ),
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    text = stringResource(R.string.curve_samples, state.totalSamples.toString()),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
                 Text(
@@ -193,6 +224,7 @@ private fun SummaryCard(state: CurveUiState) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+
             if (state.efficientSpeedKmh != null && state.efficientL100 != null) {
                 Text(
                     text = stringResource(
@@ -203,15 +235,37 @@ private fun SummaryCard(state: CurveUiState) {
                     style = MaterialTheme.typography.titleSmall,
                 )
             }
-            if (state.idleLph != null) {
+            state.idleLph?.let { idle ->
                 Text(
-                    text = stringResource(R.string.curve_idle, format(state.idleLph, 1)),
+                    text = stringResource(R.string.curve_idle, format(idle, 1)),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            Text(
+                text = stringResource(R.string.curve_calibration, format(state.calibrationFactor, 2)),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
+}
+
+@Composable
+private fun qualityLabel(quality: CurveDataQuality): String = stringResource(
+    when (quality) {
+        CurveDataQuality.NONE -> R.string.curve_quality_none
+        CurveDataQuality.LOW -> R.string.curve_quality_low
+        CurveDataQuality.MEDIUM -> R.string.curve_quality_medium
+        CurveDataQuality.HIGH -> R.string.curve_quality_high
+    },
+)
+
+private fun qualityColor(quality: CurveDataQuality): Color = when (quality) {
+    CurveDataQuality.NONE -> Color(0xFF9E9E9E)
+    CurveDataQuality.LOW -> Color(0xFFD9534F)
+    CurveDataQuality.MEDIUM -> Color(0xFFE0A800)
+    CurveDataQuality.HIGH -> Color(0xFF1B6B4A)
 }
 
 @Composable
@@ -229,6 +283,7 @@ private fun ChartCard(state: CurveUiState) {
                 effectivePoints = state.effectivePoints,
                 manualPoints = state.manualPoints,
                 learnedPoints = state.learnedPoints,
+                kmSuffix = stringResource(R.string.curve_km_suffix),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(260.dp),
@@ -242,6 +297,22 @@ private fun ChartCard(state: CurveUiState) {
             )
 
             Legend()
+
+            Text(
+                text = stringResource(R.string.curve_confidence_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            Text(
+                text = stringResource(R.string.curve_basis_title),
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                text = stringResource(R.string.curve_basis_body),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -282,6 +353,7 @@ private fun CurveChart(
     effectivePoints: List<SpeedPoint>,
     manualPoints: List<SpeedPoint>,
     learnedPoints: List<LearnedPoint>,
+    kmSuffix: String,
     modifier: Modifier = Modifier,
 ) {
     val textMeasurer = rememberTextMeasurer()
@@ -429,6 +501,24 @@ private fun CurveChart(
                 center = Offset(x(point.speedKmh), y(point.litersPer100Km)),
             )
         }
+
+        // Per-bin confidence (measured km) labels for the best-supported bins.
+        val kmLabelStyle = TextStyle(color = LearnedColor, fontSize = 9.sp)
+        learnedPoints
+            .filter { it.distanceKm > 0.0 }
+            .sortedByDescending { it.distanceKm }
+            .take(MAX_KM_LABELS)
+            .forEach { point ->
+                val layout = textMeasurer.measure(
+                    "${format(point.distanceKm, 1)} $kmSuffix",
+                    kmLabelStyle,
+                )
+                val left = (x(point.speedKmh) - layout.size.width / 2f)
+                    .coerceIn(0f, (size.width - layout.size.width).coerceAtLeast(0f))
+                val top = (y(point.litersPer100Km) - layout.size.height - 9.dp.toPx())
+                    .coerceAtLeast(0f)
+                drawText(textLayoutResult = layout, topLeft = Offset(left, top))
+            }
     }
 }
 
@@ -497,6 +587,9 @@ private val DefaultColor = Color(0xFF90A4AE)
 private val ManualColor = Color(0xFF3F72AF)
 private val EffectiveColor = Color(0xFF1B6B4A)
 private val LearnedColor = Color(0xFFF2C14E)
+
+/** How many of the best-supported learned bins get an on-graph km label before clutter wins. */
+private const val MAX_KM_LABELS = 5
 
 private fun formatTick(value: Double, step: Double): String =
     format(value, if (step < 1.0) 1 else 0)

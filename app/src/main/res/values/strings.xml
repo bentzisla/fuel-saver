@@ -70,6 +70,16 @@
     <string name="route_tradeoff_summary">חיסכון של %1$s ₪ בתמורה ל־%2$s דק׳ נוספות</string>
     <string name="route_delta_cost">‎+%1$s ₪ מהזול ביותר</string>
     <string name="route_delta_time">‎+%1$s דק׳ מהמהיר ביותר</string>
+    <string name="route_eta_label">הגעה</string>
+    <string name="route_total_cost_label">סה״כ</string>
+    <string name="route_toll_free">ללא אגרה</string>
+    <string name="route_reason_line">למה המסלול הזה? %1$s</string>
+    <string name="route_reason_both">הזול והמהיר ביותר — אין פשרה</string>
+    <string name="route_reason_saves">חוסך ₪%1$s לעומת המהיר, +%2$s דק׳</string>
+    <string name="route_reason_fastest">המהיר ביותר — +₪%1$s מהזול, חוסך %2$s דק׳</string>
+    <string name="route_reason_tradeoff">+₪%1$s מהזול, +%2$s דק׳ מהמהיר</string>
+    <string name="route_graph_title_for">מהירות לפי מרחק — %1$s</string>
+    <string name="route_graph_tap_expand">הקש להרחבה</string>
     <string name="route_error_no_network">אין חיבור לאינטרנט</string>
     <string name="route_error_quota">חריגה ממכסת השימוש בשירות המסלולים</string>
     <string name="route_error_forbidden">המפתח אינו מורשה לשירות המסלולים</string>
@@ -111,6 +121,7 @@
     <string name="vehicle_grade_95">95</string>
     <string name="vehicle_grade_98">98</string>
     <string name="vehicle_grade_diesel">דיזל</string>
+    <string name="vehicle_grade_diesel_hint">למנוע דיזל אין דרוג אוקטן</string>
     <string name="vehicle_rated_combined_label">צריכה משולבת (ליטר/100 ק"מ)</string>
     <string name="vehicle_displacement_label">נפח מנוע (ליטר)</string>
     <string name="vehicle_tank_capacity_label">קיבולת מיכל (ליטר)</string>
@@ -213,7 +224,10 @@
 
     <string name="history_title">היסטוריית חיפושים</string>
     <string name="history_empty">אין חיפושים קודמים עדיין</string>
-    <string name="history_saved">חסכת %1$s ₪ לעומת המסלול המהיר</string>
+    <string name="history_saved_total">חסכת %1$s ₪ בסה״כ</string>
+    <string name="history_saving_vs_fastest">חיסכון מול המהיר: %1$s ₪</string>
+    <string name="history_type_search">חיפוש</string>
+    <string name="history_not_driven">לא נסעו במסלול זה</string>
     <string name="history_summary">עלות: %1$s ₪ • דלק חזוי: %2$s ל׳ • %3$s ק״מ • %4$s דק׳</string>
     <string name="history_accuracy">דיוק חיזוי: ±%1$s%%</string>
     <string name="history_predicted_price">מחיר שהוצע: %1$s ₪</string>
@@ -263,8 +277,30 @@
     <string name="curve_clear_manual_confirm_message">פעולה זו תמחק את העקומה הידנית השמורה. לא ניתן לשחזר אותה.</string>
     <string name="curve_delete_confirm">מחק</string>
     <string name="curve_delete_cancel">ביטול</string>
+    <string name="curve_quality_label">איכות הנתונים: %1$s</string>
+    <string name="curve_quality_none">אין נתונים</string>
+    <string name="curve_quality_low">נמוכה</string>
+    <string name="curve_quality_medium">בינונית</string>
+    <string name="curve_quality_high">גבוהה</string>
+    <string name="curve_quality_hint">איכות הנתונים נקבעת לפי סך הק״מ הנלמדים: פחות מ־20 ק״מ = נמוכה, עד 100 ק״מ = בינונית, ומעל = גבוהה.</string>
+    <string name="curve_samples">מספר דגימות: %1$s</string>
+    <string name="curve_calibration">מקדם כיול צריכת דלק: %1$s</string>
+    <string name="curve_blend_split">כ־%1$s%% מהעקומה מבוססת על למידה, השאר על %2$s</string>
+    <string name="curve_confidence_hint">גודל הנקודה והתווית שלידה מציינים כמה ק״מ נמדדו באותה מהירות.</string>
+    <string name="curve_km_suffix">ק״מ</string>
+    <string name="curve_basis_title">מה הבסיס?</string>
+    <string name="curve_basis_body" formatted="false">העקומה משלבת נתוני מדידה אמיתיים מהרכב (למידה), עקומה ידנית אם הוגדרה, ועקומת ברירת מחדל. בכל מהירות המשקל של הלמידה הוא w = ק״מ/(ק״מ+20): 20 ק״מ מדודים נותנים 50% השפעה, ו־80 ק״מ נותנים 80%.</string>
 
     <string name="settings_title">הגדרות</string>
+    <string name="settings_section_fuel">דלק ומחיר</string>
+    <string name="settings_section_fuel_advanced">נעילת מחיר וסוג דלק</string>
+    <string name="settings_section_nav">ניווט</string>
+    <string name="settings_section_obd">רישום OBD</string>
+    <string name="settings_section_obd_advanced">תצוגה, סוללה ושמירת נתונים</string>
+    <string name="settings_section_data">נתונים וגיבוי</string>
+    <string name="settings_section_about">אודות</string>
+    <string name="settings_section_expand">הרחב מקטע</string>
+    <string name="settings_section_collapse">כווץ מקטע</string>
     <string name="settings_fuel_price_label">מחיר דלק (₪ לליטר)</string>
     <string name="settings_value_per_minute_label">שווי זמן (₪ לדקה)</string>
     <string name="settings_price_pin">נעל מחיר (לא יתעדכן בתדלוק)</string>
@@ -300,27 +336,59 @@
     <string name="settings_backup_import_result">הייבוא הושלם: נוספו %1$d נסיעות ו־%2$d תדלוקים (%3$d כפילויות דולגו)</string>
     <string name="settings_backup_import_failed">ייבוא הגיבוי נכשל</string>
 
-    <string name="settings_calibration_title">כיול מודל הדלק</string>
-    <string name="settings_calibration_hint">כיול קבועי המודל בזמן ריצה והתאמה מול נסיעות שנרשמו</string>
-    <string name="settings_calibration_open">פתח כיול</string>
+    <string name="settings_calibration_title">כיול הדגם</string>
+    <string name="settings_calibration_hint">תהליך מדורג לכיול מודל הדלק, כולל התאמה לנסיעות ובדיקת כיול התדלוק</string>
+    <string name="settings_calibration_open">פתח כיול הדגם</string>
 
-    <string name="calibration_title">כיול מודל הדלק</string>
-    <string name="calibration_hint">ערכי הכיול נשמרים אוטומטית ומשפיעים על חישוב העלות. ריק = ברירת מחדל.</string>
+    <string name="calibration_title">כיול הדגם</string>
+    <string name="calibration_hint">תהליך מדורג: בדקו כמה נתונים מקושרים יש, הריצו התאמה, עברו על התוצאה והחילו או בטלו. ערכי הכיול נשמרים אוטומטית.</string>
     <string name="calibration_slow_factor">מקדם מהירות איטית (SLOW_FACTOR)</string>
     <string name="calibration_jam_factor">מקדם פקק (JAM_FACTOR)</string>
     <string name="calibration_stop_go">משקל עצור-סע (STOP_GO_WEIGHT)</string>
     <string name="calibration_cold_start">דלק התנעה קרה (ליטר)</string>
     <string name="calibration_idle_lph">צריכת סרק (ל׳/שעה)</string>
     <string name="calibration_fuel_correction">מקדם תיקון דלק גלובלי</string>
-    <string name="calibration_reset">אפס לברירות מחדל</string>
+    <string name="calibration_reset">ברירת מחדל</string>
     <string name="calibration_reset_done">הכיול אופס לברירות מחדל</string>
-    <string name="calibration_fit_title">התאמה מול נסיעות</string>
-    <string name="calibration_fit">התאם מול נסיעות</string>
-    <string name="calibration_no_data">אין נסיעות מקושרות עם חיזוי וצריכה בפועל</string>
+    <string name="calibration_fit_title">תהליך הכיול</string>
+    <string name="calibration_fit">הרץ התאמה</string>
+    <string name="calibration_no_data">אין עדיין נסיעות מקושרות עם חיזוי וצריכה בפועל</string>
     <string name="calibration_result">מקדם מוצע: %1$s (%2$d נסיעות)</string>
     <string name="calibration_mape">MAPE לפני: %1$s%% • אחרי: %2$s%%</string>
     <string name="calibration_apply">החל כמקדם תיקון</string>
     <string name="calibration_applied">המקדם הוחל ונשמר</string>
+    <string name="calibration_step_data_title">בדיקת הנתונים</string>
+    <string name="calibration_step_fit_title">הרצת ההתאמה</string>
+    <string name="calibration_step_review_title">סקירת התוצאה</string>
+    <string name="calibration_step_apply_title">החלה או ביטול</string>
+    <string name="calibration_linked_pairs">יש %1$d נסיעות מקושרות עם חיזוי וצריכה בפועל</string>
+    <string name="calibration_too_few">כדאי לאסוף לפחות %1$d נסיעות לפני התאמה</string>
+    <string name="calibration_review_hint">הריצו התאמה כדי לראות מקדם מוצע ושינוי בדיוק</string>
+    <string name="calibration_accuracy_label">דיוק צפוי: %1$s</string>
+    <string name="calibration_accuracy_none">לא ידוע</string>
+    <string name="calibration_accuracy_low">נמוך</string>
+    <string name="calibration_accuracy_medium">בינוני</string>
+    <string name="calibration_accuracy_high">גבוה</string>
+    <string name="calibration_apply_none">אין הצעה פעילה — הריצו התאמה כדי להחיל מקדם</string>
+    <string name="calibration_discard">בטל הצעה</string>
+    <string name="calibration_rollback">בטל שינוי (החזר ערך קודם)</string>
+    <string name="calibration_rollback_done">בוטל — הוחזר הערך הקודם</string>
+    <string name="calibration_params_title">קבועי המודל</string>
+    <string name="calibration_preset_recommended">מומלץ</string>
+    <string name="calibration_preset_recommended_done">הוחל פריסט מומלץ</string>
+    <string name="calibration_advanced">מתקדם</string>
+    <string name="calibration_advanced_hint">עריכת ערכים מספריים ידנית. שדה ריק = שימוש בברירת המחדל.</string>
+    <string name="calibration_default_value">ערך ברירת מחדל: %1$s</string>
+    <string name="calibration_provenance_plan">מקור: PLAN.md §4</string>
+    <string name="calibration_provenance_fit">מקור: התאמה מול נסיעות</string>
+    <string name="calibration_refuel_title">מכיול תדלוק</string>
+    <string name="calibration_refuel_current">מקדם תיקון תדלוק נוכחי: %1$s</string>
+    <string name="calibration_refuel_interval">תדלוק מלא: %1$s ל׳ מול %2$s ל׳ שנמדדו ב־OBD</string>
+    <string name="calibration_refuel_exact">כיול תדלוק תקין — מקדם מוצע: %1$s</string>
+    <string name="calibration_refuel_clamped">כיול התדלוק הגיע לקצה — מקדם: %1$s (בדקו את הנתונים)</string>
+    <string name="calibration_refuel_insufficient">אין מספיק נתוני OBD בקטע האחרון כדי לכייל את התדלוק</string>
+    <string name="calibration_refuel_none">אין עדיין שני תדלוקים מלאים לכיול</string>
+    <string name="calibration_refuel_hint">מכיול התדלוק מחושב מההשוואה בין הדלק שמולא לדלק שנמדד בין שני תדלוקים מלאים.</string>
 
     <string name="settings_auto_logging_title">רישום אוטומטי ללא מגע</string>
     <string name="settings_auto_logging_state">מצב: %1$s</string>

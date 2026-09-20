@@ -9,8 +9,11 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.StringRes
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -21,10 +24,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
@@ -36,6 +43,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -47,6 +55,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fuelroute.BuildConfig
 import com.fuelroute.R
+import com.fuelroute.data.price.FuelGrades
 import com.fuelroute.data.settings.NAV_GOOGLE
 import com.fuelroute.data.settings.NAV_WAZE
 import com.fuelroute.service.BatteryOptimization
@@ -85,194 +94,302 @@ fun SettingsScreen(
             style = MaterialTheme.typography.headlineSmall,
         )
 
-        OutlinedTextField(
-            value = state.fuelPrice,
-            onValueChange = viewModel::onFuelPriceChange,
-            label = { Text(stringResource(R.string.settings_fuel_price_label)) },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-            modifier = Modifier.fillMaxWidth(),
-        )
+        SettingsSection(title = stringResource(R.string.settings_section_fuel)) {
+            OutlinedTextField(
+                value = state.fuelPrice,
+                onValueChange = viewModel::onFuelPriceChange,
+                label = { Text(stringResource(R.string.settings_fuel_price_label)) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.fillMaxWidth(),
+            )
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.settings_price_pin),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Text(
-                    text = stringResource(R.string.settings_price_grade, state.priceGrade),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            OutlinedTextField(
+                value = state.valuePerMinute,
+                onValueChange = viewModel::onValuePerMinuteChange,
+                label = { Text(stringResource(R.string.settings_value_per_minute_label)) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            ExpandableSettingsRow(
+                label = stringResource(R.string.settings_section_fuel_advanced),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.settings_price_pin),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            text = stringResource(
+                                R.string.settings_price_grade,
+                                stringResource(gradeLabelRes(state.priceGrade)),
+                            ),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = state.pricePinned,
+                        onCheckedChange = viewModel::onPricePinnedChange,
+                    )
+                }
             }
-            Switch(
-                checked = state.pricePinned,
-                onCheckedChange = viewModel::onPricePinnedChange,
-            )
         }
 
-        OutlinedTextField(
-            value = state.valuePerMinute,
-            onValueChange = viewModel::onValuePerMinuteChange,
-            label = { Text(stringResource(R.string.settings_value_per_minute_label)) },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        Text(
-            text = stringResource(R.string.settings_nav_app_label),
-            style = MaterialTheme.typography.titleSmall,
-        )
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(
-                selected = state.navigationApp == NAV_GOOGLE,
-                onClick = { viewModel.onNavigationAppChange(NAV_GOOGLE) },
-                label = { Text(stringResource(R.string.settings_nav_google)) },
-            )
-            FilterChip(
-                selected = state.navigationApp == NAV_WAZE,
-                onClick = { viewModel.onNavigationAppChange(NAV_WAZE) },
-                label = { Text(stringResource(R.string.settings_nav_waze)) },
-            )
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-        ) {
+        SettingsSection(title = stringResource(R.string.settings_section_nav)) {
             Text(
-                text = stringResource(R.string.settings_auto_connect),
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.weight(1f),
+                text = stringResource(R.string.settings_nav_app_label),
+                style = MaterialTheme.typography.titleSmall,
             )
-            Switch(
-                checked = state.autoConnect,
-                onCheckedChange = viewModel::onAutoConnectChange,
-            )
-        }
-
-        AutoLoggingSection(
-            state = state,
-            onIntroSeen = viewModel::onAutoConnectIntroSeen,
-        )
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.settings_show_overlay),
-                    style = MaterialTheme.typography.bodyMedium,
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = state.navigationApp == NAV_GOOGLE,
+                    onClick = { viewModel.onNavigationAppChange(NAV_GOOGLE) },
+                    label = { Text(stringResource(R.string.settings_nav_google)) },
                 )
-                Text(
-                    text = stringResource(R.string.settings_show_overlay_hint),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                FilterChip(
+                    selected = state.navigationApp == NAV_WAZE,
+                    onClick = { viewModel.onNavigationAppChange(NAV_WAZE) },
+                    label = { Text(stringResource(R.string.settings_nav_waze)) },
                 )
             }
-            Switch(
-                checked = state.showOverlay,
-                onCheckedChange = { value ->
-                    viewModel.onShowOverlayChange(value)
-                    if (value && !Settings.canDrawOverlays(context)) {
-                        runCatching {
-                            context.startActivity(
-                                Intent(
-                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                    Uri.parse("package:${context.packageName}"),
-                                ),
+        }
+
+        SettingsSection(title = stringResource(R.string.settings_section_obd)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(R.string.settings_auto_connect),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                Switch(
+                    checked = state.autoConnect,
+                    onCheckedChange = viewModel::onAutoConnectChange,
+                )
+            }
+
+            AutoLoggingSection(
+                state = state,
+                onIntroSeen = viewModel::onAutoConnectIntroSeen,
+            )
+
+            ExpandableSettingsRow(
+                label = stringResource(R.string.settings_section_obd_advanced),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.settings_show_overlay),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            text = stringResource(R.string.settings_show_overlay_hint),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = state.showOverlay,
+                        onCheckedChange = { value ->
+                            viewModel.onShowOverlayChange(value)
+                            if (value && !Settings.canDrawOverlays(context)) {
+                                runCatching {
+                                    context.startActivity(
+                                        Intent(
+                                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                            Uri.parse("package:${context.packageName}"),
+                                        ),
+                                    )
+                                }
+                            }
+                        },
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.settings_keep_screen_on),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            text = stringResource(R.string.settings_keep_screen_on_hint),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = state.keepScreenOn,
+                        onCheckedChange = viewModel::onKeepScreenOnChange,
+                    )
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = stringResource(R.string.settings_retention_label),
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Text(
+                        text = stringResource(R.string.settings_retention_hint),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(30, 60, 90, 180, 365).forEach { days ->
+                            FilterChip(
+                                selected = state.retentionDays == days,
+                                onClick = { viewModel.onRetentionDaysChange(days) },
+                                label = { Text(stringResource(R.string.settings_retention_days, days)) },
                             )
                         }
                     }
-                },
-            )
-        }
+                }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
+                if (!ignoringBattery) {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_battery_optimization_rationale),
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Button(
+                                onClick = { BatteryOptimization.request(context) },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(stringResource(R.string.settings_battery_optimization_button))
+                            }
+                        }
+                    }
+                }
+
                 Text(
-                    text = stringResource(R.string.settings_keep_screen_on),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Text(
-                    text = stringResource(R.string.settings_keep_screen_on_hint),
+                    text = stringResource(R.string.settings_elm_battery_note),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Switch(
-                checked = state.keepScreenOn,
-                onCheckedChange = viewModel::onKeepScreenOnChange,
-            )
         }
 
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        SettingsSection(
+            title = stringResource(R.string.settings_section_data),
+            initiallyExpanded = false,
+        ) {
+            CalibrationSection(onOpen = onOpenCalibration)
+            BackupSection(viewModel = viewModel)
+        }
+
+        SettingsSection(
+            title = stringResource(R.string.settings_section_about),
+            initiallyExpanded = false,
+        ) {
+            VersionFooter()
             Text(
-                text = stringResource(R.string.settings_retention_label),
-                style = MaterialTheme.typography.titleSmall,
-            )
-            Text(
-                text = stringResource(R.string.settings_retention_hint),
+                text = stringResource(R.string.settings_autosaved),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(30, 60, 90, 180, 365).forEach { days ->
-                    FilterChip(
-                        selected = state.retentionDays == days,
-                        onClick = { viewModel.onRetentionDaysChange(days) },
-                        label = { Text(stringResource(R.string.settings_retention_days, days)) },
-                    )
-                }
+        }
+    }
+}
+
+@Composable
+private fun SettingsSection(
+    title: String,
+    initiallyExpanded: Boolean = true,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    var expanded by remember { mutableStateOf(initiallyExpanded) }
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f),
+            )
+            Icon(
+                imageVector = if (expanded) {
+                    Icons.Filled.KeyboardArrowUp
+                } else {
+                    Icons.Filled.KeyboardArrowDown
+                },
+                contentDescription = stringResource(
+                    if (expanded) {
+                        R.string.settings_section_collapse
+                    } else {
+                        R.string.settings_section_expand
+                    },
+                ),
+            )
+        }
+        if (expanded) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                content()
             }
         }
+    }
+}
 
-        if (!ignoringBattery) {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        text = stringResource(R.string.settings_battery_optimization_rationale),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    Button(
-                        onClick = { BatteryOptimization.request(context) },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(stringResource(R.string.settings_battery_optimization_button))
-                    }
-                }
+@Composable
+private fun ExpandableSettingsRow(
+    label: String,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.weight(1f),
+            )
+            Icon(
+                imageVector = if (expanded) {
+                    Icons.Filled.KeyboardArrowUp
+                } else {
+                    Icons.Filled.KeyboardArrowDown
+                },
+                contentDescription = stringResource(
+                    if (expanded) {
+                        R.string.settings_section_collapse
+                    } else {
+                        R.string.settings_section_expand
+                    },
+                ),
+            )
+        }
+        if (expanded) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                content()
             }
         }
-
-        Text(
-            text = stringResource(R.string.settings_elm_battery_note),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        CalibrationSection(onOpen = onOpenCalibration)
-
-        BackupSection(viewModel = viewModel)
-
-        Text(
-            text = stringResource(R.string.settings_autosaved),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        VersionFooter()
     }
 }
 
@@ -553,4 +670,11 @@ private fun BackupSection(viewModel: SettingsViewModel) {
 private fun defaultBackupFileName(): String {
     val stamp = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
     return "fuelroute-backup-$stamp.json"
+}
+
+@StringRes
+private fun gradeLabelRes(grade: String): Int = when (grade) {
+    FuelGrades.GASOLINE_98 -> R.string.vehicle_grade_98
+    FuelGrades.DIESEL -> R.string.vehicle_grade_diesel
+    else -> R.string.vehicle_grade_95
 }

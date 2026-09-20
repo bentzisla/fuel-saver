@@ -383,6 +383,37 @@ class RouteViewModel @Inject constructor(
         }
     }
 
+    /** One-tap clear for the origin text field: drops the typed text, placeId, coords and suggestions. */
+    fun clearOrigin() {
+        _uiState.update {
+            it.copy(
+                origin = "",
+                originPlaceId = null,
+                originLocation = null,
+                originAddress = null,
+                originIsCurrentLocation = false,
+                originSuggestions = emptyList(),
+                locationError = false,
+                error = null,
+            )
+        }
+        originQuery.value = ""
+    }
+
+    /** One-tap clear for the destination text field: drops the typed text, placeId, coords and suggestions. */
+    fun clearDestination() {
+        _uiState.update {
+            it.copy(
+                destination = "",
+                destinationPlaceId = null,
+                destinationLocation = null,
+                destinationSuggestions = emptyList(),
+                error = null,
+            )
+        }
+        destinationQuery.value = ""
+    }
+
     fun selectResult(index: Int) {
         _uiState.update { it.copy(selectedIndex = index) }
         persistSelection(index)

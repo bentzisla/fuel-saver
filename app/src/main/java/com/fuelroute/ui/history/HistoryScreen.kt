@@ -55,6 +55,15 @@ fun HistoryScreen(
                         modifier = Modifier.padding(top = 4.dp),
                     )
                 }
+                val totalSaved = state.entries.filter { it.hasActual }.sumOf { it.savedAmount }
+                if (totalSaved > 0.0) {
+                    Text(
+                        text = stringResource(R.string.history_saved_total, format(totalSaved, 2)),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
             }
         }
 
@@ -103,9 +112,12 @@ private fun HistoryRow(entry: DriveHistoryEntry) {
                 )
             }
 
-            if (entry.savedAmount > 0.0) {
+            if (entry.hasActual && entry.savedAmount > 0.0) {
                 Text(
-                    text = stringResource(R.string.history_saved, format(entry.savedAmount, 2)),
+                    text = stringResource(
+                        R.string.history_saving_vs_fastest,
+                        format(entry.savedAmount, 2),
+                    ),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                 )
@@ -168,9 +180,14 @@ private fun HistoryRow(entry: DriveHistoryEntry) {
                 )
             }
 
-            if (entry.searchId != null && !entry.hasActual) {
+            if (entry.isUndrivenSearch) {
                 Text(
-                    text = stringResource(R.string.history_waiting_obd),
+                    text = stringResource(R.string.history_type_search),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = stringResource(R.string.history_not_driven),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

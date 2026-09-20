@@ -48,6 +48,10 @@ Wave 12 (parallel, disjoint):  19-app-version  23-route-results-ux  24-curve-scr
 Wave 13:                       20-notification-lingering   (urgent bug)
 Wave 14:                       21-obd-connection-ux         (needs 20's connect timeout)
 Wave 15 (parallel):            22-dashboard-layout  25-combined-rides
+Wave 16 (parallel, disjoint):  27-route-graph  28-destination-clear  30-fuel-type-grade  32-curve-basis
+Wave 17:                       29-history-saved-label    (needs 25 if it landed)
+Wave 18:                       31-settings-reorg         (needs 17/18/20/21 content)
+Wave 19:                       33-calibration-ux         (needs 18 + 32)
 ```
 
 **`16/17/18` must run sequentially** — all three touch `ui/settings/SettingsScreen.kt`, `SettingsViewModel.kt`,
@@ -62,6 +66,23 @@ Phase 10 (cards 19-26) is user-reported UX/bug work. Ordering notes:
 - **22 (ui/stats) and 25 (ui/history) are disjoint** and can parallelize; neither touches `ObdEngine` after 20/21.
 - **Wave 12's four cards touch `res/values/strings.xml`** in different packages — the orchestrator reconciles
   `strings.xml` after the wave (or dispatches with a "minimize string edits" note) before committing.
+
+Phase 11 (cards 27-33) is the second round of UX feedback. Ordering notes:
+- **Wave 16's four cards are mostly disjoint** (route graph, destination clear, fuel-grade model, curve basis) but
+  `27-route-graph` and `28-destination-clear` both touch `ui/route/*`; if dispatching them in parallel, tell 28 to
+  limit itself to the input rows and 27 to the results/graph region, and reconcile after.
+- **30 (fuel-grade)** touches `ui/vehicle/*` + `ui/settings/*` + `data/price/*` — keep it out of any wave that also
+  touches `ui/settings` (so it must NOT run with 31). It is fine to run in Wave 16 (no other card there touches
+  `ui/settings`).
+- **31 (settings reorg) must run alone** after everything that added Settings content (17/18/19/20/21); it rewrites
+  `SettingsScreen` wholesale.
+- **33 (calibration UX) depends on 18+32** and touches `ui/debug/*` + `ui/refuel/*` — run it after 32.
+
+### Git branching / versioning (adopted for Phase 11 onward)
+- **Branch per phase:** `feature/phase-NN-...` off `master`; the orchestrator commits each card on the branch and
+  merges back to `master` when the phase gate is green. Do not commit directly to `master` during a phase.
+- **Version:** bump `versionName`/`versionCode` in `app/build.gradle.kts` at phase end (patch/minor per scope), and the
+  Settings footer (card 19) picks it up automatically.
 
 **`09-tests-docs-hook` moved to last** (was Wave 6): it must also cover the Phase 8 cards' tests, fixtures and docs.
 

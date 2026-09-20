@@ -32,6 +32,9 @@ data class DriveHistoryEntry(
     val savedAmount: Double,
 ) {
     val hasActual: Boolean get() = tripId != null && actualCost != null
+
+    /** A search whose route was never actually driven (no linked OBD trip). */
+    val isUndrivenSearch: Boolean get() = searchId != null && !hasActual
 }
 
 data class DriveHistory(

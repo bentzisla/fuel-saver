@@ -5,7 +5,9 @@ import androidx.lifecycle.viewModelScope
 import com.fuelroute.data.obd.LearnedCurveRepository
 import com.fuelroute.data.vehicle.VehicleRepository
 import com.fuelroute.domain.fuel.ConsumptionCurve
+import com.fuelroute.domain.fuel.CurveBasis
 import com.fuelroute.domain.fuel.CurveBlender
+import com.fuelroute.domain.fuel.CurveDataQuality
 import com.fuelroute.domain.fuel.DefaultCurve
 import com.fuelroute.domain.model.SpeedPoint
 import com.fuelroute.domain.model.binIndexToSpeedKmh
@@ -29,9 +31,13 @@ data class CurveUiState(
     val manualPoints: List<SpeedPoint> = emptyList(),
     val learnedPoints: List<LearnedPoint> = emptyList(),
     val totalKm: Double = 0.0,
+    val totalSamples: Int = 0,
     val idleLph: Double? = null,
     val efficientSpeedKmh: Double? = null,
     val efficientL100: Double? = null,
+    val calibrationFactor: Double = 1.0,
+    val learnedShare: Double = 0.0,
+    val quality: CurveDataQuality = CurveDataQuality.NONE,
     val hasManualCurve: Boolean = false,
     val hasLearnedData: Boolean = false,
 )
@@ -107,9 +113,13 @@ class CurveViewModel @Inject constructor(
             manualPoints = manual?.samples().orEmpty(),
             learnedPoints = learnedPoints,
             totalKm = learned.totalDistanceKm,
+            totalSamples = learned.bins.sumOf { it.samples },
             idleLph = learned.idleLitersPerHour,
             efficientSpeedKmh = best?.speedKmh,
             efficientL100 = best?.litersPer100Km,
+            calibrationFactor = vehicle.fuelRateCorrection,
+            learnedShare = CurveBasis.learnedShare(learned, effectiveSamples.map { it.speedKmh }),
+            quality = CurveBasis.quality(learned.totalDistanceKm),
             hasManualCurve = manual != null,
             hasLearnedData = learned.totalDistanceKm > 0.0,
         )

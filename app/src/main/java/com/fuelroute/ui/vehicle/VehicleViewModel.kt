@@ -87,7 +87,7 @@ class VehicleViewModel @Inject constructor(
             ratedCombined = profile.ratedCombinedL100.toString(),
             displacement = profile.engineDisplacementL?.toString().orEmpty(),
             tankCapacity = profile.tankCapacityL?.toString().orEmpty(),
-            grade = profile.grade,
+            grade = normalizeGrade(profile.fuelType, profile.grade),
             saved = false,
         )
     }
@@ -96,7 +96,13 @@ class VehicleViewModel @Inject constructor(
 
     fun onNameChange(value: String) = _uiState.update { it.copy(name = value, saved = false) }
 
-    fun onFuelTypeSelect(value: FuelType) = _uiState.update { it.copy(fuelType = value, saved = false) }
+    fun onFuelTypeSelect(value: FuelType) = _uiState.update { state ->
+        state.copy(
+            fuelType = value,
+            grade = normalizeGrade(value, state.grade),
+            saved = false,
+        )
+    }
 
     fun onRatedCombinedChange(value: String) = _uiState.update { it.copy(ratedCombined = value, saved = false) }
 
@@ -126,7 +132,7 @@ class VehicleViewModel @Inject constructor(
             ratedCombinedL100 = ratedCombined.toDoubleOrNull() ?: DEFAULT_RATED_L100,
             engineDisplacementL = displacement.toDoubleOrNull(),
             tankCapacityL = tankCapacity.toDoubleOrNull(),
-            grade = state.grade,
+            grade = normalizeGrade(state.fuelType, state.grade),
         )
         viewModelScope.launch {
             repository.upsert(profile)
@@ -157,5 +163,11 @@ class VehicleViewModel @Inject constructor(
 
     private companion object {
         const val DEFAULT_RATED_L100 = 7.0
+
+        /** Keeps [grade] within the grades allowed for [fuelType], falling back to the first valid one. */
+        fun normalizeGrade(fuelType: FuelType, grade: String): String {
+            val allowed = FuelGrades.forFuelType(fuelType)
+            return grade.takeIf { it in allowed } ?: allowed.first()
+        }
     }
 }

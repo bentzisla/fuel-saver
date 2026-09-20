@@ -1,12 +1,27 @@
 package com.fuelroute.data.price
 
+import com.fuelroute.domain.model.FuelType
+
 /** Fuel grades the app keeps a separate price for. */
 object FuelGrades {
     const val GASOLINE_95 = "95"
     const val GASOLINE_98 = "98"
     const val DIESEL = "diesel"
 
+    /** Octane grades offered to gasoline/hybrid vehicles, in display order. */
+    val GASOLINE_GRADES = listOf(GASOLINE_95, GASOLINE_98)
+
     val ALL = listOf(GASOLINE_95, GASOLINE_98, DIESEL)
+
+    /**
+     * Grades that make sense for [fuelType]. Diesel has no octane rating, so it
+     * exposes only the implicit [DIESEL] grade and is never offered 95/98;
+     * gasoline and hybrid vehicles see 95/98 and never "diesel".
+     */
+    fun forFuelType(fuelType: FuelType): List<String> = when (fuelType) {
+        FuelType.DIESEL -> listOf(DIESEL)
+        FuelType.GASOLINE, FuelType.HYBRID -> GASOLINE_GRADES
+    }
 }
 
 /**
