@@ -15,66 +15,90 @@ object RoutesMapper {
     private fun toRoute(dto: RouteDto, index: Int): Route {
         val durationSec = dto.duration.parseDurationSeconds()
         val staticSec = dto.staticDuration?.parseDurationSeconds() ?: durationSec
-        val segments = dto.legs.flatMap { leg -> legToSegments(leg, durationSec, staticSec) }
-        val toll = dto.travelAdvisory
-            ?.tollInfo
-            ?.estimatedPrice
-            ?.firstOrNull()
-            ?.let { it.units + it.nanos / 1e9 }
-        val hasPerSegment = segments.any { it.congestionFactor != 1.0 }
+
+        // Route-level traffic is the fallback for legs that carry no intervals of their own.
+        val routeIntervals = congestionIntervals(
+            dto.travelAdvisory?.speedReadingIntervals.orEmpty(),
+            dto.polyline?.encodedPolyline,
+        )
+
+        var usedPerSegment = false
+        var usedRouteAverage = false
+        var routeCursor = 0.0
+        val segments = mutableListOf<RouteSegment>()
+
+        for (leg in dto.legs) {
+            val legIntervals = congestionIntervals(
+                leg.travelAdvisory?.speedReadingIntervals.orEmpty(),
+                leg.polyline?.encodedPolyline,
+            )
+            val useRouteLevel = legIntervals.isEmpty() && routeIntervals.isNotEmpty()
+            val intervals = when {
+                legIntervals.isNotEmpty() -> {
+                    usedPerSegment = true
+                    legIntervals
+                }
+                useRouteLevel -> {
+                    usedRouteAverage = true
+                    routeIntervals
+                }
+                else -> emptyList()
+            }
+
+            // Per-leg intervals index into the leg polyline (cursor from 0); route-level
+            // intervals index into the route polyline, so the cursor keeps advancing across legs.
+            var cursor = if (useRouteLevel) routeCursor else 0.0
+            for (step in leg.steps) {
+                val end = cursor + step.distanceMeters
+                val factor = if (intervals.isEmpty()) {
+                    1.0
+                } else {
+                    CongestionModel.weightedSpeedFactor(intervals, cursor, end)
+                }
+                val level = if (intervals.isEmpty()) {
+                    CongestionLevel.NORMAL
+                } else {
+                    CongestionModel.dominantLevel(intervals, cursor, end)
+                }
+                segments += RouteSegment(
+                    distanceMeters = step.distanceMeters.toDouble(),
+                    staticDurationSeconds = step.staticDuration?.parseDurationSeconds() ?: 0.0,
+                    congestionFactor = factor,
+                    congestion = level,
+                )
+                cursor = end
+            }
+            routeCursor += leg.steps.sumOf { it.distanceMeters }
+        }
+
+        val prices = dto.travelAdvisory?.tollInfo?.estimatedPrice
+        val toll = prices?.firstOrNull()?.let { it.units + it.nanos / 1e9 }
 
         return Route(
             id = "route-$index",
             routeLabels = dto.routeLabels,
-            distanceMeters = dto.distanceMeters,
+            distanceMeters = dto.distanceMeters.toDouble(),
             staticDurationSeconds = staticSec,
             durationSeconds = durationSec,
             segments = segments,
             tollCost = toll,
-            trafficResolution = if (hasPerSegment) {
-                TrafficResolution.PER_SEGMENT
-            } else {
-                TrafficResolution.ROUTE_AVERAGE
+            tollUnknown = prices.isNullOrEmpty(),
+            trafficResolution = when {
+                usedPerSegment -> TrafficResolution.PER_SEGMENT
+                usedRouteAverage -> TrafficResolution.ROUTE_AVERAGE
+                else -> TrafficResolution.NONE
             },
             encodedPolyline = dto.polyline?.encodedPolyline,
         )
     }
 
-    private fun legToSegments(leg: LegDto, routeDurationSec: Double, routeStaticSec: Double): List<RouteSegment> {
-        val intervals = congestionIntervals(leg)
-        val trafficScale = if (routeStaticSec > 0.0) routeDurationSec / routeStaticSec else 1.0
-
-        val segments = mutableListOf<RouteSegment>()
-        var cursor = 0.0
-        for (step in leg.steps) {
-            val staticSec = step.staticDuration?.parseDurationSeconds() ?: 0.0
-            val end = cursor + step.distanceMeters
-            val factor = if (intervals.isEmpty()) {
-                1.0
-            } else {
-                CongestionModel.weightedSpeedFactor(intervals, cursor, end)
-            }
-            val level = if (intervals.isEmpty()) {
-                fallbackForTraffic(trafficScale)
-            } else {
-                CongestionModel.dominantLevel(intervals, cursor, end)
-            }
-            segments += RouteSegment(
-                distanceMeters = step.distanceMeters,
-                staticDurationSeconds = staticSec,
-                congestionFactor = factor,
-                congestion = level,
-            )
-            cursor = end
-        }
-        return segments
-    }
-
-    private fun congestionIntervals(leg: LegDto): List<CongestionInterval> {
-        val raw = leg.travelAdvisory?.speedReadingIntervals.orEmpty()
+    private fun congestionIntervals(
+        raw: List<SpeedReadingIntervalDto>,
+        encodedPolyline: String?,
+    ): List<CongestionInterval> {
         if (raw.isEmpty()) return emptyList()
 
-        val points = PolylineDecoder.decode(leg.polyline?.encodedPolyline)
+        val points = PolylineDecoder.decode(encodedPolyline)
         if (points.size < 2) return emptyList()
 
         val cumulative = DoubleArray(points.size)
@@ -93,19 +117,24 @@ object RoutesMapper {
         }
     }
 
-    private fun fallbackForTraffic(trafficScale: Double): CongestionLevel = when {
-        trafficScale > 1.3 -> CongestionLevel.TRAFFIC_JAM
-        trafficScale > 1.1 -> CongestionLevel.SLOW
-        else -> CongestionLevel.NORMAL
-    }
-
     private fun String.toCongestionLevel(): CongestionLevel? = when (this) {
         "NORMAL" -> CongestionLevel.NORMAL
         "SLOW" -> CongestionLevel.SLOW
         "TRAFFIC_JAM" -> CongestionLevel.TRAFFIC_JAM
         else -> null
     }
+}
 
-    private fun String.parseDurationSeconds(): Double =
-        trimEnd('s').toDoubleOrNull() ?: 0.0
+/** Google durations are seconds with an `s` suffix, e.g. `1500s`. Malformed input throws. */
+internal fun String.parseDurationSeconds(): Double {
+    val trimmed = trim()
+    if (!trimmed.endsWith("s") || trimmed.length <= 1) {
+        throw RoutesParseException("Malformed duration: \"$this\"")
+    }
+    val value = trimmed.dropLast(1).toDoubleOrNull()
+        ?: throw RoutesParseException("Malformed duration: \"$this\"")
+    if (!value.isFinite() || value < 0.0) {
+        throw RoutesParseException("Malformed duration: \"$this\"")
+    }
+    return value
 }

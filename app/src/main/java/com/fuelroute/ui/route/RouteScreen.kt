@@ -1,6 +1,8 @@
 package com.fuelroute.ui.route
 
 import android.Manifest
+import android.app.DatePickerDialog
+import android.app.TimePickerDialog
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,6 +32,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -49,12 +52,17 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fuelroute.R
 import com.fuelroute.data.places.PlaceSuggestion
 import com.fuelroute.data.places.RecentPlace
+import com.fuelroute.data.routes.RoutesError
 import com.fuelroute.data.settings.NAV_WAZE
 import com.fuelroute.domain.model.CongestionLevel
 import com.fuelroute.domain.model.Route
 import com.fuelroute.domain.model.RouteCost
 import com.fuelroute.domain.model.SegmentCost
+import com.fuelroute.domain.model.TrafficResolution
 import com.fuelroute.nav.NavigationLauncher
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
 import java.util.Locale
 
 @Composable
@@ -155,6 +163,10 @@ fun RouteScreen(
 
             item {
                 Column {
+                    DeparturePicker(
+                        departureTimeMs = state.departureTimeMs,
+                        onChange = viewModel::onDepartureTimeChange,
+                    )
                     Button(
                         onClick = viewModel::compute,
                         enabled = !state.isLoading &&
@@ -163,6 +175,15 @@ fun RouteScreen(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text(stringResource(R.string.route_compute))
+                    }
+                    TextButton(
+                        onClick = viewModel::refresh,
+                        enabled = !state.isLoading &&
+                            (state.originIsCurrentLocation || state.origin.isNotBlank()) &&
+                            state.destination.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(R.string.route_refresh))
                     }
                     Text(
                         text = stringResource(R.string.route_fuel_price, format(state.fuelPricePerLiter, 2)),
@@ -194,13 +215,9 @@ fun RouteScreen(
                 }
             }
 
-            if (state.error != null) {
+            state.error?.let { error ->
                 item {
-                    Text(
-                        text = state.error.orEmpty(),
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
+                    RouteErrorCard(error)
                 }
             }
 
@@ -212,16 +229,6 @@ fun RouteScreen(
                             format(state.learnedKm, 1),
                         ),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-
-            state.routeCountMessage?.let { message ->
-                item {
-                    Text(
-                        text = stringResource(message),
-                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -261,6 +268,125 @@ fun RouteScreen(
         }
     }
 }
+
+@Composable
+private fun DeparturePicker(
+    departureTimeMs: Long?,
+    onChange: (Long?) -> Unit,
+) {
+    val context = LocalContext.current
+    val label = if (departureTimeMs == null) {
+        stringResource(R.string.route_departure_now)
+    } else {
+        formatDateTime(departureTimeMs)
+    }
+
+    val openPicker = {
+        val initial = Calendar.getInstance().apply {
+            timeInMillis = departureTimeMs ?: System.currentTimeMillis()
+        }
+        DatePickerDialog(
+            context,
+            { _, year, month, day ->
+                TimePickerDialog(
+                    context,
+                    { _, hour, minute ->
+                        val picked = Calendar.getInstance().apply {
+                            set(year, month, day, hour, minute, 0)
+                            set(Calendar.MILLISECOND, 0)
+                        }
+                        onChange(picked.timeInMillis)
+                    },
+                    initial.get(Calendar.HOUR_OF_DAY),
+                    initial.get(Calendar.MINUTE),
+                    true,
+                ).show()
+            },
+            initial.get(Calendar.YEAR),
+            initial.get(Calendar.MONTH),
+            initial.get(Calendar.DAY_OF_MONTH),
+        ).show()
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        OutlinedButton(
+            onClick = openPicker,
+            modifier = Modifier.weight(1f),
+        ) {
+            Text(stringResource(R.string.route_departure_label, label))
+        }
+        TextButton(
+            onClick = { onChange(null) },
+            enabled = departureTimeMs != null,
+        ) {
+            Text(stringResource(R.string.route_departure_now))
+        }
+    }
+}
+
+@Composable
+private fun RouteErrorCard(error: RoutesError) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = stringResource(error.messageRes()),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+            )
+            error.actionRes()?.let { action ->
+                Text(
+                    text = stringResource(action),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                )
+            }
+        }
+    }
+}
+
+@StringRes
+private fun RoutesError.messageRes(): Int = when (this) {
+    RoutesError.NoNetwork -> R.string.route_error_no_network
+    RoutesError.Quota -> R.string.route_error_quota
+    RoutesError.Forbidden -> R.string.route_error_forbidden
+    RoutesError.NoRoute -> R.string.route_error_no_route
+    RoutesError.SingleRouteOnly -> R.string.route_single
+    is RoutesError.Invalid -> R.string.route_error_invalid
+    is RoutesError.Parse -> R.string.route_error_parse
+    is RoutesError.Unknown -> R.string.route_error_unknown
+}
+
+@StringRes
+private fun RoutesError.actionRes(): Int? = when (this) {
+    RoutesError.NoNetwork -> R.string.route_error_action_retry
+    RoutesError.Quota -> R.string.route_error_action_wait
+    RoutesError.Forbidden -> R.string.route_error_action_check_key
+    RoutesError.NoRoute -> R.string.route_error_action_change_time
+    RoutesError.SingleRouteOnly -> null
+    is RoutesError.Invalid -> R.string.route_error_action_change_time
+    is RoutesError.Parse -> R.string.route_error_action_retry
+    is RoutesError.Unknown -> R.string.route_error_action_retry
+}
+
+@StringRes
+private fun TrafficResolution.labelRes(): Int = when (this) {
+    TrafficResolution.PER_SEGMENT -> R.string.route_traffic_per_segment
+    TrafficResolution.ROUTE_AVERAGE -> R.string.route_traffic_route_average
+    TrafficResolution.NONE -> R.string.route_traffic_none
+}
+
+private fun formatDateTime(epochMs: Long): String =
+    SimpleDateFormat("dd/MM HH:mm", Locale.getDefault()).format(Date(epochMs))
 
 @Composable
 private fun CurrentLocationCard(
@@ -430,7 +556,7 @@ private fun RouteCard(
                 )
                 InfoColumn(
                     label = stringResource(R.string.route_toll_label),
-                    value = "₪ ${format(cost.tollCost, 1)}",
+                    value = if (cost.route.tollUnknown) "—" else "₪ ${format(cost.tollCost, 1)}",
                 )
             }
 
@@ -446,6 +572,27 @@ private fun RouteCard(
                 InfoColumn(
                     label = stringResource(R.string.route_avg_speed_label),
                     value = "${format(cost.avgSpeedKmh, 0)} ${stringResource(R.string.route_units_kmh)}",
+                )
+            }
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (cost.route.tollUnknown) {
+                    Text(
+                        text = stringResource(R.string.route_toll_unknown),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                Text(
+                    text = stringResource(
+                        R.string.route_traffic_label,
+                        stringResource(cost.route.trafficResolution.labelRes()),
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }

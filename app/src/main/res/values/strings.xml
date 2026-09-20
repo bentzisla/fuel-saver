@@ -37,6 +37,25 @@
     <string name="route_no_routes">לא נמצאו מסלולים</string>
     <string name="route_single">נמצא מסלול אחד בלבד — אין חלופות להשוואה</string>
     <string name="route_open_history">חיפושים קודמים</string>
+    <string name="route_departure_label">זמן יציאה: %1$s</string>
+    <string name="route_departure_now">עכשיו</string>
+    <string name="route_refresh">רענן</string>
+    <string name="route_toll_unknown">אגרה לא ידועה</string>
+    <string name="route_traffic_label">נתוני תנועה: %1$s</string>
+    <string name="route_traffic_per_segment">לפי מקטע</string>
+    <string name="route_traffic_route_average">ממוצע</string>
+    <string name="route_traffic_none">אין</string>
+    <string name="route_error_no_network">אין חיבור לאינטרנט</string>
+    <string name="route_error_quota">חריגה ממכסת השימוש בשירות המסלולים</string>
+    <string name="route_error_forbidden">המפתח אינו מורשה לשירות המסלולים</string>
+    <string name="route_error_no_route">לא נמצא מסלול ליעד שצוין</string>
+    <string name="route_error_invalid">הבקשה נדחתה על ידי השרת</string>
+    <string name="route_error_parse">שגיאה בפענוח תשובת השרת</string>
+    <string name="route_error_unknown">שגיאה לא צפויה</string>
+    <string name="route_error_action_retry">נסו שוב</string>
+    <string name="route_error_action_wait">נסו שוב מאוחר יותר</string>
+    <string name="route_error_action_check_key">בדקו את הגבלות המפתח ב-Google Cloud</string>
+    <string name="route_error_action_change_time">נסו לשנות את זמן היציאה או היעד</string>
 
     <string name="route_detail_title">חישוב העלות</string>
     <string name="route_close">סגור</string>

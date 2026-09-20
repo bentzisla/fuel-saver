@@ -15,6 +15,9 @@ data class RouteSearch(
     val predictedLiters: Double,
     val distanceKm: Double,
     val durationMin: Double,
+    val selectedRouteIndex: Int = 0,
+    val departureTimeMs: Long? = null,
+    val tollUnknown: Boolean = false,
 )
 
 interface RouteSearchRepository {
@@ -42,6 +45,9 @@ class DefaultRouteSearchRepository @Inject constructor(
                 predictedLiters = search.predictedLiters,
                 distanceKm = search.distanceKm,
                 durationMin = search.durationMin,
+                selectedRouteIndex = search.selectedRouteIndex,
+                departureTimeMs = search.departureTimeMs,
+                tollUnknown = if (search.tollUnknown) 1 else 0,
             ),
         )
     }
@@ -56,5 +62,8 @@ class DefaultRouteSearchRepository @Inject constructor(
         predictedLiters = predictedLiters,
         distanceKm = distanceKm,
         durationMin = durationMin,
+        selectedRouteIndex = selectedRouteIndex,
+        departureTimeMs = departureTimeMs,
+        tollUnknown = tollUnknown != 0,
     )
 }

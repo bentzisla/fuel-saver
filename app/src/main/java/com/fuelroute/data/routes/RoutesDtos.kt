@@ -24,16 +24,33 @@ data class ComputeRoutesRequest(
     val routingPreference: String = "TRAFFIC_AWARE_OPTIMAL",
     @EncodeDefault
     val computeAlternativeRoutes: Boolean = true,
-    // FUEL_EFFICIENT reference route is unsupported in the origin country (IL) and returns
-    // HTTP 400. Re-added properly (debug flag + region gate) by card 06. Default empty = omitted.
+    // FUEL_EFFICIENT is unsupported in the origin country (IL) and returns HTTP 400.
+    // Default empty = omitted; [RoutesRequestFactory] only sets it when explicitly requested
+    // via RouteRequestOptions.requestFuelEfficient (default OFF). No region gate is applied,
+    // so production never turns this on.
     val requestedReferenceRoutes: List<String> = emptyList(),
     val departureTime: String? = null, // NB: no @EncodeDefault — null must be omitted (past times → 400)
+    // Null = omitted. The API applies the vehicle modifiers (emissionType) to the returned
+    // routes and toll estimates; tollPasses/avoidTolls stay at their API defaults unless set.
+    val routeModifiers: RouteModifiersDto? = null,
     @EncodeDefault
     val languageCode: String = "he",
     @EncodeDefault
     val units: String = "METRIC",
     @EncodeDefault
     val extraComputations: List<String> = listOf("TRAFFIC_ON_POLYLINE", "TOLLS"),
+)
+
+@Serializable
+data class RouteModifiersDto(
+    val vehicleInfo: VehicleInfoDto? = null,
+    val tollPasses: List<String> = emptyList(),
+    val avoidTolls: Boolean = false,
+)
+
+@Serializable
+data class VehicleInfoDto(
+    val emissionType: String,
 )
 
 @Serializable
@@ -63,7 +80,7 @@ data class ComputeRoutesResponse(
 data class RouteDto(
     val routeLabels: List<String> = emptyList(),
     val description: String? = null,
-    val distanceMeters: Double = 0.0,
+    val distanceMeters: Int = 0,
     val duration: String = "0s",
     val staticDuration: String? = null,
     val polyline: PolylineDto? = null,
@@ -78,7 +95,7 @@ data class PolylineDto(
 
 @Serializable
 data class LegDto(
-    val distanceMeters: Double = 0.0,
+    val distanceMeters: Int = 0,
     val duration: String = "0s",
     val staticDuration: String? = null,
     val steps: List<StepDto> = emptyList(),
@@ -88,7 +105,7 @@ data class LegDto(
 
 @Serializable
 data class StepDto(
-    val distanceMeters: Double = 0.0,
+    val distanceMeters: Int = 0,
     val staticDuration: String? = null,
     val polyline: PolylineDto? = null,
 )

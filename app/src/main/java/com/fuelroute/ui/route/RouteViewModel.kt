@@ -2,6 +2,7 @@ package com.fuelroute.ui.route
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import android.util.Log
 import com.fuelroute.R
 import com.fuelroute.data.location.Coordinates
 import com.fuelroute.data.location.LocationRepository
@@ -11,10 +12,13 @@ import com.fuelroute.data.places.PlaceSuggestion
 import com.fuelroute.data.places.PlacesHistoryRepository
 import com.fuelroute.data.places.PlacesRepository
 import com.fuelroute.data.places.RecentPlace
+import com.fuelroute.data.routes.RouteRequestOptions
 import com.fuelroute.data.routes.RouteSearch
 import com.fuelroute.data.routes.RouteSearchRepository
 import com.fuelroute.data.routes.RouteWaypoint
+import com.fuelroute.data.routes.RoutesError
 import com.fuelroute.data.routes.RoutesRepository
+import com.fuelroute.data.routes.toEmissionType
 import com.fuelroute.data.settings.NAV_GOOGLE
 import com.fuelroute.data.settings.SettingsRepository
 import com.fuelroute.data.vehicle.VehicleRepository
@@ -56,13 +60,13 @@ data class RouteUiState(
     val history: List<RecentPlace> = emptyList(),
     val locationError: Boolean = false,
     val isLoading: Boolean = false,
-    val error: String? = null,
+    val error: RoutesError? = null,
     val results: List<RouteCost> = emptyList(),
     val selectedIndex: Int = 0,
+    val departureTimeMs: Long? = null,
     val fuelPricePerLiter: Double = DEFAULT_FUEL_PRICE,
     val learnedKm: Double = 0.0,
     val navigationApp: String = NAV_GOOGLE,
-    val routeCountMessage: Int? = null,
 )
 
 object RouteCountMessages {
@@ -250,18 +254,29 @@ class RouteViewModel @Inject constructor(
 
     fun selectResult(index: Int) = _uiState.update { it.copy(selectedIndex = index) }
 
-    fun compute() {
+    /** null = "now" (the departureTime field is omitted). Past values are clamped to now. */
+    fun onDepartureTimeChange(epochMs: Long?) {
+        val clamped = epochMs?.takeIf { it > System.currentTimeMillis() }
+        _uiState.update { it.copy(departureTimeMs = clamped, error = null) }
+    }
+
+    fun compute() = runSearch(forceRefresh = false)
+
+    /** "רענן" — bypasses the routes cache. */
+    fun refresh() = runSearch(forceRefresh = true)
+
+    private fun runSearch(forceRefresh: Boolean) {
         val state = _uiState.value
         val origin = state.origin.trim()
         val destination = state.destination.trim()
         val originSet = state.originIsCurrentLocation || origin.isNotBlank()
         if (!originSet || destination.isBlank()) {
-            _uiState.update { it.copy(results = emptyList(), routeCountMessage = null) }
+            _uiState.update { it.copy(results = emptyList(), error = null) }
             return
         }
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null, results = emptyList(), routeCountMessage = null) }
+            _uiState.update { it.copy(isLoading = true, error = null, results = emptyList()) }
             try {
                 val vehicle = vehicleRepository.active()
                 val settings = settingsRepository.settings.first()
@@ -284,7 +299,17 @@ class RouteViewModel @Inject constructor(
                     else -> RouteWaypoint(address = destination)
                 }
 
-                val routes = routesRepository.getAlternatives(originWaypoint, destinationWaypoint)
+                val options = RouteRequestOptions(
+                    departureTimeMs = state.departureTimeMs,
+                    emissionType = vehicle.fuelType.toEmissionType(),
+                )
+                val routes = routesRepository.getAlternatives(
+                    origin = originWaypoint,
+                    destination = destinationWaypoint,
+                    options = options,
+                    forceRefresh = forceRefresh,
+                )
+                val notice = RoutesError.fromRoutes(routes)
                 val fuelPrice = settings.fuelPricePerLiter
                 val ranked = RouteRanker.rank(
                     routes.map { fuelModel.cost(it, fuelPrice) },
@@ -295,9 +320,10 @@ class RouteViewModel @Inject constructor(
                         isLoading = false,
                         results = ranked,
                         selectedIndex = 0,
+                        departureTimeMs = state.departureTimeMs,
                         learnedKm = learned.totalDistanceKm,
                         fuelPricePerLiter = fuelPrice,
-                        routeCountMessage = RouteCountMessages.message(ranked.size),
+                        error = notice,
                     )
                 }
 
@@ -320,12 +346,17 @@ class RouteViewModel @Inject constructor(
                                 predictedLiters = cheapest.fuelLiters,
                                 distanceKm = cheapest.distanceKm,
                                 durationMin = cheapest.durationMinutes,
+                                selectedRouteIndex = 0,
+                                departureTimeMs = state.departureTimeMs,
+                                tollUnknown = cheapest.route.tollUnknown,
                             ),
                         )
                     }
                 }
-            } catch (e: Exception) {
-                _uiState.update { it.copy(isLoading = false, error = e.message ?: e.javaClass.simpleName) }
+            } catch (e: Throwable) {
+                val mapped = RoutesError.from(e)
+                Log.w("FuelRoute", "route search failed: ${mapped.javaClass.simpleName}", e)
+                _uiState.update { it.copy(isLoading = false, error = mapped) }
             }
         }
     }

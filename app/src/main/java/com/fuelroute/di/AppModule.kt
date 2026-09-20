@@ -20,7 +20,7 @@ import com.fuelroute.data.places.PlacesHistoryRepository
 import com.fuelroute.data.places.PlacesRepository
 import com.fuelroute.data.refuel.DefaultRefuelRepository
 import com.fuelroute.data.refuel.RefuelRepository
-import com.fuelroute.data.routes.GoogleRoutesRepository
+import com.fuelroute.data.routes.CachingRoutesRepository
 import com.fuelroute.data.routes.DefaultRouteSearchRepository
 import com.fuelroute.data.routes.RouteSearchRepository
 import com.fuelroute.data.routes.RoutesRepository
@@ -74,7 +74,7 @@ abstract class RepositoryModule {
 
     @Binds
     @Singleton
-    abstract fun bindRoutesRepository(impl: GoogleRoutesRepository): RoutesRepository
+    abstract fun bindRoutesRepository(impl: CachingRoutesRepository): RoutesRepository
 
     @Binds
     @Singleton

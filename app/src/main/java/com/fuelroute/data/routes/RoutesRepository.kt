@@ -4,6 +4,7 @@ import android.util.Log
 import com.fuelroute.BuildConfig
 import com.fuelroute.domain.model.Route
 import retrofit2.HttpException
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -14,8 +15,26 @@ data class RouteWaypoint(
     val longitude: Double? = null,
 )
 
+/**
+ * Optional request inputs. [departureTimeMs] null means "now" (field omitted);
+ * [emissionType] comes from the active vehicle's [com.fuelroute.domain.model.FuelType].
+ */
+data class RouteRequestOptions(
+    val departureTimeMs: Long? = null,
+    val emissionType: String? = null,
+    val requestFuelEfficient: Boolean = false,
+)
+
 interface RoutesRepository {
-    suspend fun getAlternatives(origin: RouteWaypoint, destination: RouteWaypoint): List<Route>
+    /**
+     * @param forceRefresh bypasses any cache (the UI "רענן" action).
+     */
+    suspend fun getAlternatives(
+        origin: RouteWaypoint,
+        destination: RouteWaypoint,
+        options: RouteRequestOptions = RouteRequestOptions(),
+        forceRefresh: Boolean = false,
+    ): List<Route>
 }
 
 @Singleton
@@ -23,33 +42,26 @@ class GoogleRoutesRepository @Inject constructor(
     private val service: RoutesService,
 ) : RoutesRepository {
 
-    override suspend fun getAlternatives(origin: RouteWaypoint, destination: RouteWaypoint): List<Route> {
-        val request = ComputeRoutesRequest(
-            origin = origin.toDto(),
-            destination = destination.toDto(),
-        )
-        // No departureTime yet: sending "now" truncated to the second lands slightly in the
-        // past, and the Routes API rejects a past departureTime for DRIVE with HTTP 400
-        // (past times are TRANSIT-only). The user-facing departure time picker is card 06.
+    override suspend fun getAlternatives(
+        origin: RouteWaypoint,
+        destination: RouteWaypoint,
+        options: RouteRequestOptions,
+        forceRefresh: Boolean,
+    ): List<Route> {
+        val request = RoutesRequestFactory.create(origin, destination, options, System.currentTimeMillis())
         val response = try {
             service.computeRoutes(BuildConfig.MAPS_API_KEY, request)
         } catch (e: HttpException) {
             val body = e.response()?.errorBody()?.string()
             Log.e("FuelRoute", "computeRoutes HTTP ${e.code()}: $body")
             throw e
+        } catch (e: IOException) {
+            Log.e("FuelRoute", "computeRoutes network failure: ${e.javaClass.simpleName}")
+            throw e
         }
         val routes = RoutesMapper.toDomain(response)
         Log.d("FuelRoute", "routes returned: ${routes.size} labels=${routes.map { it.routeLabels }}")
+        if (routes.isEmpty()) throw RoutesError.NoRoute
         return routes
     }
-
-    private fun RouteWaypoint.toDto() = WaypointDto(
-        address = address,
-        placeId = placeId,
-        location = if (latitude != null && longitude != null) {
-            LocationDto(LatLngDto(latitude, longitude))
-        } else {
-            null
-        },
-    )
 }
