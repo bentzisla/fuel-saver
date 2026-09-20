@@ -107,11 +107,11 @@ Phases 0 and 1 (~2.5 days) should not wait.
       Fold the duplicated `tripDao.insert` blocks into a `TripRecorder`.
       Done when: `adb shell am kill com.fuelroute` mid-drive loses <= 30 s of learning; MockK-DAO unit test with virtual time
       verifies the cadence.
-- [ ] **1.4 Retention.**
+- [x] **1.4 Retention.**
       `retentionDays` (default 90) in `AppSettings` + Settings UI. Add `androidx.work` + Hilt worker `RetentionWorker`
       (daily) calling `ObdSampleDao.deleteOlderThan`; also run on service stop.
       Done when: job visible in `adb shell dumpsys jobscheduler`; rows older than the cutoff are gone.
-- [ ] **1.5 Export / import.**
+- [x] **1.5 Export / import.**
       `data/backup/BackupRepository`: kotlinx-JSON of `vehicle` + `speed_bin_stats` + `trip` + `refuel` + `route_search` +
       `learning_extras` + settings. Export via `ACTION_CREATE_DOCUMENT`, import via `ACTION_OPEN_DOCUMENT` with merge semantics
       (bins summed, trips/refuels deduped by `vehicleId + timestamp`). Buttons in Settings.
@@ -254,7 +254,7 @@ Deferred (car is gasoline; keep the code paths, low priority):
       WorkManager fetch.
 - [x] **6.5 Ranking defaults.** `valuePerMinute` default 0.5 ₪/min; results always show both "הזול ביותר" and
       "המהיר ביותר" badges plus the delta in ₪ and minutes.
-- [ ] **6.6 Debug calibration screen.** Edit `ModelConstants` overrides at runtime; "fit stop-go weight / congestion factors
+- [x] **6.6 Debug calibration screen.** Edit `ModelConstants` overrides at runtime; "fit stop-go weight / congestion factors
       against linked trips" (least squares over 6.2 data).
 - [x] **6.7 Multi-vehicle polish.** Vehicle switcher in the top bar; per-vehicle stats; VIN auto-switch from 2.10 surfaced
       as a toast ("זוהה: <name>").
@@ -336,12 +336,12 @@ v4 is already installed on the user's device with real learned data.
 Three original-plan items that had no task card. Added 2026-09-20, run as one final wave (sequenced — all three touch
 `ui/settings` + `di/`).
 
-- [ ] **9.1 Retention (1.4).** `retentionDays` setting (default 90) + `androidx.work` daily `RetentionWorker`
+- [x] **9.1 Retention (1.4).** `retentionDays` setting (default 90) + `androidx.work` daily `RetentionWorker`
       (`ObdSampleDao.deleteOlderThan`), also run on service stop. See `remediation/tasks/16-retention.md`.
-- [ ] **9.2 Export/import (1.5).** `BackupRepository` (kotlinx JSON of all tables except `obd_sample` + settings +
+- [x] **9.2 Export/import (1.5).** `BackupRepository` (kotlinx JSON of all tables except `obd_sample` + settings +
       price), via `ACTION_CREATE_DOCUMENT`/`ACTION_OPEN_DOCUMENT`, merge semantics, `backup_rules.xml`. Includes
       `favorite_destination`. See `remediation/tasks/17-backup-export.md`.
-- [ ] **9.3 Debug calibration (6.6).** Runtime `ModelConstants` overrides (DataStore) + `ui/debug/CalibrationScreen`
+- [x] **9.3 Debug calibration (6.6).** Runtime `ModelConstants` overrides (DataStore) + `ui/debug/CalibrationScreen`
       + a global fuel-correction fit over linked trips (`CalibrationFitter`). Segment-level fit deferred (needs stored
       per-route geometry). See `remediation/tasks/18-debug-calibration.md`.
 
