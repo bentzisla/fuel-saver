@@ -26,6 +26,11 @@ data class SettingsUiState(
     val autoConnect: Boolean = true,
     val showOverlay: Boolean = false,
     val keepScreenOn: Boolean = false,
+    val lastDeviceAddress: String? = null,
+    val lastDeviceName: String? = null,
+    val lastAutoStartMs: Long? = null,
+    val lastObdError: String? = null,
+    val autoConnectIntroSeen: Boolean = false,
 )
 
 @HiltViewModel
@@ -53,6 +58,11 @@ class SettingsViewModel @Inject constructor(
                 autoConnect = settings.autoConnect,
                 showOverlay = settings.showOverlay,
                 keepScreenOn = settings.keepScreenOn,
+                lastDeviceAddress = settings.lastDeviceAddress,
+                lastDeviceName = settings.lastDeviceName,
+                lastAutoStartMs = settings.lastAutoStartMs,
+                lastObdError = settings.lastObdError,
+                autoConnectIntroSeen = settings.autoConnectIntroSeen,
             )
         }
     }
@@ -92,5 +102,10 @@ class SettingsViewModel @Inject constructor(
     fun onKeepScreenOnChange(value: Boolean) {
         _uiState.update { it.copy(keepScreenOn = value) }
         viewModelScope.launch { settingsRepository.saveKeepScreenOn(value) }
+    }
+
+    fun onAutoConnectIntroSeen() {
+        _uiState.update { it.copy(autoConnectIntroSeen = true) }
+        viewModelScope.launch { settingsRepository.saveAutoConnectIntroSeen(true) }
     }
 }

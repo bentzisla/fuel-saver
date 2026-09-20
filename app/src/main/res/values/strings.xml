@@ -241,6 +241,20 @@
     <string name="settings_elm_battery_note">שימו לב: דונגל ELM327 נשאר מחובר וצורך חשמל מהמצבר — נתקו אותו כשהרכב אינו בשימוש.</string>
     <string name="settings_autosaved">ההגדרות נשמרות אוטומטית</string>
 
+    <string name="settings_auto_logging_title">רישום אוטומטי ללא מגע</string>
+    <string name="settings_auto_logging_state">מצב: %1$s</string>
+    <string name="settings_on">מופעל</string>
+    <string name="settings_off">מושבת</string>
+    <string name="settings_auto_logging_device">דונגל מזוהה: %1$s</string>
+    <string name="settings_auto_logging_no_device">לא זוהה דונגל עדיין</string>
+    <string name="settings_auto_logging_last_start">התחלה אוטומטית אחרונה: %1$s</string>
+    <string name="settings_auto_logging_never">אף פעם</string>
+    <string name="settings_auto_logging_last_error">כשל אחרון: %1$s</string>
+    <string name="settings_auto_logging_permission_hint">חסרות הרשאות Bluetooth או התראות — הרישום האוטומטי לא יפעל עד לאישורן.</string>
+    <string name="settings_auto_logging_intro">רישום אוטומטי ללא מגע</string>
+    <string name="settings_auto_logging_intro_detail">כשהדונגל מתחבר, FuelRoute יתחיל לתעד צריכה, מהירות וסל״ד ברקע וישמור נסיעות. הנתונים נשארים במכשיר. נדרשות הרשאות Bluetooth והתראות, וכן פטור מאופטימיזציית סוללה כדי שהרישום ימשיך כשהמסך כבוי.</string>
+    <string name="settings_auto_logging_enable">הפעל רישום אוטומטי</string>
+
     <string name="overlay_close">✕</string>
     <string name="overlay_no_data">--</string>
     <string name="overlay_unit_l100">ל׳/100 ק״מ</string>

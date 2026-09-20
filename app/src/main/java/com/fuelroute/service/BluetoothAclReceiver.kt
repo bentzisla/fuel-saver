@@ -1,13 +1,20 @@
 package com.fuelroute.service
 
+import android.Manifest
 import android.annotation.SuppressLint
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
+import androidx.core.content.ContextCompat
 import com.fuelroute.data.settings.SettingsRepository
+import com.fuelroute.domain.obd.AutoConnectDebounce
+import com.fuelroute.domain.obd.BondedObdDevice
+import com.fuelroute.domain.obd.ObdDeviceMatcher
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -17,12 +24,18 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
- * Restarts OBD logging automatically when the previously used adapter reconnects.
+ * Zero-touch OBD entry point. Manifest-registered so it fires while the app is dead:
+ *
+ * - `ACL_CONNECTED` → start logging for the resolved adapter (last used, or a bonded
+ *   ELM-pattern name match on first ever use), then remember it.
+ * - `ACL_DISCONNECTED` → stop logging (the engine flushes bins and closes the open trip)
+ *   and arm a short debounce so a flap does not spin the run loop.
+ * - `STATE_CHANGED` → `STATE_ON` re-arms by starting the bonded adapter, because an ACL
+ *   broadcast is not re-sent for a device that is already connected.
  *
  * `ACTION_ACL_CONNECTED` is only delivered while the app is in the background when
  * `BLUETOOTH_CONNECT` is granted, which makes it a valid `connectedDevice`
- * foreground-service start trigger on API 34+. We still verify that the user opted
- * into auto-connect and that the adapter is the last one they used.
+ * foreground-service start trigger on API 34+.
  */
 @AndroidEntryPoint
 class BluetoothAclReceiver : BroadcastReceiver() {
@@ -32,7 +45,57 @@ class BluetoothAclReceiver : BroadcastReceiver() {
 
     @SuppressLint("MissingPermission")
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != BluetoothDevice.ACTION_ACL_CONNECTED) return
+        when (intent.action) {
+            BluetoothDevice.ACTION_ACL_CONNECTED -> onConnected(context, intent)
+            BluetoothDevice.ACTION_ACL_DISCONNECTED -> onDisconnected(context, intent)
+            BluetoothAdapter.ACTION_STATE_CHANGED ->
+                if (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR) ==
+                    BluetoothAdapter.STATE_ON
+                ) {
+                    onBluetoothOn(context)
+                }
+        }
+    }
+
+    private fun onConnected(context: Context, intent: Intent) {
+        val device = intent.bluetoothDeviceExtra() ?: return
+        val address = device.address ?: return
+        if (!hasBluetoothPermission(context)) {
+            Log.w(TAG, "ACL_CONNECTED ignored: BLUETOOTH_CONNECT not granted")
+            return
+        }
+
+        val pendingResult = goAsync()
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            try {
+                val settings = settingsRepository.settings.first()
+                val resolved = decideStart(
+                    autoConnect = settings.autoConnect,
+                    lastDeviceAddress = settings.lastDeviceAddress,
+                    address = address,
+                    name = deviceName(device),
+                ) ?: return@launch
+                if (AutoConnectDebounce.shouldIgnoreStart(lastStopAtMs, System.currentTimeMillis())) {
+                    Log.i(TAG, "ignoring start for $resolved inside the debounce window")
+                    return@launch
+                }
+                val name = deviceName(device)
+                if (settings.lastDeviceAddress.isNullOrBlank()) {
+                    settingsRepository.saveLastDeviceAddress(resolved)
+                    Log.i(TAG, "auto-resolved OBD adapter $resolved from a name match")
+                }
+                if (!name.isNullOrBlank()) settingsRepository.saveLastDeviceName(name)
+                Log.i(TAG, "adapter $resolved reconnected — starting logging")
+                ObdLoggingService.start(context, resolved, auto = true)
+            } catch (t: Throwable) {
+                Log.e(TAG, "ACL_CONNECTED handling failed", t)
+            } finally {
+                pendingResult.finish()
+            }
+        }
+    }
+
+    private fun onDisconnected(context: Context, intent: Intent) {
         val device = intent.bluetoothDeviceExtra() ?: return
         val address = device.address ?: return
 
@@ -40,15 +103,60 @@ class BluetoothAclReceiver : BroadcastReceiver() {
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
                 val settings = settingsRepository.settings.first()
-                if (settings.autoConnect && settings.lastDeviceAddress == address) {
-                    Log.i(TAG, "adapter $address reconnected — starting logging")
-                    ObdLoggingService.start(context, address)
+                if (ObdDeviceMatcher.isTargetDevice(settings.lastDeviceAddress, address, deviceName(device))) {
+                    lastStopAtMs = System.currentTimeMillis()
+                    Log.i(TAG, "adapter $address disconnected — stopping logging")
+                    ObdLoggingService.stop(context)
                 }
+            } catch (t: Throwable) {
+                Log.e(TAG, "ACL_DISCONNECTED handling failed", t)
             } finally {
                 pendingResult.finish()
             }
         }
     }
+
+    @SuppressLint("MissingPermission")
+    private fun onBluetoothOn(context: Context) {
+        if (!hasBluetoothPermission(context)) {
+            Log.w(TAG, "STATE_ON ignored: BLUETOOTH_CONNECT not granted")
+            return
+        }
+        val adapter = BluetoothAdapter.getDefaultAdapter() ?: return
+
+        val pendingResult = goAsync()
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            try {
+                val settings = settingsRepository.settings.first()
+                if (!settings.autoConnect) return@launch
+                val bonded = runCatching {
+                    adapter.bondedDevices.orEmpty().map { BondedObdDevice(it.address, deviceName(it)) }
+                }.getOrDefault(emptyList())
+                val target = ObdDeviceMatcher.resolveBonded(
+                    autoConnect = settings.autoConnect,
+                    lastDeviceAddress = settings.lastDeviceAddress,
+                    bonded = bonded,
+                ) ?: return@launch
+                if (AutoConnectDebounce.shouldIgnoreStart(lastStopAtMs, System.currentTimeMillis())) {
+                    Log.i(TAG, "ignoring Bluetooth-on start for $target inside the debounce window")
+                    return@launch
+                }
+                bonded.firstOrNull { it.address == target }?.name?.takeIf { it.isNotBlank() }?.let {
+                    settingsRepository.saveLastDeviceName(it)
+                }
+                Log.i(TAG, "Bluetooth on — starting logging for bonded $target")
+                ObdLoggingService.start(context, target, auto = true)
+            } catch (t: Throwable) {
+                Log.e(TAG, "STATE_ON handling failed", t)
+            } finally {
+                pendingResult.finish()
+            }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun deviceName(device: BluetoothDevice): String? =
+        runCatching { device.name }.getOrNull()
 
     private fun Intent.bluetoothDeviceExtra(): BluetoothDevice? =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -60,5 +168,26 @@ class BluetoothAclReceiver : BroadcastReceiver() {
 
     companion object {
         private const val TAG = "FuelRoute"
+
+        @Volatile
+        private var lastStopAtMs: Long? = null
+
+        /** Clears the debounce after a reboot so the first ACL connect is not ignored. */
+        fun clearDebounce() {
+            lastStopAtMs = null
+        }
+
+        /** Pure decision used by [onReceive]; a null result means "do nothing". */
+        fun decideStart(
+            autoConnect: Boolean,
+            lastDeviceAddress: String?,
+            address: String?,
+            name: String?,
+        ): String? = ObdDeviceMatcher.resolveConnected(autoConnect, lastDeviceAddress, address, name)
+
+        fun hasBluetoothPermission(context: Context): Boolean =
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) ==
+                PackageManager.PERMISSION_GRANTED
     }
 }

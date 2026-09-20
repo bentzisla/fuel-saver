@@ -11,12 +11,14 @@ import android.content.Intent
 import android.os.IBinder
 import android.os.PowerManager
 import android.provider.Settings
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.fuelroute.MainActivity
 import com.fuelroute.R
 import com.fuelroute.data.obd.BluetoothClassicTransport
 import com.fuelroute.data.obd.LiveObdState
 import com.fuelroute.data.obd.ObdEngine
+import com.fuelroute.data.obd.ObdStatus
 import com.fuelroute.data.obd.ObdTransport
 import com.fuelroute.data.obd.SimulatedObdTransport
 import com.fuelroute.data.settings.SettingsRepository
@@ -56,6 +58,10 @@ class ObdLoggingService : Service() {
     private var lastLiveAtMs = 0L
     private var lastStale: Boolean? = null
     private var latestState: LiveObdState? = null
+    // Set once the engine reaches Connecting/Connected, so the stale Disconnected value
+    // emitted before the run loop starts does not immediately stop the service.
+    private var sawActive = false
+    private var lastPersistedError: String? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -70,11 +76,14 @@ class ObdLoggingService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        startLogging(intent?.getStringExtra(EXTRA_ADDRESS))
+        startLogging(
+            address = intent?.getStringExtra(EXTRA_ADDRESS),
+            auto = intent?.getBooleanExtra(EXTRA_AUTO, false) == true,
+        )
         return START_REDELIVER_INTENT
     }
 
-    private fun startLogging(address: String?) {
+    private fun startLogging(address: String?, auto: Boolean) {
         if (logging) return
         val transport: ObdTransport? = if (address == null) {
             SimulatedObdTransport()
@@ -92,9 +101,15 @@ class ObdLoggingService : Service() {
         latestState = null
         lastStale = null
         lastLiveAtMs = System.currentTimeMillis()
+        sawActive = false
+        lastPersistedError = null
         acquireWakeLock()
 
         startForeground(NOTIFICATION_ID, buildNotification(null, stale = false))
+
+        if (auto) {
+            scope.launch { settingsRepository.saveLastAutoStart(System.currentTimeMillis()) }
+        }
 
         scope.launch {
             val vehicle = vehicleRepository.active()
@@ -113,6 +128,27 @@ class ObdLoggingService : Service() {
                 latestState = state
                 lastLiveAtMs = System.currentTimeMillis()
                 lastStale = false
+
+                // Surface the last failure without writing to DataStore on every sample.
+                state.lastError?.takeIf { it != lastPersistedError }?.let { error ->
+                    lastPersistedError = error
+                    settingsRepository.saveLastObdError(error)
+                }
+
+                when (state.status) {
+                    ObdStatus.Connecting, ObdStatus.Connected -> sawActive = true
+                    ObdStatus.Disconnected, ObdStatus.Error -> if (sawActive) {
+                        // Ignition off (run loop returned) or a failed connect: stop the
+                        // foreground service instead of lingering on a powered-but-idle dongle.
+                        if (state.status == ObdStatus.Error) {
+                            settingsRepository.saveLastObdError(state.lastError ?: "ERROR")
+                        }
+                        Log.i(TAG, "engine finished (${state.status}) — stopping logging service")
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                        stopSelf()
+                    }
+                }
+
                 getSystemService(NotificationManager::class.java)
                     .notify(NOTIFICATION_ID, buildNotification(state, stale = false))
                 if (overlayEnabled) {
@@ -211,17 +247,20 @@ class ObdLoggingService : Service() {
         const val NOTIFICATION_ID = 1
         const val ACTION_STOP = "com.fuelroute.action.STOP"
         const val EXTRA_ADDRESS = "device_address"
+        const val EXTRA_AUTO = "auto_started"
         const val EXTRA_OPEN_STATS = "open_stats"
 
         private const val WAKE_LOCK_TAG = "FuelRoute:obd"
         private const val WAKE_LOCK_TIMEOUT_MS = 4L * 60 * 60 * 1000
         private const val SERVICE_TICK_MS = 5_000L
         private const val STALE_AFTER_MS = 10_000L
+        private const val TAG = "FuelRoute"
 
-        fun start(context: Context, address: String?) {
+        fun start(context: Context, address: String?, auto: Boolean = false) {
             context.startForegroundService(
                 Intent(context, ObdLoggingService::class.java)
-                    .putExtra(EXTRA_ADDRESS, address),
+                    .putExtra(EXTRA_ADDRESS, address)
+                    .putExtra(EXTRA_AUTO, auto),
             )
         }
 

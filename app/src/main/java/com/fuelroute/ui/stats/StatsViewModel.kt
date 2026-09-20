@@ -187,7 +187,7 @@ class StatsViewModel @Inject constructor(
         viewModelScope.launch {
             val settings = settingsRepository.settings.first()
             if (settings.autoConnect && !settings.lastDeviceAddress.isNullOrBlank()) {
-                ObdLoggingService.start(appContext, settings.lastDeviceAddress)
+                ObdLoggingService.start(appContext, settings.lastDeviceAddress, auto = true)
             }
         }
     }

@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.fuelroute.domain.fuel.ModelConstants
 import kotlinx.coroutines.flow.Flow
@@ -25,6 +26,10 @@ data class AppSettings(
     val showOverlay: Boolean = false,
     val keepScreenOn: Boolean = false,
     val lastDeviceAddress: String? = null,
+    val lastDeviceName: String? = null,
+    val lastAutoStartMs: Long? = null,
+    val lastObdError: String? = null,
+    val autoConnectIntroSeen: Boolean = false,
 )
 
 interface SettingsRepository {
@@ -35,6 +40,10 @@ interface SettingsRepository {
     suspend fun saveShowOverlay(value: Boolean)
     suspend fun saveKeepScreenOn(value: Boolean)
     suspend fun saveLastDeviceAddress(value: String?)
+    suspend fun saveLastDeviceName(value: String?)
+    suspend fun saveLastAutoStart(value: Long?)
+    suspend fun saveLastObdError(value: String?)
+    suspend fun saveAutoConnectIntroSeen(value: Boolean)
 }
 
 @Singleton
@@ -52,6 +61,10 @@ class DataStoreSettingsRepository @Inject constructor(
                 showOverlay = prefs[Keys.SHOW_OVERLAY] ?: false,
                 keepScreenOn = prefs[Keys.KEEP_SCREEN_ON] ?: false,
                 lastDeviceAddress = prefs[Keys.LAST_DEVICE_ADDRESS]?.takeIf { it.isNotBlank() },
+                lastDeviceName = prefs[Keys.LAST_DEVICE_NAME]?.takeIf { it.isNotBlank() },
+                lastAutoStartMs = prefs[Keys.LAST_AUTO_START_MS]?.takeIf { it > 0L },
+                lastObdError = prefs[Keys.LAST_OBD_ERROR]?.takeIf { it.isNotBlank() },
+                autoConnectIntroSeen = prefs[Keys.AUTO_CONNECT_INTRO_SEEN] ?: false,
             )
         }
 
@@ -79,6 +92,22 @@ class DataStoreSettingsRepository @Inject constructor(
         dataStore.edit { it[Keys.LAST_DEVICE_ADDRESS] = value.orEmpty() }
     }
 
+    override suspend fun saveLastDeviceName(value: String?) {
+        dataStore.edit { it[Keys.LAST_DEVICE_NAME] = value.orEmpty() }
+    }
+
+    override suspend fun saveLastAutoStart(value: Long?) {
+        dataStore.edit { it[Keys.LAST_AUTO_START_MS] = value ?: 0L }
+    }
+
+    override suspend fun saveLastObdError(value: String?) {
+        dataStore.edit { it[Keys.LAST_OBD_ERROR] = value.orEmpty() }
+    }
+
+    override suspend fun saveAutoConnectIntroSeen(value: Boolean) {
+        dataStore.edit { it[Keys.AUTO_CONNECT_INTRO_SEEN] = value }
+    }
+
     private object Keys {
         val VALUE_PER_MINUTE = doublePreferencesKey("value_per_minute")
         val NAVIGATION_APP = stringPreferencesKey("navigation_app")
@@ -86,5 +115,9 @@ class DataStoreSettingsRepository @Inject constructor(
         val SHOW_OVERLAY = booleanPreferencesKey("show_overlay")
         val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
         val LAST_DEVICE_ADDRESS = stringPreferencesKey("last_device_address")
+        val LAST_DEVICE_NAME = stringPreferencesKey("last_device_name")
+        val LAST_AUTO_START_MS = longPreferencesKey("last_auto_start_ms")
+        val LAST_OBD_ERROR = stringPreferencesKey("last_obd_error")
+        val AUTO_CONNECT_INTRO_SEEN = booleanPreferencesKey("auto_connect_intro_seen")
     }
 }

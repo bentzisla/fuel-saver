@@ -41,6 +41,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fuelroute.R
 import com.fuelroute.data.obd.LiveObdState
 import com.fuelroute.data.obd.ObdStatus
+import com.fuelroute.data.settings.AppSettings
 import com.fuelroute.domain.fuel.RangeEstimator
 import com.fuelroute.domain.model.Trip
 import com.fuelroute.domain.model.VehicleProfile
@@ -142,6 +143,8 @@ fun StatsScreen(
                 Text(stringResource(R.string.curve_open))
             }
         }
+
+        item { AutoLoggingStatusCard(settings) }
 
         when (state.status) {
             ObdStatus.Disconnected -> {
@@ -570,8 +573,58 @@ private fun TripRow(trip: Trip, predictedL100: Double?) {
     }
 }
 
+@Composable
+private fun AutoLoggingStatusCard(settings: AppSettings) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = stringResource(R.string.settings_auto_logging_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = stringResource(
+                    R.string.settings_auto_logging_state,
+                    stringResource(
+                        if (settings.autoConnect) R.string.settings_on else R.string.settings_off,
+                    ),
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                text = stringResource(
+                    R.string.settings_auto_logging_device,
+                    settings.lastDeviceName?.takeIf { it.isNotBlank() }
+                        ?: settings.lastDeviceAddress
+                        ?: stringResource(R.string.settings_auto_logging_no_device),
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = stringResource(
+                    R.string.settings_auto_logging_last_start,
+                    settings.lastAutoStartMs?.let { formatDateTime(it) }
+                        ?: stringResource(R.string.settings_auto_logging_never),
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            settings.lastObdError?.let {
+                Text(
+                    text = stringResource(R.string.settings_auto_logging_last_error, it),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+    }
+}
+
 private fun formatDate(epochMs: Long): String =
     DateFormat.getDateInstance(DateFormat.SHORT).format(Date(epochMs))
+
+private fun formatDateTime(epochMs: Long): String =
+    DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(epochMs))
 
 private fun format(value: Double, decimals: Int): String =
     String.format(Locale.US, "%.${decimals}f", value)
