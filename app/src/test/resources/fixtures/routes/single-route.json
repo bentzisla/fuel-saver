@@ -1,0 +1,23 @@
+{
+  "routes": [
+    {
+      "routeLabels": ["DEFAULT_ROUTE"],
+      "description": "דרך מנחם בגין",
+      "distanceMeters": 10000,
+      "duration": "900s",
+      "staticDuration": "800s",
+      "polyline": { "encodedPolyline": "ctybEgihsEbtOwaVjzh@kvy@" },
+      "legs": [
+        {
+          "distanceMeters": 10000,
+          "duration": "900s",
+          "staticDuration": "800s",
+          "steps": [
+            { "distanceMeters": 5000, "staticDuration": "400s" },
+            { "distanceMeters": 5000, "staticDuration": "400s" }
+          ]
+        }
+      ]
+    }
+  ]
+}

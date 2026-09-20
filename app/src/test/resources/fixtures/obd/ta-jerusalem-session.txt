@@ -1,0 +1,27 @@
+# Recorded ELM327 session (synthetic but shaped like a real capture).
+# One "CMD> response" per line; an optional "delay=NN" line applies to the next command.
+# "\n" inside a response expands to a real newline (multi-line adapter output).
+delay=20
+ATZ> ELM327 v1.5
+ATE0> OK
+ATL0> OK
+ATS1> OK
+ATH0> OK
+ATSP0> OK
+ATST64> OK
+0100> 41 00 BE 3F A8 13
+0120> 41 20 80 00 00 00
+0140> NO DATA
+0160> NO DATA
+0902> SEARCHING...\n49 02 01 31 48 47 43 4D 38 32 36 33 33 41 30 30 34 33 35 32
+delay=50
+010D> 41 0D 3C
+010C> 41 0C 1A F8
+0110> 41 10 05 78
+015E> 41 5E 00 96
+0105> 41 05 7B
+010D> 41 0D 5A
+010C> 41 0C 1F 40
+0110> 41 10 08 98
+015E> NO DATA
+0105> 41 05 7D

@@ -1,0 +1,31 @@
+{
+  "routes": [
+    {
+      "routeLabels": ["DEFAULT_ROUTE"],
+      "description": "כביש 1",
+      "distanceMeters": 51955,
+      "duration": "4500s",
+      "staticDuration": "3600s",
+      "polyline": { "encodedPolyline": "ctybEgihsErrQwaVnqP_pRjiUkef@" },
+      "travelAdvisory": {
+        "speedReadingIntervals": [
+          { "startPolylinePointIndex": 0, "endPolylinePointIndex": 1, "speed": "SLOW" },
+          { "startPolylinePointIndex": 1, "endPolylinePointIndex": 2, "speed": "TRAFFIC_JAM" },
+          { "startPolylinePointIndex": 2, "endPolylinePointIndex": 3, "speed": "NORMAL" }
+        ]
+      },
+      "legs": [
+        {
+          "distanceMeters": 51955,
+          "duration": "4500s",
+          "staticDuration": "3600s",
+          "steps": [
+            { "distanceMeters": 15376, "staticDuration": "1065s" },
+            { "distanceMeters": 13754, "staticDuration": "953s" },
+            { "distanceMeters": 22825, "staticDuration": "1582s" }
+          ]
+        }
+      ]
+    }
+  ]
+}

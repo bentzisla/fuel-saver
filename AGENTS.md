@@ -24,8 +24,10 @@ using per-segment speed and a vehicle consumption-vs-speed curve. Full design: `
 
 Add `--console=plain` to gradle commands for cleaner output. First build downloads Gradle + deps and is slow (several minutes).
 
+A pre-push hook is installed (`.git/hooks/pre-push`) that runs `.\gradlew.bat testDebugUnitTest lintDebug` before every push (install script: `scripts/install-pre-push-hook.ps1`; skip with `git push --no-verify`).
+
 ## Project conventions
-- Package: `com.fuelroute`. Layers: `ui/` (Compose + ViewModels), `domain/` (pure Kotlin, no Android imports), `data/` (Retrofit, DataStore, Room), `nav/`, `di/`.
+- Package: `com.fuelroute`. Layers: `ui/` (Compose + ViewModels), `domain/` (pure Kotlin, no Android imports), `data/` (Retrofit, DataStore, Room), `nav/`, `di/`, `car/` (Android Auto Car App Library templates).
 - `domain/` must stay free of Android dependencies so it is unit-testable on the JVM.
 - Kotlin DSL (`*.gradle.kts`) + version catalog `gradle/libs.versions.toml`.
 - API key lives in `local.properties` as `MAPS_API_KEY=...` and is read in `app/build.gradle.kts` as a
@@ -51,6 +53,7 @@ Add `--console=plain` to gradle commands for cleaner output. First build downloa
 - Learning: 5 km/h speed bins; per bin accumulate `distanceKm`, `fuelL`, `seconds`, `samples` in Room (`speed_bin_stats`). Bin 0 with RPM > 0 = idle L/h. Samples with dt > 2 s or cold engine (< 60 C) are excluded from the curve.
 - Logging runs in `service/ObdLoggingService` (Foreground Service, type `connectedDevice`) independent of routing.
 - Recorded ELM sessions for tests/fixtures go under `app/src/test/resources/fixtures/obd/`.
+- Android Auto: `car/FuelRouteCarAppService` renders a live OBD dashboard (templates only, ~1 Hz). Test via the Desktop Head Unit (DHU), not the emulator: `sdkmanager --install "extras;google;auto"`, enable Android Auto developer mode on the phone, `adb forward tcp:5277 tcp:5277`, run `desktop-head-unit.exe`. Play Store will not approve a generic vehicle-dashboard category → sideload only (Android Auto "Unknown sources").
 
 ## Remediation work (sub-agents)
 - The canonical project location is **`C:\dev\fuel`** (moved off the OneDrive-linked profile path in Phase 0 of `REMEDIATION.md`). Keep the path ASCII-only.

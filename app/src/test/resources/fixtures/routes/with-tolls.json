@@ -1,0 +1,31 @@
+{
+  "routes": [
+    {
+      "routeLabels": ["DEFAULT_ROUTE"],
+      "description": "כביש 6",
+      "distanceMeters": 51696,
+      "duration": "4400s",
+      "staticDuration": "4000s",
+      "polyline": { "encodedPolyline": "ctybEgihsEbtOwaVjzh@kvy@" },
+      "legs": [
+        {
+          "distanceMeters": 51696,
+          "duration": "4400s",
+          "staticDuration": "4000s",
+          "polyline": { "encodedPolyline": "ctybEgihsEbtOwaVjzh@kvy@" },
+          "steps": [
+            { "distanceMeters": 14632, "staticDuration": "1132s" },
+            { "distanceMeters": 37064, "staticDuration": "2868s" }
+          ]
+        }
+      ],
+      "travelAdvisory": {
+        "tollInfo": {
+          "estimatedPrice": [
+            { "currencyCode": "ILS", "units": "12", "nanos": 500000000 }
+          ]
+        }
+      }
+    }
+  ]
+}

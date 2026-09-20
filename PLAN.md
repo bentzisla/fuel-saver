@@ -24,10 +24,10 @@
 | אחסון | **DataStore** (הגדרות/פרופיל רכב) + **Room** (נסיעות, דגימות OBD, סטטיסטיקות לפי מהירות) | |
 | OBD-II | **Bluetooth Classic (SPP)** ל-ELM327 + תמיכה ב-**BLE** בשלב מאוחר | רוב הדונגלים הזולים הם Classic; ראה סעיף 5 |
 | רישום ברקע | **Foreground Service** עם התראה קבועה | הרישום ממשיך כשהמסך כבוי / האפליקציה ברקע |
-| גרפים | **Vico** (ספריית גרפים ל-Compose) | עקומת צריכה, היסטוגרמות, מגמות |
+| גרפים | **Compose Canvas** (ציור מותאם, ללא Vico) | עקומת צריכה, היסטוגרמות, מגמות |
 | נתוני מסלול | **Google Routes API v2** (`computeRoutes`) | ראה סעיף 3 |
 | ניווט בפועל | **Deep-link ל-Google Maps** עם waypoints | ראה סעיף 7 |
-| בדיקות | JUnit5 + MockK (יחידה), Compose UI tests (מינימלי), **FakeObdTransport** לפיתוח בלי רכב | |
+| בדיקות | JUnit4 + MockK (יחידה), **FakeObdTransport** (replay של קבצי ELM) לפיתוח בלי רכב | |
 | Min SDK | 26 (Android 8) | מכסה ~97% מהמכשירים, מפשט הרשאות מיקום |
 
 ### למה לא Waze?
@@ -44,7 +44,7 @@
 
 **מה הותקן והוגדר (בוצע):**
 - Android Studio (`C:\Program Files\Android\Android Studio`) - כולל JDK 21 (JBR) ב-`...\jbr`
-- Android SDK ב-`%LOCALAPPDATA%\Android\Sdk`: `platform-tools` (adb), `platforms;android-35`, `build-tools;35.0.0`, `cmdline-tools`
+- Android SDK ב-`%LOCALAPPDATA%\Android\Sdk`: `platform-tools` (adb), `platforms;android-36`, `build-tools;36.0.0`, `cmdline-tools`
 - משתני סביבה ברמת המשתמש: `ANDROID_HOME`, `JAVA_HOME` (מצביע ל-JBR), ו-PATH כולל `adb` ו-`sdkmanager`
   - **יש לפתוח טרמינל / OpenCode מחדש** כדי שהמשתנים ייטענו
 
@@ -71,7 +71,7 @@
 4. Credentials → API key → Restrict:
    - Application restrictions: Android apps → package `com.fuelroute` + SHA-1 של debug keystore (`.\gradlew.bat signingReport`)
    - API restrictions: רק שלושת ה-APIs לעיל
-5. המפתח נשמר ב-`local.properties` (מחוץ ל-git) ונכנס לקוד דרך `secrets-gradle-plugin`
+5. המפתח נשמר ב-`local.properties` (מחוץ ל-git) ונקרא ב-`app/build.gradle.kts` ל-`BuildConfig` + manifest placeholder (ללא secrets plugin)
 
 ---
 
@@ -261,48 +261,57 @@ idle_L_h    = fuel_L / hours                       # לפח 0, רק כש-RPM > 0
 fuel/
 ├── AGENTS.md                     # הנחיות ל-OpenCode
 ├── PLAN.md                       # המסמך הזה
-├── settings.gradle.kts
-├── build.gradle.kts
-├── gradle/libs.versions.toml     # ניהול גרסאות (version catalog)
+├── REMEDIATION.md                # סטטוס התיקונים (checklist)
+├── remediation/tasks/*.md        # כרטיסי משימות לתתי-סוכנים
+├── gradle/libs.versions.toml     # version catalog
 ├── local.properties              # MAPS_API_KEY=... (לא ב-git!)
 └── app/
     ├── build.gradle.kts
+    ├── schemas/…/AppDatabase/{4,5}.json   # schema של Room (exportSchema)
     └── src/
         ├── main/
         │   ├── AndroidManifest.xml
+        │   ├── res/xml/automotive_app_desc.xml   # Android Auto
         │   └── java/com/fuelroute/
         │       ├── FuelRouteApp.kt            # @HiltAndroidApp
-        │       ├── MainActivity.kt            # Compose host + NavHost + Bottom bar (מסלול | רכב | סטטיסטיקה)
+        │       ├── MainActivity.kt            # Compose host + NavHost
+        │       ├── car/         DashboardScreen.kt, FuelRouteCarAppService.kt, FuelRouteSession.kt   # Android Auto
         │       ├── ui/
         │       │   ├── theme/
-        │       │   ├── home/       HomeScreen.kt, HomeViewModel.kt        # מוצא/יעד, זמן יציאה, כפתור חישוב
-        │       │   ├── results/    ResultsScreen.kt, ResultsViewModel.kt  # מפה + כרטיסי מסלולים מדורגים
-        │       │   ├── obd/        ObdConnectScreen.kt, LiveDashboardScreen.kt, ObdViewModel.kt
-        │       │   ├── curve/      CurveScreen.kt, CurveViewModel.kt      # עקומה נלמדת/ידנית/ברירת מחדל, גרף
-        │       │   ├── stats/      StatsScreen.kt, TripDetailScreen.kt, StatsViewModel.kt
-        │       │   ├── refuel/     RefuelScreen.kt                        # רישום תדלוק + כיול
-        │       │   ├── vehicle/    VehicleScreen.kt, VehicleViewModel.kt  # פרופיל רכב(ים)
-        │       │   ├── settings/   SettingsScreen.kt                      # מחיר דלק, שווי זמן, אפליקציית ניווט, retention
-        │       │   └── history/    HistoryScreen.kt                       # חיפושי מסלול קודמים + "חסכת X ₪"
-        │       ├── domain/
-        │       │   ├── model/      Route.kt, Segment.kt, RouteCost.kt, VehicleProfile.kt, ObdSample.kt, Trip.kt, SpeedBinStats.kt
-        │       │   ├── fuel/       DefaultCurve.kt, ConsumptionCurve.kt, CurveBlender.kt, FuelModel.kt, CongestionModel.kt
-        │       │   ├── learning/   FuelRateCalculator.kt, SpeedBinAggregator.kt, LearnedCurve.kt, TripDetector.kt, RefuelCalibrator.kt
-        │       │   ├── obd/        ElmProtocol.kt, PidParser.kt, Pid.kt     # Kotlin טהור - פרסור בלבד, ללא Bluetooth
-        │       │   ├── ranking/    RouteRanker.kt
-        │       │   └── usecase/    ComputeCheapestRouteUseCase.kt, GetEffectiveCurveUseCase.kt
+        │       │   ├── route/      RouteScreen.kt, RouteMap.kt, RouteViewModel.kt        # חיפוש/תוצאות/דירוג
+        │       │   ├── curve/      CurveScreen.kt, CurveViewModel.kt
+        │       │   ├── stats/      StatsScreen.kt, StatsViewModel.kt                      # לוח חי + סטטיסטיקות
+        │       │   ├── refuel/     RefuelScreen.kt, RefuelViewModel.kt
+        │       │   ├── vehicle/    VehicleScreen.kt, VehicleViewModel.kt
+        │       │   ├── history/    HistoryScreen.kt, HistoryViewModel.kt                  # חיזוי מול בפועל
+        │       │   ├── favorites/  FavoritesScreen.kt
+        │       │   ├── settings/   SettingsScreen.kt, SettingsViewModel.kt
+        │       │   └── permission/ PermissionGate.kt
+        │       ├── domain/         (Kotlin טהור, ללא Android)
+        │       │   ├── model/      Route.kt, RouteCost.kt, FuelType.kt, VehicleProfile.kt, ObdSample.kt, Trip.kt, SpeedBinStats.kt, Refuel.kt, SpeedPoint.kt
+        │       │   ├── fuel/       DefaultCurve.kt, ConsumptionCurve.kt, CurveBlender.kt, FuelModel.kt, CongestionModel.kt, ModelConstants.kt, RangeEstimator.kt
+        │       │   ├── learning/   FuelRateCalculator.kt, SpeedBinAggregator.kt, LearnedCurve.kt, TripDetector.kt, RefuelCalibrator.kt, ColdStartLearner.kt
+        │       │   ├── obd/        ElmProtocol.kt, PidParser.kt, ObdConnectionPolicy.kt, ObdDeviceMatcher.kt, LiveCostCalculator.kt
+        │       │   ├── history/    TripMatcher.kt, PredictionAccuracy.kt, TripCost.kt
+        │       │   └── ranking/    RouteRanker.kt, RouteInsights.kt
         │       ├── data/
-        │       │   ├── obd/        ObdTransport.kt (interface), BluetoothClassicTransport.kt, FakeObdTransport.kt, ObdSession.kt
-        │       │   ├── routes/     RoutesApi.kt (Retrofit), RoutesDto.kt, RoutesMapper.kt, RoutesRepository.kt
-        │       │   ├── places/     PlacesRepository.kt
-        │       │   ├── location/   LocationRepository.kt
-        │       │   ├── vehicle/    VehicleRepository.kt (Room)
-        │       │   ├── price/      FuelPriceRepository.kt (ידני / מתדלוקים; אופציה: מחיר 95 מפוקח מ-data.gov.il)
-        │       │   └── db/         AppDatabase.kt, TripDao.kt, ObdSampleDao.kt, SpeedBinDao.kt, RefuelDao.kt, RouteSearchDao.kt
-        │       ├── service/        ObdLoggingService.kt    # Foreground Service
-        │       ├── nav/            NavigationLauncher.kt   # deep-links ל-Google Maps / Waze
-        │       └── di/             AppModule.kt, NetworkModule.kt, ObdModule.kt (Fake vs Real לפי build flavor/flag)
-        └── test/java/com/fuelroute/domain/   # בדיקות יחידה + fixtures (JSON של Routes, לוגי ELM)
+        │       │   ├── obd/        ObdTransport.kt, BluetoothClassicTransport.kt, FakeObdTransport.kt, SimulatedObdTransport.kt, ObdEngine.kt, TripRecorder.kt, LearnedCurveRepository.kt, TripRepository.kt, BluetoothDevicesRepository.kt
+        │       │   ├── routes/     RoutesService.kt, RoutesDtos.kt, RoutesMapper.kt, RoutesRepository.kt, CachingRoutesRepository.kt, RoutesError.kt, RoutesRequestFactory.kt, RouteSearchRepository.kt, PolylineDecoder.kt
+        │       │   ├── places/     PlacesRepository.kt, PlacesService.kt, PlacesDtos.kt, PlacesHistoryRepository.kt, FavoritesRepository.kt
+        │       │   ├── history/    DriveHistoryRepository.kt, TripLinker.kt
+        │       │   ├── location/   LocationRepository.kt, ReverseGeocoder.kt
+        │       │   ├── vehicle/    VehicleRepository.kt
+        │       │   ├── price/      FuelPrice.kt, FuelPriceRepository.kt
+        │       │   ├── refuel/     RefuelRepository.kt
+        │       │   ├── learning/   ColdStartRepository.kt
+        │       │   ├── settings/   SettingsRepository.kt
+        │       │   └── db/         AppDatabase.kt, Entities.kt, Daos.kt, Migrations.kt (MIGRATION_3_4 + 4_5)
+        │       ├── service/        ObdLoggingService.kt, BluetoothAclReceiver.kt, BootReceiver.kt, BatteryOptimization.kt, ObdOverlayController.kt
+        │       ├── nav/            FuelRouteNavHost.kt, NavigationLauncher.kt, NavigationUris.kt, NavDestination.kt
+        │       └── di/             AppModule.kt, NetworkModule.kt, DatabaseModule.kt
+        └── test/
+            ├── java/com/fuelroute/…                # בדיקות יחידה JUnit4
+            └── resources/fixtures/{routes,obd}/    # JSON של computeRoutes + replay של ELM
 ```
 
 **זרימת נתונים - למידה (רצה תמיד כשמחוברים):**
@@ -337,6 +346,11 @@ https://www.google.com/maps/dir/?api=1
 ---
 
 ## 8. שלבי פיתוח (Milestones)
+
+> **סטטוס עדכני (2026-09-20):** רשימת השלבים להלן היא התכנית המקורית. המצב בפועל מנוהל כ-checklist ב-`REMEDIATION.md` —
+> שלבים 0-5 (P0 + Waves 1-5) **הושלמו**, ונוספו **Phase 8** (בקשות מוצר: היסטוריית חיזוי-מול-בפועל, תיקון מסירת כתובת,
+> יעדים מועדפים, רישום OBD אוטומטי ללא מגע, לוח מחוונים ב-Android Auto). כל שינוי סכמה בוצע כמיגרציה אחת
+> (`MIGRATION_3_4`, `MIGRATION_4_5`) בלי `fallbackToDestructiveMigration`.
 
 שני מסלולי עבודה מקבילים - **A: למידת רכב (OBD)** ו-**B: בחירת מסלול** - שנפגשים בשלב 5. מסלול A קודם, כי ככל שמתחילים לאסוף נתונים מוקדם יותר, העקומה מדויקת יותר כשמסלול B מוכן.
 
@@ -415,4 +429,36 @@ https://www.google.com/maps/dir/?api=1
 | חיוב לא צפוי ב-Google Cloud | Budget alert, API restrictions, cache תוצאות ל-10 דקות לאותו מוצא/יעד |
 | Google Maps לא שומר על המסלול עם waypoints | להציג את המסלול במפה בתוך האפליקציה כגיבוי; לשקול הצגת הוראות step-by-step מה-API |
 | מפתח API בתוך ה-APK | הגבלת package+SHA-1; זו אפליקציה אישית, לא לפרסום בחנות |
-| Java 24 של Oracle ב-PATH המערכתי | Gradle משתמש ב-`JAVA_HOME` (JBR 21) - מוגדר. אם יש בעיה: `org.gradle.java.home` ב-`gradle.properties` |
+| Java 24 של Oracle ב-PATH המערכתי | Gradle משתמש ב-`JAVA_HOME` (jdk-24) - מוגדר ב-`gradle.properties` (`org.gradle.java.home`). אין להסתמך על `java` ב-PATH |
+| אובדן keystore של ה-release | גיבוי `release/fuelroute.jks` + `keystore.properties` מחוץ למחשב (Password Manager); ה-SHA-1 מתועד ב-`REMEDIATION.md` 0.2 |
+| REST API key ללא הגבלת מכשיר | שליחת `X-Android-Package` + `X-Android-Cert` בכותרת על קריאות Routes/Places (4.6); הגבלת package+SHA-1 במפתח |
+| הגבלות FGS ברקע (Android 14+) | `FOREGROUND_SERVICE_CONNECTED_DEVICE`, `START_REDELIVER_INTENT`, PARTIAL_WAKE_LOCK, התנעה מ-`ACTION_ACL_CONNECTED` (טריגר מותר), פטור מאופטימיזציית סוללה |
+| נתיב לא-ASCII | הפרויקט חייב להישאר ב-`C:\dev\fuel` (ASCII בלבד); AGP ו-Gradle test worker נשברים בנתיב עם תווים שאינם ASCII |
+| שדרוג סכמה הרסני | `exportSchema=true` + `MIGRATION_3_4`/`MIGRATION_4_5` במקום `fallbackToDestructiveMigration`; schema JSON תחת `app/schemas/` |
+| Android Auto - קטגוריה לא מאושרת בחנות | לוח מחוונים גנרי אינו בקטגוריות המותרות ב-Play → שימוש אישי ב-sideload בלבד (Android Auto "Unknown sources"); טמפלייטים בלבד, ~1Hz refresh |
+
+---
+
+## 10. מגבלות המודל וקבועים (`domain/fuel/ModelConstants.kt`)
+
+כל המספרים הקבועים מרוכזים ב-`ModelConstants` עם הערת מקור. ערכים שסומנו `TODO(calibrate)` דורשים כיול בשטח מול נתוני OBD
+אמיתיים (משימה 6.6: מסך כיול debug שמתאים אותם מול נסיעות מקושרות).
+
+| קבוע | ערך | מקור / סטטוס |
+|---|---|---|
+| `NORMAL_FACTOR` | 1.0 | עומס רגיל |
+| `SLOW_FACTOR` | 0.55 | `TODO(calibrate)` |
+| `JAM_FACTOR` | 0.25 | `TODO(calibrate)` |
+| `STOP_GO_WEIGHT` | 0.5 | קנס זחילה/עצירות, `TODO(calibrate)` |
+| `CONFIDENCE_K_KM` | 20 | משקל נלמדת/fallback (w = km/(km+20)) |
+| `MAX_EXTRAPOLATION_KMH` | 12.5 | אקסטרפולציה של עקומה נלמדת |
+| `COLD_START_DEFAULT_L` | 0.15 | עודף דלק בהתנעה קרה, `TODO(calibrate)` |
+| `IDLE_LPH_DEFAULT` | 0.8 | צריכת סרק כשעוד אין פח סרק, `TODO(calibrate)` |
+| `DEFAULT_FUEL_PRICE` | 7.0 | מחיר דלק לליטר (נדרס ע"י `FuelPriceRepository`) |
+| `DEFAULT_VALUE_PER_MINUTE` | 0.5 | שווי זמן ₪/דקה |
+| `LIVE_EMA_ALPHA` | 0.35 | החלקת תצוגת Android Auto (1Hz), `TODO(calibrate)` |
+
+**מגבלות מודל ידועות:**
+- העקומה מניחה פקטור עומס ליניארי לפי אורך (3.2); אין מידול טופוגרפיה/מזגן (ראה 4.4 - עתידי).
+- `NONE` (ללא נתוני תנועה) = נרמול זמן אחיד, ללא קנס stop-go.
+- דיזל/היברידי (2.3, 2.4) נדחו - הרכב בפועל הוא בנזין 95.

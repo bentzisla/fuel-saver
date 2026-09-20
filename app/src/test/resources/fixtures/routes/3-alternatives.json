@@ -1,0 +1,81 @@
+{
+  "routes": [
+    {
+      "routeLabels": ["DEFAULT_ROUTE"],
+      "description": "כביש 1",
+      "distanceMeters": 51955,
+      "duration": "4200s",
+      "staticDuration": "3600s",
+      "polyline": { "encodedPolyline": "ctybEgihsErrQwaVnqP_pRjiUkef@" },
+      "legs": [
+        {
+          "distanceMeters": 51955,
+          "duration": "4200s",
+          "staticDuration": "3600s",
+          "polyline": { "encodedPolyline": "ctybEgihsErrQwaVnqP_pRjiUkef@" },
+          "travelAdvisory": {
+            "speedReadingIntervals": [
+              { "startPolylinePointIndex": 0, "endPolylinePointIndex": 1, "speed": "SLOW" },
+              { "startPolylinePointIndex": 1, "endPolylinePointIndex": 2, "speed": "TRAFFIC_JAM" },
+              { "startPolylinePointIndex": 2, "endPolylinePointIndex": 3, "speed": "NORMAL" }
+            ]
+          },
+          "steps": [
+            { "distanceMeters": 15376, "staticDuration": "1065s" },
+            { "distanceMeters": 13754, "staticDuration": "953s" },
+            { "distanceMeters": 22825, "staticDuration": "1582s" }
+          ]
+        }
+      ]
+    },
+    {
+      "routeLabels": ["DEFAULT_ROUTE_ALTERNATE"],
+      "description": "כביש 6",
+      "distanceMeters": 52282,
+      "duration": "3900s",
+      "staticDuration": "3300s",
+      "polyline": { "encodedPolyline": "ctybEgihsEbwKgiLnqP_pRnkX_af@jxA{{H" },
+      "travelAdvisory": {
+        "speedReadingIntervals": [
+          { "startPolylinePointIndex": 0, "endPolylinePointIndex": 1, "speed": "NORMAL" },
+          { "startPolylinePointIndex": 1, "endPolylinePointIndex": 2, "speed": "SLOW" },
+          { "startPolylinePointIndex": 2, "endPolylinePointIndex": 3, "speed": "TRAFFIC_JAM" },
+          { "startPolylinePointIndex": 3, "endPolylinePointIndex": 4, "speed": "NORMAL" }
+        ]
+      },
+      "legs": [
+        {
+          "distanceMeters": 52282,
+          "duration": "3900s",
+          "staticDuration": "3300s",
+          "steps": [
+            { "distanceMeters": 9697, "staticDuration": "612s" },
+            { "distanceMeters": 13752, "staticDuration": "868s" },
+            { "distanceMeters": 23785, "staticDuration": "1502s" },
+            { "distanceMeters": 5048, "staticDuration": "318s" }
+          ]
+        }
+      ]
+    },
+    {
+      "routeLabels": ["DEFAULT_ROUTE"],
+      "description": "כביש 443",
+      "distanceMeters": 51953,
+      "duration": "3600s",
+      "staticDuration": "3600s",
+      "polyline": { "encodedPolyline": "ctybEgihsErlYg}[za_@{zs@" },
+      "legs": [
+        {
+          "distanceMeters": 51953,
+          "duration": "3600s",
+          "staticDuration": "3600s",
+          "polyline": { "encodedPolyline": "ctybEgihsErlYg}[za_@{zs@" },
+          "steps": [
+            { "distanceMeters": 20532, "staticDuration": "1423s" },
+            { "distanceMeters": 31421, "staticDuration": "2177s" }
+          ]
+        }
+      ]
+    }
+  ]
+}
