@@ -12,6 +12,9 @@ data class PlaceSuggestion(
 
 interface PlacesRepository {
     suspend fun autocomplete(input: String): List<PlaceSuggestion>
+
+    /** Place Details lookup for coordinates / canonical address. Returns null when unavailable. */
+    suspend fun details(placeId: String): PlaceDetails?
 }
 
 @Singleton
@@ -36,5 +39,15 @@ class GooglePlacesRepository @Inject constructor(
                 secondaryText = prediction.structuredFormat?.secondaryText?.text,
             )
         }
+    }
+
+    override suspend fun details(placeId: String): PlaceDetails? {
+        if (placeId.isBlank()) return null
+        val response = service.details(BuildConfig.MAPS_API_KEY, placeId)
+        return PlaceDetails(
+            latitude = response.location?.latitude,
+            longitude = response.location?.longitude,
+            formattedAddress = response.formattedAddress,
+        )
     }
 }

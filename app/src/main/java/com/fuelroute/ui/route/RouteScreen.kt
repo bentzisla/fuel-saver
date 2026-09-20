@@ -60,6 +60,7 @@ import com.fuelroute.domain.model.RouteCost
 import com.fuelroute.domain.model.SegmentCost
 import com.fuelroute.domain.model.TrafficResolution
 import com.fuelroute.domain.ranking.RouteInsights
+import com.fuelroute.nav.NavDestination
 import com.fuelroute.nav.NavigationLauncher
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -263,15 +264,30 @@ fun RouteScreen(
     if (detail != null) {
         state.results.getOrNull(detail)?.let { cost ->
             val originLocation = state.originLocation
-            val originText = if (state.originIsCurrentLocation && originLocation != null) {
-                "${originLocation.latitude},${originLocation.longitude}"
+            val originNav = if (state.originIsCurrentLocation && originLocation != null) {
+                NavDestination(
+                    label = state.originAddress.orEmpty(),
+                    latitude = originLocation.latitude,
+                    longitude = originLocation.longitude,
+                )
             } else {
-                state.origin
+                NavDestination(
+                    label = state.origin,
+                    placeId = state.originPlaceId,
+                    latitude = originLocation?.latitude,
+                    longitude = originLocation?.longitude,
+                )
             }
+            val destinationNav = NavDestination(
+                label = state.destination,
+                placeId = state.destinationPlaceId,
+                latitude = state.destinationLocation?.latitude,
+                longitude = state.destinationLocation?.longitude,
+            )
             RouteDetailDialog(
                 cost = cost,
-                origin = originText,
-                destination = state.destination,
+                origin = originNav,
+                destination = destinationNav,
                 navigationApp = state.navigationApp,
                 onDismiss = { detailIndex = null },
             )
@@ -682,8 +698,8 @@ private fun format(value: Double, decimals: Int): String =
 @Composable
 private fun RouteDetailDialog(
     cost: RouteCost,
-    origin: String,
-    destination: String,
+    origin: NavDestination,
+    destination: NavDestination,
     navigationApp: String,
     onDismiss: () -> Unit,
 ) {
@@ -695,9 +711,9 @@ private fun RouteDetailDialog(
             TextButton(
                 onClick = {
                     if (navigationApp == NAV_WAZE) {
-                        NavigationLauncher.openWaze(context, destination)
+                        NavigationLauncher.openWaze(context, destination, origin)
                     } else {
-                        NavigationLauncher.openGoogleMaps(context, origin, destination, cost.route.encodedPolyline)
+                        NavigationLauncher.openGoogleMaps(context, destination, origin, cost.route.encodedPolyline)
                     }
                 },
             ) {

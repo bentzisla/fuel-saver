@@ -36,4 +36,33 @@ object Migrations {
             db.execSQL("ALTER TABLE refuel ADD COLUMN grade TEXT NOT NULL DEFAULT '95'")
         }
     }
+
+    // v4 -> v5: records the user's chosen route + actual trip outcome, and adds favorite destinations.
+    val MIGRATION_4_5 = object : Migration(4, 5) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE route_search ADD COLUMN selectedPredictedCost REAL NOT NULL DEFAULT 0",
+            )
+            db.execSQL(
+                "ALTER TABLE route_search ADD COLUMN selectedPredictedLiters REAL NOT NULL DEFAULT 0",
+            )
+            db.execSQL(
+                "ALTER TABLE route_search ADD COLUMN selectedPredictedMinutes REAL NOT NULL DEFAULT 0",
+            )
+            db.execSQL(
+                "ALTER TABLE route_search ADD COLUMN pricePerLiterAtSearch REAL NOT NULL DEFAULT 0",
+            )
+            db.execSQL("ALTER TABLE route_search ADD COLUMN destinationPlaceId TEXT")
+            db.execSQL("ALTER TABLE route_search ADD COLUMN destinationLat REAL")
+            db.execSQL("ALTER TABLE route_search ADD COLUMN destinationLng REAL")
+            db.execSQL("ALTER TABLE trip ADD COLUMN actualCost REAL NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE trip ADD COLUMN pricePerLiterAtTrip REAL NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE trip ADD COLUMN linkedAtMs INTEGER")
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `favorite_destination` (`id` INTEGER PRIMARY KEY " +
+                    "AUTOINCREMENT NOT NULL, `label` TEXT NOT NULL, `placeId` TEXT, `latitude` REAL, " +
+                    "`longitude` REAL, `sortOrder` INTEGER NOT NULL, `createdAtMs` INTEGER NOT NULL)",
+            )
+        }
+    }
 }

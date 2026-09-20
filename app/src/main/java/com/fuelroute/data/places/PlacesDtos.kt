@@ -7,6 +7,15 @@ const val PLACES_AUTOCOMPLETE_FIELD_MASK = "suggestions.placePrediction.placeId,
     "suggestions.placePrediction.structuredFormat.mainText.text," +
     "suggestions.placePrediction.structuredFormat.secondaryText.text"
 
+const val PLACES_DETAILS_FIELD_MASK = "location,formattedAddress,displayName"
+
+/** Resolved coordinates + canonical address for a place, used for an exact nav hand-off. */
+data class PlaceDetails(
+    val latitude: Double?,
+    val longitude: Double?,
+    val formattedAddress: String?,
+)
+
 @Serializable
 data class PlacesAutocompleteRequest(
     val input: String,
@@ -40,4 +49,17 @@ data class TextDto(
 data class StructuredFormatDto(
     val mainText: TextDto? = null,
     val secondaryText: TextDto? = null,
+)
+
+@Serializable
+data class PlaceDetailsResponse(
+    val formattedAddress: String? = null,
+    val displayName: TextDto? = null,
+    val location: LatLngDto? = null,
+)
+
+@Serializable
+data class LatLngDto(
+    val latitude: Double? = null,
+    val longitude: Double? = null,
 )

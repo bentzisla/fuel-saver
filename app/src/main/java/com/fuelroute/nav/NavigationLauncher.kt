@@ -7,30 +7,27 @@ import com.fuelroute.data.routes.PolylineDecoder
 
 object NavigationLauncher {
 
-    fun openGoogleMaps(context: Context, origin: String, destination: String, encodedPolyline: String?) {
+    fun openGoogleMaps(
+        context: Context,
+        destination: NavDestination,
+        origin: NavDestination? = null,
+        encodedPolyline: String? = null,
+    ) {
         val waypoints = encodedPolyline?.let { pickWaypoints(it) }.orEmpty()
-
-        val builder = Uri.Builder()
-            .scheme("https")
-            .authority("www.google.com")
-            .path("/maps/dir/")
-            .appendQueryParameter("api", "1")
-            .appendQueryParameter("origin", origin)
-            .appendQueryParameter("destination", destination)
-            .appendQueryParameter("travelmode", "driving")
-        if (waypoints.isNotEmpty()) {
-            builder.appendQueryParameter("waypoints", waypoints.joinToString("|") { "${it.first},${it.second}" })
-        }
-
-        context.startActivity(Intent(Intent.ACTION_VIEW, builder.build()))
+        val uri = Uri.parse(NavigationUris.googleMaps(destination, origin, waypoints))
+        context.startActivity(Intent(Intent.ACTION_VIEW, uri))
     }
 
-    fun openWaze(context: Context, destination: String) {
-        val uri = Uri.parse("waze://?q=${Uri.encode(destination)}&navigate=yes")
+    fun openWaze(
+        context: Context,
+        destination: NavDestination,
+        origin: NavDestination? = null,
+    ) {
+        val uri = Uri.parse(NavigationUris.waze(destination))
         try {
             context.startActivity(Intent(Intent.ACTION_VIEW, uri))
         } catch (e: Exception) {
-            openGoogleMaps(context, "", destination, null)
+            openGoogleMaps(context, destination, origin, null)
         }
     }
 

@@ -12,8 +12,9 @@ import androidx.room.RoomDatabase
         TripEntity::class,
         RefuelEntity::class,
         RouteSearchEntity::class,
+        FavoriteDestinationEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -24,4 +25,5 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun routeSearchDao(): RouteSearchDao
     abstract fun vehicleDao(): VehicleDao
     abstract fun learningExtrasDao(): LearningExtrasDao
+    abstract fun favoriteDestinationDao(): FavoriteDestinationDao
 }

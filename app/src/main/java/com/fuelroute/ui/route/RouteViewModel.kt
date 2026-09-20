@@ -183,7 +183,7 @@ class RouteViewModel @Inject constructor(
     fun onOriginSelect(suggestion: PlaceSuggestion) {
         _uiState.update {
             it.copy(
-                origin = suggestion.mainText,
+                origin = fullLabel(suggestion.mainText, suggestion.secondaryText),
                 originPlaceId = suggestion.placeId,
                 originLocation = null,
                 originIsCurrentLocation = false,
@@ -194,14 +194,17 @@ class RouteViewModel @Inject constructor(
     }
 
     fun onDestinationSelect(suggestion: PlaceSuggestion) {
+        val label = fullLabel(suggestion.mainText, suggestion.secondaryText)
         _uiState.update {
             it.copy(
-                destination = suggestion.mainText,
+                destination = label,
                 destinationPlaceId = suggestion.placeId,
+                destinationLocation = null,
                 destinationSuggestions = emptyList(),
             )
         }
         destinationQuery.value = ""
+        resolveDestinationDetails(suggestion.placeId, label)
     }
 
     fun onRecentSelected(place: RecentPlace) {
@@ -218,6 +221,48 @@ class RouteViewModel @Inject constructor(
             )
         }
         destinationQuery.value = ""
+        if (place.placeId != null && (place.latitude == null || place.longitude == null)) {
+            resolveDestinationDetails(place.placeId, place.label)
+        }
+    }
+
+    /**
+     * Resolves coordinates for the selected place off the keystroke path. Any failure is
+     * swallowed: the full label remains a usable fallback and navigation must never be blocked.
+     */
+    private fun resolveDestinationDetails(placeId: String, fallbackLabel: String) {
+        viewModelScope.launch {
+            val details = runCatching { placesRepository.details(placeId) }.getOrNull() ?: return@launch
+            if (_uiState.value.destinationPlaceId != placeId) return@launch
+            val coords = if (details.latitude != null && details.longitude != null) {
+                Coordinates(details.latitude, details.longitude)
+            } else {
+                null
+            }
+            _uiState.update { state ->
+                state.copy(
+                    destinationLocation = coords ?: state.destinationLocation,
+                    destination = state.destination.ifBlank {
+                        details.formattedAddress?.takeIf { it.isNotBlank() } ?: fallbackLabel
+                    },
+                )
+            }
+        }
+    }
+
+    /** Full "street, city" display label; strips a trailing country and keeps the city. */
+    private fun fullLabel(mainText: String, secondaryText: String?): String {
+        val main = mainText.trim()
+        val secondary = secondaryText
+            ?.trim()
+            ?.removeSuffix(", ישראל")
+            ?.removeSuffix(", Israel")
+            ?.trim()
+            .orEmpty()
+        return listOf(main, secondary)
+            .filter { it.isNotBlank() }
+            .joinToString(", ")
+            .ifBlank { mainText }
     }
 
     fun useCurrentLocation() {
@@ -332,7 +377,12 @@ class RouteViewModel @Inject constructor(
 
                 if (state.destinationPlaceId != null || destination.isNotBlank()) {
                     placesHistoryRepository.add(
-                        RecentPlace(label = destination, placeId = state.destinationPlaceId),
+                        RecentPlace(
+                            label = destination,
+                            placeId = state.destinationPlaceId,
+                            latitude = state.destinationLocation?.latitude,
+                            longitude = state.destinationLocation?.longitude,
+                        ),
                     )
                 }
 

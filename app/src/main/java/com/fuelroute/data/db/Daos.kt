@@ -117,6 +117,20 @@ interface TripDao {
             "AND departureTimeMs <= :tripStartMs ORDER BY departureTimeMs DESC LIMIT 1"
     )
     suspend fun findActiveRouteSearch(tripStartMs: Long, windowMs: Long): RouteSearchEntity?
+
+    /** Closed trips that have not yet been linked to a route search, since [sinceMs]. */
+    @Query(
+        "SELECT * FROM trip WHERE isOpen = 0 AND routeSearchId IS NULL " +
+            "AND endedAtMs >= :sinceMs ORDER BY startedAtMs DESC"
+    )
+    suspend fun findUnlinkedSince(sinceMs: Long): List<TripEntity>
+
+    /** Links a closed trip to the route search the user actually took. */
+    @Query("UPDATE trip SET routeSearchId = :routeSearchId, linkedAtMs = :linkedAtMs WHERE id = :tripId")
+    suspend fun linkToRouteSearch(tripId: Long, routeSearchId: Int, linkedAtMs: Long)
+
+    @Query("SELECT * FROM trip WHERE isOpen = 0 ORDER BY startedAtMs DESC LIMIT :limit")
+    suspend fun recentClosed(limit: Int): List<TripEntity>
 }
 
 @Dao
@@ -150,4 +164,29 @@ interface RouteSearchDao {
 
     @Query("SELECT * FROM route_search ORDER BY timestampMs DESC LIMIT :limit")
     suspend fun recent(limit: Int): List<RouteSearchEntity>
+
+    @Query("SELECT * FROM route_search WHERE id = :id")
+    suspend fun findById(id: Long): RouteSearchEntity?
+
+    @Query("SELECT * FROM route_search WHERE timestampMs >= :sinceMs ORDER BY timestampMs DESC")
+    suspend fun recentWithinWindow(sinceMs: Long): List<RouteSearchEntity>
+}
+
+@Dao
+interface FavoriteDestinationDao {
+
+    @Query("SELECT * FROM favorite_destination ORDER BY sortOrder, createdAtMs")
+    fun observeAll(): Flow<List<FavoriteDestinationEntity>>
+
+    @Upsert
+    suspend fun upsert(entity: FavoriteDestinationEntity)
+
+    @Delete
+    suspend fun delete(entity: FavoriteDestinationEntity)
+
+    @Query("SELECT COUNT(*) FROM favorite_destination")
+    suspend fun count(): Int
+
+    @Query("UPDATE favorite_destination SET sortOrder = :sortOrder WHERE id = :id")
+    suspend fun updateSortOrder(id: Long, sortOrder: Int)
 }

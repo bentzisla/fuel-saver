@@ -3,6 +3,7 @@ package com.fuelroute.di
 import android.content.Context
 import androidx.room.Room
 import com.fuelroute.data.db.AppDatabase
+import com.fuelroute.data.db.FavoriteDestinationDao
 import com.fuelroute.data.db.LearningExtrasDao
 import com.fuelroute.data.db.Migrations
 import com.fuelroute.data.db.ObdSampleDao
@@ -26,7 +27,7 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, "fuelroute.db")
-            .addMigrations(Migrations.MIGRATION_3_4)
+            .addMigrations(Migrations.MIGRATION_3_4, Migrations.MIGRATION_4_5)
             .build()
 
     @Provides
@@ -49,4 +50,8 @@ object DatabaseModule {
 
     @Provides
     fun provideLearningExtrasDao(db: AppDatabase): LearningExtrasDao = db.learningExtrasDao()
+
+    @Provides
+    fun provideFavoriteDestinationDao(db: AppDatabase): FavoriteDestinationDao =
+        db.favoriteDestinationDao()
 }

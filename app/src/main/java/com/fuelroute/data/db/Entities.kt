@@ -66,6 +66,9 @@ data class TripEntity(
     val isOpen: Int = 0,
     val routeSearchId: Int? = null,
     val coldStartFuelL: Double = 0.0,
+    val actualCost: Double = 0.0,
+    val pricePerLiterAtTrip: Double = 0.0,
+    val linkedAtMs: Long? = null,
 )
 
 @Entity(tableName = "refuel")
@@ -95,4 +98,22 @@ data class RouteSearchEntity(
     val selectedRouteIndex: Int = 0,
     val departureTimeMs: Long? = null,
     val tollUnknown: Int = 0,
+    val selectedPredictedCost: Double = 0.0,
+    val selectedPredictedLiters: Double = 0.0,
+    val selectedPredictedMinutes: Double = 0.0,
+    val pricePerLiterAtSearch: Double = 0.0,
+    val destinationPlaceId: String? = null,
+    val destinationLat: Double? = null,
+    val destinationLng: Double? = null,
+)
+
+@Entity(tableName = "favorite_destination")
+data class FavoriteDestinationEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val label: String,
+    val placeId: String? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val sortOrder: Int = 0,
+    val createdAtMs: Long,
 )
