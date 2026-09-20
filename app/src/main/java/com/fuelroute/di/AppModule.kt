@@ -5,6 +5,8 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.work.WorkManager
+import com.fuelroute.data.backup.BackupRepository
+import com.fuelroute.data.backup.DefaultBackupRepository
 import com.fuelroute.data.learning.ColdStartRepository
 import com.fuelroute.data.learning.DefaultColdStartRepository
 import com.fuelroute.data.location.FusedLocationRepository
@@ -139,4 +141,8 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindRouteSearchRepository(impl: DefaultRouteSearchRepository): RouteSearchRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindBackupRepository(impl: DefaultBackupRepository): BackupRepository
 }

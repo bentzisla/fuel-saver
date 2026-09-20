@@ -39,6 +39,10 @@ interface LearningExtrasDao {
     @Query("SELECT * FROM learning_extras WHERE vehicleId = :vehicleId")
     suspend fun get(vehicleId: String): LearningExtrasEntity?
 
+    /** One-shot dump of the whole table (backup/export). */
+    @Query("SELECT * FROM learning_extras")
+    suspend fun getAll(): List<LearningExtrasEntity>
+
     @Upsert
     suspend fun upsert(entity: LearningExtrasEntity)
 
@@ -68,6 +72,10 @@ interface SpeedBinDao {
     @Query("SELECT * FROM speed_bin_stats WHERE vehicleId = :vehicleId ORDER BY binIndex")
     suspend fun getForVehicle(vehicleId: String): List<SpeedBinStatsEntity>
 
+    /** One-shot dump of the whole table (backup/export). */
+    @Query("SELECT * FROM speed_bin_stats ORDER BY vehicleId, binIndex")
+    suspend fun getAll(): List<SpeedBinStatsEntity>
+
     @Query("SELECT COALESCE(SUM(fuelL), 0.0) FROM speed_bin_stats WHERE vehicleId = :vehicleId")
     suspend fun totalFuelForVehicle(vehicleId: String): Double
 
@@ -90,6 +98,10 @@ interface TripDao {
 
     @Query("SELECT * FROM trip ORDER BY startedAtMs DESC LIMIT :limit")
     suspend fun recent(limit: Int): List<TripEntity>
+
+    /** One-shot dump of the whole table (backup/export). */
+    @Query("SELECT * FROM trip")
+    suspend fun getAll(): List<TripEntity>
 
     @Query("SELECT * FROM trip WHERE vehicleId = :vehicleId ORDER BY startedAtMs DESC LIMIT :limit")
     suspend fun recentForVehicle(vehicleId: String, limit: Int): List<TripEntity>
@@ -142,6 +154,10 @@ interface RefuelDao {
     @Query("SELECT * FROM refuel ORDER BY timestampMs DESC LIMIT :limit")
     suspend fun recent(limit: Int): List<RefuelEntity>
 
+    /** One-shot dump of the whole table (backup/export). */
+    @Query("SELECT * FROM refuel")
+    suspend fun getAll(): List<RefuelEntity>
+
     @Query("SELECT COALESCE(SUM(liters), 0.0) FROM refuel WHERE isFull = 1 AND vehicleId = :vehicleId")
     suspend fun totalFullLiters(vehicleId: String): Double
 
@@ -186,6 +202,10 @@ interface RouteSearchDao {
 
     @Query("SELECT * FROM route_search WHERE id = :id")
     suspend fun findById(id: Long): RouteSearchEntity?
+
+    /** One-shot dump of the whole table (backup/export). */
+    @Query("SELECT * FROM route_search")
+    suspend fun getAll(): List<RouteSearchEntity>
 
     @Query("SELECT * FROM route_search WHERE timestampMs >= :sinceMs ORDER BY timestampMs DESC")
     suspend fun recentWithinWindow(sinceMs: Long): List<RouteSearchEntity>

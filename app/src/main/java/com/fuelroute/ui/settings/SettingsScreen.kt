@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -21,16 +22,19 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -46,7 +50,10 @@ import com.fuelroute.data.settings.NAV_GOOGLE
 import com.fuelroute.data.settings.NAV_WAZE
 import com.fuelroute.service.BatteryOptimization
 import java.text.DateFormat
+import java.text.SimpleDateFormat
 import java.util.Date
+import java.util.Locale
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -253,6 +260,8 @@ fun SettingsScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
+        BackupSection(viewModel = viewModel)
+
         Text(
             text = stringResource(R.string.settings_autosaved),
             style = MaterialTheme.typography.labelSmall,
@@ -380,3 +389,112 @@ private fun AutoLoggingSection(
 
 private fun formatTimestamp(ms: Long): String =
     DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(ms))
+
+@Composable
+private fun BackupSection(viewModel: SettingsViewModel) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var pendingImport by remember { mutableStateOf<Uri?>(null) }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val ok = runCatching {
+                val json = viewModel.exportBackup()
+                context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) }
+                    ?: error("cannot open $uri for writing")
+            }.isSuccess
+            Toast.makeText(
+                context,
+                if (ok) R.string.settings_backup_export_success else R.string.settings_backup_export_failed,
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) pendingImport = uri
+    }
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.settings_backup_title),
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                text = stringResource(R.string.settings_backup_hint),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { exportLauncher.launch(defaultBackupFileName()) },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(stringResource(R.string.settings_backup_export))
+                }
+                Button(
+                    onClick = { importLauncher.launch(arrayOf("application/json")) },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(stringResource(R.string.settings_backup_import))
+                }
+            }
+        }
+    }
+
+    val target = pendingImport
+    if (target != null) {
+        AlertDialog(
+            onDismissRequest = { pendingImport = null },
+            title = { Text(stringResource(R.string.settings_backup_import_confirm_title)) },
+            text = { Text(stringResource(R.string.settings_backup_import_confirm_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingImport = null
+                        scope.launch {
+                            val result = runCatching {
+                                val json = context.contentResolver.openInputStream(target)
+                                    ?.use { it.readBytes().decodeToString() }
+                                    ?: error("cannot open $target for reading")
+                                viewModel.importBackup(json)
+                            }.getOrNull()
+                            val message = if (result != null && result.success) {
+                                context.getString(
+                                    R.string.settings_backup_import_result,
+                                    result.tripsAdded,
+                                    result.refuelsAdded,
+                                    result.tripsSkipped + result.refuelsSkipped,
+                                )
+                            } else {
+                                context.getString(R.string.settings_backup_import_failed)
+                            }
+                            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                        }
+                    },
+                ) {
+                    Text(stringResource(R.string.settings_backup_import_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingImport = null }) {
+                    Text(stringResource(R.string.settings_backup_cancel))
+                }
+            },
+        )
+    }
+}
+
+private fun defaultBackupFileName(): String {
+    val stamp = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
+    return "fuelroute-backup-$stamp.json"
+}

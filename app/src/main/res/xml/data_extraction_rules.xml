@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Auto-backup / device-transfer rules for API >= 31 (referenced by android:dataExtractionRules).
+
+  There is no on-device secret to exclude: MAPS_API_KEY is injected at build time as a
+  BuildConfig field and a manifest placeholder, so it lives in the APK (code/manifest), not in
+  any extracted file. local.properties is repo-only. Raw OBD samples live in a Room table and
+  are pruned by retention; extraction rules address files, not tables.
+-->
+<data-extraction-rules>
+    <cloud-backup />
+    <device-transfer />
+</data-extraction-rules>

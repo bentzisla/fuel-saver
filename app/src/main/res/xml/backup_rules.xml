@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Auto-backup rules for API < 31 (referenced by android:fullBackupContent).
+
+  There is no on-device secret to exclude: MAPS_API_KEY is injected at build time as a
+  BuildConfig field and a manifest placeholder, so it lives in the APK (code/manifest), not in
+  any backed-up file. local.properties is a repo-only file and never ships or backs up.
+
+  Raw OBD samples (`obd_sample`) are pruned by the retention policy, but Android backup rules
+  operate on files, not SQLite tables, so the Room database is backed up as a whole.
+-->
+<full-backup-content />

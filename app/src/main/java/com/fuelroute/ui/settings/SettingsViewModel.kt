@@ -2,6 +2,8 @@ package com.fuelroute.ui.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.fuelroute.data.backup.BackupRepository
+import com.fuelroute.data.backup.ImportResult
 import com.fuelroute.data.price.FuelGrades
 import com.fuelroute.data.price.FuelPriceRepository
 import com.fuelroute.data.settings.NAV_GOOGLE
@@ -39,6 +41,7 @@ class SettingsViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val fuelPriceRepository: FuelPriceRepository,
     private val vehicleRepository: VehicleRepository,
+    private val backupRepository: BackupRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -115,4 +118,10 @@ class SettingsViewModel @Inject constructor(
         _uiState.update { it.copy(retentionDays = days) }
         viewModelScope.launch { settingsRepository.saveRetentionDays(days) }
     }
+
+    /** Serializes the learned dataset; the caller writes the string to the chosen document. */
+    suspend fun exportBackup(): String = backupRepository.export()
+
+    /** Merges a previously exported document back into local storage. */
+    suspend fun importBackup(json: String): ImportResult = backupRepository.import(json)
 }

@@ -247,6 +247,19 @@
     <string name="settings_elm_battery_note">שימו לב: דונגל ELM327 נשאר מחובר וצורך חשמל מהמצבר — נתקו אותו כשהרכב אינו בשימוש.</string>
     <string name="settings_autosaved">ההגדרות נשמרות אוטומטית</string>
 
+    <string name="settings_backup_title">גיבוי נתונים</string>
+    <string name="settings_backup_hint">ייצוא נתוני הלמידה, הנסיעות וההגדרות לקובץ, או מיזוג מקובץ גיבוי קיים.</string>
+    <string name="settings_backup_export">ייצוא גיבוי</string>
+    <string name="settings_backup_import">ייבוא גיבוי</string>
+    <string name="settings_backup_export_success">הגיבוי יוצא בהצלחה</string>
+    <string name="settings_backup_export_failed">ייצוא הגיבוי נכשל</string>
+    <string name="settings_backup_import_confirm_title">ייבוא גיבוי</string>
+    <string name="settings_backup_import_confirm_message">הנתונים שבקובץ ימוזגו עם הנתונים הקיימים. להמשיך?</string>
+    <string name="settings_backup_import_confirm">ייבא</string>
+    <string name="settings_backup_cancel">ביטול</string>
+    <string name="settings_backup_import_result">הייבוא הושלם: נוספו %1$d נסיעות ו־%2$d תדלוקים (%3$d כפילויות דולגו)</string>
+    <string name="settings_backup_import_failed">ייבוא הגיבוי נכשל</string>
+
     <string name="settings_auto_logging_title">רישום אוטומטי ללא מגע</string>
     <string name="settings_auto_logging_state">מצב: %1$s</string>
     <string name="settings_on">מופעל</string>
