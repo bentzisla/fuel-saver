@@ -292,6 +292,15 @@
     <string name="curve_basis_body" formatted="false">העקומה משלבת נתוני מדידה אמיתיים מהרכב (למידה), עקומה ידנית אם הוגדרה, ועקומת ברירת מחדל. בכל מהירות המשקל של הלמידה הוא w = ק״מ/(ק״מ+20): 20 ק״מ מדודים נותנים 50% השפעה, ו־80 ק״מ נותנים 80%.</string>
 
     <string name="settings_title">הגדרות</string>
+    <string name="settings_section_fuel">דלק ומחיר</string>
+    <string name="settings_section_fuel_advanced">נעילת מחיר וסוג דלק</string>
+    <string name="settings_section_nav">ניווט</string>
+    <string name="settings_section_obd">רישום OBD</string>
+    <string name="settings_section_obd_advanced">תצוגה, סוללה ושמירת נתונים</string>
+    <string name="settings_section_data">נתונים וגיבוי</string>
+    <string name="settings_section_about">אודות</string>
+    <string name="settings_section_expand">הרחב מקטע</string>
+    <string name="settings_section_collapse">כווץ מקטע</string>
     <string name="settings_fuel_price_label">מחיר דלק (₪ לליטר)</string>
     <string name="settings_value_per_minute_label">שווי זמן (₪ לדקה)</string>
     <string name="settings_price_pin">נעל מחיר (לא יתעדכן בתדלוק)</string>
