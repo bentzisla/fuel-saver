@@ -27,6 +27,12 @@ data class AppSettings(
     val valuePerMinute: Double = ModelConstants.DEFAULT_VALUE_PER_MINUTE,
     val navigationApp: String = NAV_GOOGLE,
     val autoConnect: Boolean = true,
+    /**
+     * Sticky "the user explicitly disconnected" latch (card 34). While true, no auto-connect
+     * path (the ACL/STATE_ON receiver or `StatsViewModel.autoConnect`) may re-arm logging.
+     * Cleared by an explicit connect/demo/auto-connect/retry.
+     */
+    val manualDisconnect: Boolean = false,
     val showOverlay: Boolean = false,
     val keepScreenOn: Boolean = false,
     val lastDeviceAddress: String? = null,
@@ -50,6 +56,14 @@ interface SettingsRepository {
     suspend fun saveValuePerMinute(value: Double)
     suspend fun saveNavigationApp(value: String)
     suspend fun saveAutoConnect(value: Boolean)
+
+    /**
+     * Sets the sticky manual-disconnect latch (card 34). Defaulted to a no-op so lightweight
+     * test fakes that do not model the latch still compile; [DataStoreSettingsRepository]
+     * overrides it.
+     */
+    suspend fun saveManualDisconnect(value: Boolean) = Unit
+
     suspend fun saveShowOverlay(value: Boolean)
     suspend fun saveKeepScreenOn(value: Boolean)
     suspend fun saveLastDeviceAddress(value: String?)
@@ -90,6 +104,7 @@ class DataStoreSettingsRepository @Inject constructor(
                 valuePerMinute = prefs[Keys.VALUE_PER_MINUTE] ?: ModelConstants.DEFAULT_VALUE_PER_MINUTE,
                 navigationApp = prefs[Keys.NAVIGATION_APP] ?: NAV_GOOGLE,
                 autoConnect = prefs[Keys.AUTO_CONNECT] ?: true,
+                manualDisconnect = prefs[Keys.MANUAL_DISCONNECT] ?: false,
                 showOverlay = prefs[Keys.SHOW_OVERLAY] ?: false,
                 keepScreenOn = prefs[Keys.KEEP_SCREEN_ON] ?: false,
                 lastDeviceAddress = prefs[Keys.LAST_DEVICE_ADDRESS]?.takeIf { it.isNotBlank() },
@@ -113,6 +128,10 @@ class DataStoreSettingsRepository @Inject constructor(
 
     override suspend fun saveAutoConnect(value: Boolean) {
         dataStore.edit { it[Keys.AUTO_CONNECT] = value }
+    }
+
+    override suspend fun saveManualDisconnect(value: Boolean) {
+        dataStore.edit { it[Keys.MANUAL_DISCONNECT] = value }
     }
 
     override suspend fun saveShowOverlay(value: Boolean) {
@@ -163,6 +182,7 @@ class DataStoreSettingsRepository @Inject constructor(
         val VALUE_PER_MINUTE = doublePreferencesKey("value_per_minute")
         val NAVIGATION_APP = stringPreferencesKey("navigation_app")
         val AUTO_CONNECT = booleanPreferencesKey("auto_connect")
+        val MANUAL_DISCONNECT = booleanPreferencesKey("manual_disconnect")
         val SHOW_OVERLAY = booleanPreferencesKey("show_overlay")
         val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
         val LAST_DEVICE_ADDRESS = stringPreferencesKey("last_device_address")

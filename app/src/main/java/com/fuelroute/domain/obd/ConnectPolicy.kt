@@ -51,4 +51,19 @@ object ConnectPolicy {
         val address = target?.takeIf { it.isNotBlank() } ?: return false
         return connectedAddresses.any { it.equals(address, ignoreCase = true) }
     }
+
+    /**
+     * True when every auto-connect entry point must be suppressed because the user
+     * explicitly disconnected (card 34). The latch is sticky and is only cleared by an
+     * explicit reconnect, so this returns the latch verbatim.
+     */
+    fun shouldSuppressAutoConnect(manualDisconnect: Boolean): Boolean = manualDisconnect
+
+    /**
+     * True while the engine's reconnect backoff loop should keep trying. Once a stop is
+     * requested (the engine's `stopRequested` flag set by `stop()`/`disconnect()`/`reset()`)
+     * the loop must return without further attempts, even if a blocking `connect()` just
+     * returned.
+     */
+    fun shouldContinueReconnect(stopRequested: Boolean): Boolean = !stopRequested
 }

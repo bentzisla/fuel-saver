@@ -183,6 +183,7 @@ class StatsViewModel @Inject constructor(
         lastName = null
         if (!engine.isRunning) engine.reset()
         _connectingName.value = null
+        viewModelScope.launch { settingsRepository.saveManualDisconnect(false) }
         ObdLoggingService.start(appContext, null)
     }
 
@@ -193,13 +194,18 @@ class StatsViewModel @Inject constructor(
         if (!engine.isRunning) engine.reset()
         _connectingName.value = lastName
         ObdLoggingService.start(appContext, device.address)
-        viewModelScope.launch { settingsRepository.saveLastDeviceAddress(device.address) }
+        viewModelScope.launch {
+            settingsRepository.saveManualDisconnect(false)
+            settingsRepository.saveLastDeviceAddress(device.address)
+        }
     }
 
     fun autoConnect() {
         viewModelScope.launch {
             val settings = settingsRepository.settings.first()
             if (settings.autoConnect && !settings.lastDeviceAddress.isNullOrBlank()) {
+                // Explicit (re-)arm: clear the sticky manual-disconnect latch.
+                settingsRepository.saveManualDisconnect(false)
                 lastAddress = settings.lastDeviceAddress
                 lastName = settings.lastDeviceName ?: settings.lastDeviceAddress
                 if (!engine.isRunning) engine.reset()
@@ -212,6 +218,8 @@ class StatsViewModel @Inject constructor(
     /** User-initiated disconnect: stops logging and clears the visible error/device. */
     fun disconnect() {
         _connectingName.value = null
+        // Sticky latch: nothing may auto-re-arm logging until the user reconnects.
+        viewModelScope.launch { settingsRepository.saveManualDisconnect(true) }
         engine.disconnect()
         ObdLoggingService.stop(appContext)
     }
@@ -219,6 +227,7 @@ class StatsViewModel @Inject constructor(
     /** Full reset: stops logging and wipes engine state so the next connect starts clean. */
     fun reset() {
         _connectingName.value = null
+        viewModelScope.launch { settingsRepository.saveManualDisconnect(true) }
         engine.reset()
         ObdLoggingService.stop(appContext)
     }
@@ -230,6 +239,7 @@ class StatsViewModel @Inject constructor(
     fun retry() {
         if (!engine.isRunning) engine.reset()
         _connectingName.value = lastName
+        viewModelScope.launch { settingsRepository.saveManualDisconnect(false) }
         ObdLoggingService.start(appContext, lastAddress)
     }
 

@@ -22,6 +22,48 @@ object ObdConnectionPolicy {
     /** Below this voltage the engine cannot be running. */
     const val LOW_BATTERY_VOLTS = 11.5
 
+    /** How many times the full connect workaround chain is tried before giving up (card 35). */
+    const val CONNECT_ATTEMPTS = 3
+
+    /** Short pause between full connect-chain retries (not the long reconnect backoff). */
+    const val CONNECT_RETRY_BACKOFF_MS = 750L
+
+    /** Reconnect attempts after a dropped link before the status becomes `Error` (card 35). */
+    const val MAX_RECONNECT_ATTEMPTS = 3
+
+    /** Machine error codes surfaced through `LiveObdState.lastError`. */
+    const val ERROR_CONNECT = "CONNECT"
+    const val ERROR_CONNECT_TIMEOUT = "CONNECT TIMEOUT"
+    const val ERROR_SOCKET_CLOSED = "SOCKET CLOSED"
+    const val ERROR_SECURITY = "SECURITY"
+    const val ERROR_SEARCHING = "SEARCHING"
+
+    /**
+     * Ordered Bluetooth SPP socket strategies. Cheap ELM327 dongles often reject the secure
+     * service-record lookup but accept the insecure variant, or only the raw channel 1.
+     */
+    enum class ConnectVariant { SECURE_RFCOMM, INSECURE_RFCOMM, CHANNEL_1 }
+
+    /** The workaround order: secure → insecure → reflection channel 1. */
+    fun connectVariants(): List<ConnectVariant> =
+        listOf(ConnectVariant.SECURE_RFCOMM, ConnectVariant.INSECURE_RFCOMM, ConnectVariant.CHANNEL_1)
+
+    /** Number of attempts the transport makes for a single `connect()` call. */
+    fun connectAttempts(): Int = CONNECT_ATTEMPTS
+
+    /** True while another full-chain connect attempt is allowed ([attempt] is 1-based). */
+    fun shouldRetryConnect(attempt: Int): Boolean = attempt < CONNECT_ATTEMPTS
+
+    /**
+     * True while a dropped link should still be re-established: reconnect attempts remain
+     * AND the dongle is still ACL-connected. Hammering an absent dongle is pointless.
+     *
+     * @param attempt number of reconnect attempts already made (0-based).
+     * @param deviceConnected whether the adapter still reports the dongle as connected.
+     */
+    fun shouldRetryReconnect(attempt: Int, deviceConnected: Boolean): Boolean =
+        attempt < MAX_RECONNECT_ATTEMPTS && deviceConnected
+
     fun shouldReconnect(consecutiveFailures: Int): Boolean =
         consecutiveFailures >= RECONNECT_AFTER_FAILURES
 

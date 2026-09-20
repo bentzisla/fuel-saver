@@ -58,6 +58,9 @@ class ObdLoggingService : Service() {
     private var overlayEnabled = false
 
     private var logging = false
+    // Set by an explicit ACTION_STOP. A subsequently (re)delivered start intent is ignored
+    // until a fresh user-initiated start() re-arms logging (card 34).
+    private var stopped = false
     private var wakeLock: PowerManager.WakeLock? = null
     private var lastLiveAtMs = 0L
     private var lastStale: Boolean? = null
@@ -80,15 +83,30 @@ class ObdLoggingService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            // Explicit user stop: latch so a re-delivered start cannot re-arm logging, and
+            // consume this start so the system does not redeliver it.
+            stopped = true
+            logging = false
             stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
+        val isFreshStart = freshStart
+        freshStart = false
+        if (stopped && !isFreshStart) {
+            // A start intent delivered after an explicit stop (e.g. START_REDELIVER_INTENT)
+            // must not re-arm logging. A fresh user connect calls start(), which sets
+            // [freshStart] and lets this through.
+            Log.i(TAG, "ignoring start intent after explicit stop")
+            stopSelf(startId)
             return START_NOT_STICKY
         }
         startLogging(
             address = intent?.getStringExtra(EXTRA_ADDRESS),
             auto = intent?.getBooleanExtra(EXTRA_AUTO, false) == true,
         )
-        return START_REDELIVER_INTENT
+        // Never redeliver the start intent: a manual disconnect must stay disconnected.
+        return START_NOT_STICKY
     }
 
     private fun startLogging(address: String?, auto: Boolean) {
@@ -106,6 +124,7 @@ class ObdLoggingService : Service() {
         }
 
         logging = true
+        stopped = false
         latestState = null
         lastStale = null
         lastLiveAtMs = System.currentTimeMillis()
@@ -279,7 +298,16 @@ class ObdLoggingService : Service() {
         private const val STALE_AFTER_MS = 10_000L
         private const val TAG = "FuelRoute"
 
+        /**
+         * Set by [start] just before the service is launched so an explicit user reconnect
+         * can override the `stopped` latch. A redelivered start intent does not go through
+         * [start], so it stays latched out (card 34).
+         */
+        @Volatile
+        private var freshStart = false
+
         fun start(context: Context, address: String?, auto: Boolean = false) {
+            freshStart = true
             context.startForegroundService(
                 Intent(context, ObdLoggingService::class.java)
                     .putExtra(EXTRA_ADDRESS, address)

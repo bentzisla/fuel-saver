@@ -226,6 +226,8 @@
     <string name="stats_error_timeout">פסק זמן בתקשורת עם הדונגל</string>
     <string name="stats_error_reconnect">מנסה להתחבר מחדש…</string>
     <string name="stats_error_reconnect_failed">החיבור מחדש נכשל</string>
+    <string name="stats_error_security">אין הרשאת Bluetooth להתחבר לדונגל</string>
+    <string name="stats_error_socket_closed">החיבור לדונגל נסגר</string>
 
     <string name="history_title">היסטוריית חיפושים</string>
     <string name="history_empty">אין חיפושים קודמים עדיין</string>

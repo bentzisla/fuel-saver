@@ -5,15 +5,29 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket
 import android.util.Log
 import com.fuelroute.domain.obd.ConnectPolicy
+import com.fuelroute.domain.obd.ObdConnectionPolicy
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.io.IOException
 import java.net.SocketTimeoutException
 import java.util.UUID
+
+/**
+ * Carries the transport's connect-chain reason code (`CONNECT TIMEOUT`, `SOCKET CLOSED`,
+ * `SECURITY`, …) up to [com.fuelroute.data.obd.ObdEngine] so the UI can show a specific
+ * failure instead of a generic one.
+ */
+internal class ObdConnectException(
+    val reason: String,
+    cause: Throwable?,
+) : IOException(reason, cause)
 
 /**
  * Real ELM327 transport over Bluetooth Classic SPP. Uses a blocking read bounded by a
@@ -41,25 +55,121 @@ class BluetoothClassicTransport(
             device.address
         }
 
-    @SuppressLint("MissingPermission")
-    override suspend fun connect(): Result<Unit> = withContext(Dispatchers.IO) {
-        val s = try {
-            device.createRfcommSocketToServiceRecord(SPP_UUID)
-        } catch (t: Throwable) {
-            if (t is CancellationException) throw t
-            return@withContext Result.failure(t)
+    /**
+     * Best-effort ACL state of the dongle. `BluetoothDevice.isConnected()` is hidden API, so
+     * fall back to the bond state when reflection is blocked. Used to stop the reconnect
+     * loop from hammering a dongle that is no longer connected.
+     */
+    val isDeviceAclConnected: Boolean
+        @SuppressLint("MissingPermission")
+        get() = try {
+            val method = BluetoothDevice::class.java.getMethod("isConnected")
+            method.isAccessible = true
+            method.invoke(device) as? Boolean ?: false
+        } catch (_: Throwable) {
+            device.bondState == BluetoothDevice.BOND_BONDED
         }
 
-        // `BluetoothSocket.connect()` is a blocking, non-cancellable call. Run it on a
-        // sibling coroutine so `withTimeout` can abandon it, then close the socket to
-        // unblock the underlying RFCOMM thread. Without this the service lingered for as
-        // long as the ROM kept the connect pending while the dongle was absent.
-        var failure: Throwable? = null
-        val connectJob = launch {
+    @SuppressLint("MissingPermission")
+    override suspend fun connect(): Result<Unit> = withContext(Dispatchers.IO) {
+        var lastError: Throwable? = null
+        var attempt = 1
+        while (true) {
+            val result = attemptConnect()
+            result.exceptionOrNull()?.let { lastError = it }
+            if (result.isSuccess) return@withContext result
+
+            if (!ObdConnectionPolicy.shouldRetryConnect(attempt)) break
+            Log.w(
+                TAG,
+                "connect attempt $attempt/${ObdConnectionPolicy.connectAttempts()} failed " +
+                    "(${classifyConnectError(lastError)}) — retrying",
+                lastError,
+            )
+            delay(ObdConnectionPolicy.CONNECT_RETRY_BACKOFF_MS)
+            attempt++
+        }
+        val reason = classifyConnectError(lastError)
+        Log.e(TAG, "connect to ${device.address} failed after $attempt attempt(s): $reason", lastError)
+        Result.failure(ObdConnectException(reason, lastError))
+    }
+
+    /**
+     * One pass over the workaround chain (secure → insecure → channel 1). Returns the first
+     * socket that connects, or the last error when every variant fails.
+     */
+    @SuppressLint("MissingPermission")
+    private suspend fun attemptConnect(): Result<Unit> {
+        var lastError: Throwable? = null
+        for (variant in ObdConnectionPolicy.connectVariants()) {
+            val socket = try {
+                createSocket(variant)
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                lastError = t
+                continue
+            }
+
+            val connected = connectSocket(socket)
+            if (connected.isSuccess) {
+                try {
+                    applySoTimeout(socket, SO_TIMEOUT_MS)
+                    this.socket = socket
+                    input = socket.inputStream
+                    output = socket.outputStream
+                    _connected.value = true
+                    return Result.success(Unit)
+                } catch (t: Throwable) {
+                    runCatching { socket.close() }
+                    if (t is CancellationException) throw t
+                    lastError = t
+                }
+            } else {
+                runCatching { socket.close() }
+                val error = connected.exceptionOrNull()
+                lastError = error
+                // A timeout means the dongle did not answer at all; the other socket types
+                // will not help within this attempt, so fail fast and let the outer retry
+                // (with its own backoff) have another go later.
+                if (error is SocketTimeoutException) return Result.failure(error)
+            }
+        }
+        return Result.failure(lastError ?: IOException(ObdConnectionPolicy.ERROR_CONNECT))
+    }
+
+    private fun createSocket(variant: ObdConnectionPolicy.ConnectVariant): BluetoothSocket =
+        when (variant) {
+            ObdConnectionPolicy.ConnectVariant.SECURE_RFCOMM ->
+                device.createRfcommSocketToServiceRecord(SPP_UUID)
+
+            ObdConnectionPolicy.ConnectVariant.INSECURE_RFCOMM ->
+                device.createInsecureRfcommSocketToServiceRecord(SPP_UUID)
+
+            ObdConnectionPolicy.ConnectVariant.CHANNEL_1 -> createChannel1Socket()
+        }
+
+    /** Reflection fallback for dongles that only answer on RFCOMM channel 1. */
+    private fun createChannel1Socket(): BluetoothSocket {
+        val method = BluetoothDevice::class.java.getMethod(
+            "createRfcommSocket",
+            Int::class.javaPrimitiveType,
+        )
+        method.isAccessible = true
+        return method.invoke(device, 1) as BluetoothSocket
+    }
+
+    /**
+     * Runs the blocking, non-cancellable `BluetoothSocket.connect()` on a sibling coroutine
+     * so `withTimeout` can abandon it, then closes the socket to unblock the RFCOMM thread.
+     */
+    private suspend fun connectSocket(s: BluetoothSocket): Result<Unit> {
+        val failure = CompletableDeferred<Throwable?>()
+        val connectJob = CoroutineScope(Dispatchers.IO).launch {
             try {
                 s.connect()
+                failure.complete(null)
             } catch (t: Throwable) {
-                failure = t
+                failure.complete(t)
             }
         }
         val timedOut = try {
@@ -73,26 +183,22 @@ class BluetoothClassicTransport(
             Log.w(TAG, "connect to ${device.address} timed out after ${ConnectPolicy.CONNECT_TIMEOUT_MS}ms")
             runCatching { s.close() }
             connectJob.cancel()
-            return@withContext Result.failure(SocketTimeoutException("connect timeout"))
+            return Result.failure(SocketTimeoutException(ObdConnectionPolicy.ERROR_CONNECT_TIMEOUT))
         }
+        failure.getCompleted()?.let { return Result.failure(it) }
+        return Result.success(Unit)
+    }
 
-        failure?.let { cause ->
-            runCatching { s.close() }
-            return@withContext Result.failure(cause)
-        }
-
-        try {
-            applySoTimeout(s, SO_TIMEOUT_MS)
-            socket = s
-            input = s.inputStream
-            output = s.outputStream
-            _connected.value = true
-            Result.success(Unit)
-        } catch (t: Throwable) {
-            runCatching { s.close() }
-            if (t is CancellationException) throw t
-            Result.failure(t)
-        }
+    /** Maps the chain's last throwable to a machine reason code for the UI. */
+    private fun classifyConnectError(cause: Throwable?): String = when {
+        cause == null -> ObdConnectionPolicy.ERROR_CONNECT
+        cause is SocketTimeoutException -> ObdConnectionPolicy.ERROR_CONNECT_TIMEOUT
+        cause is SecurityException -> ObdConnectionPolicy.ERROR_SECURITY
+        cause.message?.contains("socket closed", ignoreCase = true) == true ->
+            ObdConnectionPolicy.ERROR_SOCKET_CLOSED
+        cause.message?.contains("permission", ignoreCase = true) == true ->
+            ObdConnectionPolicy.ERROR_SECURITY
+        else -> ObdConnectionPolicy.ERROR_CONNECT
     }
 
     override suspend fun disconnect(): Unit = withContext(Dispatchers.IO) {
