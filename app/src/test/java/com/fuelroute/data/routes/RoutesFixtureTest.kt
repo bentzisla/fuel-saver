@@ -1,5 +1,7 @@
 package com.fuelroute.data.routes
 
+import com.fuelroute.domain.fuel.DefaultCurve
+import com.fuelroute.domain.fuel.FuelModel
 import com.fuelroute.domain.model.CongestionLevel
 import com.fuelroute.domain.model.TrafficResolution
 import com.fuelroute.testutil.Fixtures
@@ -62,6 +64,29 @@ class RoutesFixtureTest {
         assertFalse(route.tollUnknown)
         assertEquals(12.5, route.tollCost!!, 1e-9)
         assertEquals(TrafficResolution.NONE, route.trafficResolution)
+    }
+
+    @Test
+    fun `leg level tolls are summed when the route advisory has none`() {
+        val route = RoutesMapper.toDomain(load("with-leg-tolls.json")).single()
+
+        assertFalse(route.tollUnknown)
+        assertEquals(12.5, route.tollCost!!, 1e-9)
+    }
+
+    @Test
+    fun `toll fixture price flows end to end into the total cost`() {
+        // JSON response -> DTO -> domain Route -> FuelModel.cost: the toll must reach the
+        // headline total, not just the parser. This is the user-visible guarantee of card 44.
+        val route = RoutesMapper.toDomain(load("with-tolls.json")).single()
+        assertEquals(12.5, route.tollCost!!, 1e-9)
+
+        val model = FuelModel(curve = DefaultCurve.forVehicle(7.0), idleLitersPerHour = 0.8)
+        val cost = model.cost(route, pricePerLiter = 7.0)
+
+        assertEquals(12.5, cost.tollCost, 1e-9)
+        assertEquals(cost.fuelCost + 12.5, cost.totalCost, 1e-9)
+        assertTrue("total must exceed the toll alone", cost.totalCost > 12.5)
     }
 
     @Test

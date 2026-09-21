@@ -21,7 +21,7 @@ data class FullRefuelInterval(
 )
 
 interface RefuelRepository {
-    suspend fun recent(limit: Int): List<Refuel>
+    suspend fun recent(vehicleId: String, limit: Int): List<Refuel>
     suspend fun add(liters: Double, totalPrice: Double, isFull: Boolean, vehicleId: String)
     suspend fun totalFullLiters(vehicleId: String): Double
     suspend fun totalObdFuel(vehicleId: String): Double
@@ -37,8 +37,8 @@ class DefaultRefuelRepository @Inject constructor(
     private val tripDao: TripDao,
 ) : RefuelRepository {
 
-    override suspend fun recent(limit: Int): List<Refuel> =
-        refuelDao.recent(limit).map { it.toDomain() }
+    override suspend fun recent(vehicleId: String, limit: Int): List<Refuel> =
+        refuelDao.recentForVehicle(vehicleId, limit).map { it.toDomain() }
 
     override suspend fun add(liters: Double, totalPrice: Double, isFull: Boolean, vehicleId: String) {
         refuelDao.insert(

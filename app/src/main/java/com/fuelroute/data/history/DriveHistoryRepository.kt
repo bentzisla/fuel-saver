@@ -4,6 +4,7 @@ import com.fuelroute.data.db.RouteSearchDao
 import com.fuelroute.data.db.RouteSearchEntity
 import com.fuelroute.data.db.TripDao
 import com.fuelroute.data.db.TripEntity
+import com.fuelroute.data.db.TripSource
 import com.fuelroute.domain.history.DriveOutcome
 import com.fuelroute.domain.history.PredictionAccuracy
 import javax.inject.Inject
@@ -50,6 +51,8 @@ data class DriveHistoryEntry(
     val pricePerLiterAtSearch: Double?,
     val pricePerLiterAtTrip: Double?,
     val savedAmount: Double,
+    /** True for a simulated "הדגמה" ride, which must never be mistaken for a real drive. */
+    val isDemo: Boolean = false,
 ) {
     val hasActual: Boolean get() = tripId != null && actualCost != null
 
@@ -85,9 +88,14 @@ class DriveHistoryRepository @Inject constructor(
     private val tripLinker: TripLinker,
 ) {
 
-    suspend fun recent(limit: Int = DEFAULT_LIMIT): DriveHistory {
+    /**
+     * Recent history for [vehicleId]. Trips (and therefore the linked/orphan side) are scoped to
+     * the active vehicle; route searches stay global because a search is not tied to a car until
+     * it is actually driven.
+     */
+    suspend fun recent(vehicleId: String, limit: Int = DEFAULT_LIMIT): DriveHistory {
         val searches = routeSearchDao.recent(limit)
-        val trips = tripDao.recentClosed(limit)
+        val trips = tripDao.recentClosedForVehicle(vehicleId, limit)
         val tripBySearchId = trips
             .filter { it.routeSearchId != null }
             .associateBy { it.routeSearchId!!.toLong() }
@@ -98,7 +106,10 @@ class DriveHistoryRepository @Inject constructor(
 
         val accuracy = PredictionAccuracy.mape(
             entries.asSequence()
-                .filter { it.tripId != null && (it.predictedCost ?: 0.0) > 0.0 && (it.actualCost ?: 0.0) > 0.0 }
+                .filter {
+                    it.tripId != null && !it.isDemo &&
+                        (it.predictedCost ?: 0.0) > 0.0 && (it.actualCost ?: 0.0) > 0.0
+                }
                 .take(ACCURACY_WINDOW)
                 .map { DriveOutcome(predictedCost = it.predictedCost!!, actualCost = it.actualCost!!) }
                 .toList(),
@@ -108,10 +119,11 @@ class DriveHistoryRepository @Inject constructor(
     }
 
     /**
-     * Searches that no trip owns yet, newest first, for the manual "קשר נסיעה" picker.
+     * Searches that no trip of [vehicleId] owns yet, newest first, for the manual
+     * "קשר נסיעה" picker. The linked-set scan is scoped to the active vehicle.
      */
-    suspend fun linkCandidates(limit: Int = LINK_CANDIDATE_LIMIT): List<LinkableSearch> {
-        val linked = tripDao.recentClosed(LINKED_SCAN_LIMIT)
+    suspend fun linkCandidates(vehicleId: String, limit: Int = LINK_CANDIDATE_LIMIT): List<LinkableSearch> {
+        val linked = tripDao.recentClosedForVehicle(vehicleId, LINKED_SCAN_LIMIT)
             .mapNotNull { it.routeSearchId?.toLong() }
             .toSet()
         return routeSearchDao.recent(limit)
@@ -138,6 +150,24 @@ class DriveHistoryRepository @Inject constructor(
     suspend fun linkTripToNearest(tripId: Long, tripStartMs: Long): Boolean =
         tripLinker.autoLink(tripId, tripStartMs) != null
 
+    /**
+     * Deletes one History entry and the row(s) behind it:
+     * - a drive ([DriveHistoryEntry.tripId] != null) deletes the trip; a search it was linked
+     *   to simply reverts to an undriven search;
+     * - an undriven search ([DriveHistoryEntry.searchId] != null with no trip) deletes the
+     *   search after first clearing the link on any trip that still owns it.
+     */
+    suspend fun delete(entry: DriveHistoryEntry) {
+        val tripId = entry.tripId
+        if (tripId != null) {
+            tripDao.deleteById(tripId)
+            return
+        }
+        val searchId = entry.searchId ?: return
+        tripDao.unlinkTripsForSearch(searchId.toInt())
+        routeSearchDao.deleteById(searchId)
+    }
+
     private fun RouteSearchEntity.toEntry(trip: TripEntity?): DriveHistoryEntry {
         val cost = selectedPredictedCost.takeIf { it > 0.0 } ?: cheapestCost
         val liters = selectedPredictedLiters.takeIf { it > 0.0 } ?: predictedLiters
@@ -158,6 +188,7 @@ class DriveHistoryRepository @Inject constructor(
             pricePerLiterAtSearch = pricePerLiterAtSearch.takeIf { it > 0.0 },
             pricePerLiterAtTrip = trip?.pricePerLiterAtTrip?.takeIf { it > 0.0 },
             savedAmount = savedAmount,
+            isDemo = trip?.source == TripSource.DEMO,
         )
     }
 
@@ -177,6 +208,7 @@ class DriveHistoryRepository @Inject constructor(
         pricePerLiterAtSearch = null,
         pricePerLiterAtTrip = pricePerLiterAtTrip.takeIf { it > 0.0 },
         savedAmount = 0.0,
+        isDemo = source == TripSource.DEMO,
     )
 
     companion object {

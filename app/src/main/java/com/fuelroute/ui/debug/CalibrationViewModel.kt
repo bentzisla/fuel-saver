@@ -183,7 +183,7 @@ class CalibrationViewModel @Inject constructor(
     }
 
     private suspend fun linkedPairs(): List<Pair<Double, Double>> =
-        driveHistoryRepository.recent().entries.mapNotNull { entry ->
+        driveHistoryRepository.recent(vehicleRepository.active().id).entries.mapNotNull { entry ->
             val predicted = entry.predictedLiters
             val actual = entry.actualLiters
             if (predicted != null && actual != null && predicted > 0.0 && actual > 0.0) {

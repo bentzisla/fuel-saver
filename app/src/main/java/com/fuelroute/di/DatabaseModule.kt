@@ -27,7 +27,7 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, "fuelroute.db")
-            .addMigrations(Migrations.MIGRATION_3_4, Migrations.MIGRATION_4_5)
+            .addMigrations(Migrations.MIGRATION_3_4, Migrations.MIGRATION_4_5, Migrations.MIGRATION_5_6)
             .build()
 
     @Provides

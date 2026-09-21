@@ -59,6 +59,7 @@ class DashboardScreen(
     private var pricePerLiter: Double = ModelConstants.DEFAULT_FUEL_PRICE
     private var lastRenderedStatus: ObdStatus? = null
     private var lastRenderedError: String? = null
+    private var firstTemplateLogged = false
 
     init {
         // Confirms the host actually rendered the dashboard (card 42), after the session marker.
@@ -77,12 +78,19 @@ class DashboardScreen(
         }
     }
 
-    override fun onGetTemplate(): Template =
-        if (status == ObdStatus.Connected) {
+    override fun onGetTemplate(): Template {
+        if (!firstTemplateLogged) {
+            firstTemplateLogged = true
+            // Distinguishes "screen created" from "host actually pulled a template" (card 45): if
+            // this never appears, the host created the screen but never rendered it.
+            Log.i(TAG, "car first template served (status=$status)")
+        }
+        return if (status == ObdStatus.Connected) {
             buildDashboard(values)
         } else {
             buildDisconnected()
         }
+    }
 
     private fun onState(state: LiveObdState, price: Double) {
         pricePerLiter = price

@@ -48,7 +48,7 @@ class RefuelViewModel @Inject constructor(
             val vehicle = vehicleRepository.active()
             _state.update {
                 it.copy(
-                    refuels = refuelRepository.recent(20),
+                    refuels = refuelRepository.recent(vehicle.id, 20),
                     correction = vehicle.fuelRateCorrection,
                     tankCapacityL = vehicle.tankCapacityL,
                 )
@@ -105,7 +105,7 @@ class RefuelViewModel @Inject constructor(
             }
 
             val updatedCorrection = vehicleRepository.active().fuelRateCorrection
-            val refuels = refuelRepository.recent(20)
+            val refuels = refuelRepository.recent(vehicleId, 20)
             _state.update {
                 it.copy(
                     liters = "",

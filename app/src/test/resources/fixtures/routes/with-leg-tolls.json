@@ -1,0 +1,46 @@
+{
+  "routes": [
+    {
+      "routeLabels": ["DEFAULT_ROUTE"],
+      "description": "כביש 6",
+      "distanceMeters": 51696,
+      "duration": "4400s",
+      "staticDuration": "4000s",
+      "polyline": { "encodedPolyline": "ctybEgihsEbtOwaVjzh@kvy@" },
+      "legs": [
+        {
+          "distanceMeters": 14632,
+          "duration": "1132s",
+          "staticDuration": "1132s",
+          "polyline": { "encodedPolyline": "ctybEgihsEbtOwaVjzh@kvy@" },
+          "steps": [
+            { "distanceMeters": 14632, "staticDuration": "1132s" }
+          ],
+          "travelAdvisory": {
+            "tollInfo": {
+              "estimatedPrice": [
+                { "currencyCode": "ILS", "units": "5", "nanos": 0 }
+              ]
+            }
+          }
+        },
+        {
+          "distanceMeters": 37064,
+          "duration": "2868s",
+          "staticDuration": "2868s",
+          "polyline": { "encodedPolyline": "ctybEgihsEbtOwaVjzh@kvy@" },
+          "steps": [
+            { "distanceMeters": 37064, "staticDuration": "2868s" }
+          ],
+          "travelAdvisory": {
+            "tollInfo": {
+              "estimatedPrice": [
+                { "currencyCode": "ILS", "units": "7", "nanos": 500000000 }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

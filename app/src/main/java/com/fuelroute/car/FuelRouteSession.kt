@@ -25,8 +25,15 @@ class FuelRouteSession(
 
     override fun onCreateScreen(intent: Intent): Screen {
         // Confirms in `adb logcat -s FuelRoute:*` that the Android Auto host bound to the app and
-        // asked it for its first screen (cards 26/42's DHU/device check).
-        Log.i(TAG, "car session created (screen requested, host=${hostPackage ?: "unknown"})")
+        // asked it for its first screen (cards 26/42's DHU/device check). The host's Car App API
+        // level (card 45) tells whether it can render the API-7 `Header` used by DashboardScreen:
+        // a value < 7 explains a screen that appears but fails to render, without any other signal.
+        val apiLevel = runCatching { carContext.carAppApiLevel }.getOrDefault(-1)
+        Log.i(
+            TAG,
+            "car session created (screen requested, host=${hostPackage ?: "unknown"}, " +
+                "hostCarApiLevel=$apiLevel)",
+        )
         // Persist a user-visible "car app last-seen" marker (card 42) so the Settings screen can show
         // whether the phone ever reached the car host — without adb.
         lifecycleScope.launch {

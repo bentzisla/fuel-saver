@@ -16,6 +16,8 @@ class SimulatedObdTransport(
     private var connected = false
     private var startElapsedMs = 0L
 
+    override val isSimulated: Boolean = true
+
     override val isConnected: Boolean
         get() = connected
 

@@ -45,6 +45,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fuelroute.R
 import com.fuelroute.data.obd.LiveObdState
+import com.fuelroute.data.obd.ObdConnectStage
 import com.fuelroute.data.obd.ObdStatus
 import com.fuelroute.data.price.FuelGrades
 import com.fuelroute.data.price.FuelPriceRepository
@@ -62,6 +63,7 @@ import dagger.hilt.components.SingletonComponent
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -207,16 +209,7 @@ fun StatsScreen(
             }
             ObdStatus.Connecting -> {
                 item {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        CircularProgressIndicator()
-                        Text(
-                            text = connectingName?.let { stringResource(R.string.stats_connecting_to, it) }
-                                ?: stringResource(R.string.stats_connecting),
-                        )
-                    }
+                    ConnectingProgress(state = state, connectingName = connectingName)
                 }
                 item {
                     OutlinedButton(onClick = viewModel::disconnect, modifier = Modifier.fillMaxWidth()) {
@@ -380,7 +373,74 @@ private fun obdErrorText(code: String?): String = when {
     code == "TIMEOUT" -> stringResource(R.string.stats_error_timeout)
     code == "RECONNECT" -> stringResource(R.string.stats_error_reconnect)
     code == "RECONNECT FAILED" -> stringResource(R.string.stats_error_reconnect_failed)
+    code == "INIT TIMEOUT" -> stringResource(R.string.stats_error_init_timeout)
     else -> code
+}
+
+/**
+ * Connect-progress block shown under [ObdStatus.Connecting]: which pipeline stage is running,
+ * how long the attempt has taken, and a hint that a powered-off dongle fails fast. The elapsed
+ * counter ticks once a second from [LiveObdState.connectingSinceMs].
+ */
+@Composable
+private fun ConnectingProgress(
+    state: LiveObdState,
+    connectingName: String?,
+) {
+    val sinceMs = state.connectingSinceMs
+    var elapsedSec by remember(sinceMs) { mutableStateOf(0L) }
+    LaunchedEffect(sinceMs) {
+        if (sinceMs == null) {
+            elapsedSec = 0L
+            return@LaunchedEffect
+        }
+        while (true) {
+            elapsedSec = ((System.currentTimeMillis() - sinceMs) / 1000L).coerceAtLeast(0L)
+            delay(1_000L)
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            CircularProgressIndicator()
+            Column {
+                Text(
+                    text = connectingName?.let { stringResource(R.string.stats_connecting_to, it) }
+                        ?: stringResource(R.string.stats_connecting),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    text = connectStageText(state.connectionStage),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Text(
+            text = stringResource(R.string.stats_connect_elapsed, elapsedSec),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = stringResource(R.string.stats_connect_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** Hebrew label for the current connect stage (falls back to the generic "מתחבר"). */
+@Composable
+private fun connectStageText(stage: ObdConnectStage?): String = when (stage) {
+    ObdConnectStage.ConnectingSocket -> stringResource(R.string.stats_connect_stage_socket)
+    ObdConnectStage.InitializingElm -> stringResource(R.string.stats_connect_stage_init)
+    ObdConnectStage.SettlingProtocol -> stringResource(R.string.stats_connect_stage_settle)
+    ObdConnectStage.NegotiatingPids -> stringResource(R.string.stats_connect_stage_pids)
+    ObdConnectStage.ReadingVin -> stringResource(R.string.stats_connect_stage_vin)
+    null -> stringResource(R.string.stats_connecting)
 }
 
 @Composable

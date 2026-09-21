@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Android Auto / car-screen strings (card 45).
+
+    Kept in a separate file from strings.xml on purpose: the car app (Car App Library) and the
+    Settings self-check both consume these. Existing car_* strings still live in strings.xml and are
+    intentionally left untouched by this task.
+-->
+<resources>
+
+    <!-- Settings -> "Android Auto" runtime self-check (card 45). -->
+    <string name="settings_android_auto_build_type">סוג הבנייה המותקן: %1$s</string>
+    <string name="settings_android_auto_build_debug">DEBUG (מפתחים)</string>
+    <string name="settings_android_auto_build_release">RELEASE</string>
+    <string name="settings_android_auto_verdict_connected">המכונית חוברה — לוח המחוונים מוכן להצגה ברכב.</string>
+    <string name="settings_android_auto_verdict_not_connected">המכונית לא חוברה — הפעילו ״מקורות לא ידועים״ (Unknown sources) וחברו את הרכב מחדש.</string>
+    <string name="settings_android_auto_release_warning">זו בניית RELEASE: אם הרכב לא מתחבר, התקינו בניית DEBUG — מאמת המארחים ב-DEBUG פתוח לכל המארחים, ואינו תלוי בטביעות האצבע המקודדות.</string>
+
+</resources>

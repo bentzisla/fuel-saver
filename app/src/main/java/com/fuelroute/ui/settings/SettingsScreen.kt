@@ -461,6 +461,16 @@ private fun AndroidAutoHelpCard() {
                 text = stringResource(R.string.settings_android_auto_title),
                 style = MaterialTheme.typography.titleSmall,
             )
+            // Installed build type (card 45): DEBUG accepts any host; RELEASE only the allow-list.
+            val buildType = if (BuildConfig.DEBUG) {
+                stringResource(R.string.settings_android_auto_build_debug)
+            } else {
+                stringResource(R.string.settings_android_auto_build_release)
+            }
+            Text(
+                text = stringResource(R.string.settings_android_auto_build_type, buildType),
+                style = MaterialTheme.typography.bodyMedium,
+            )
             val lastSeenMs = settings.carLastSeenMs
             Text(
                 text = if (lastSeenMs != null) {
@@ -478,6 +488,27 @@ private fun AndroidAutoHelpCard() {
                     text = stringResource(R.string.settings_android_auto_last_host, host),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            // One-line verdict (card 45) — green once a car host has ever bound, red otherwise.
+            Text(
+                text = if (lastSeenMs != null) {
+                    stringResource(R.string.settings_android_auto_verdict_connected)
+                } else {
+                    stringResource(R.string.settings_android_auto_verdict_not_connected)
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (lastSeenMs != null) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.error
+                },
+            )
+            if (!BuildConfig.DEBUG && lastSeenMs == null) {
+                Text(
+                    text = stringResource(R.string.settings_android_auto_release_warning),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
                 )
             }
             Text(

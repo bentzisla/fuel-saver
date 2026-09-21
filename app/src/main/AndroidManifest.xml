@@ -77,6 +77,16 @@
             android:name="com.google.android.gms.car.application"
             android:resource="@xml/automotive_app_desc" />
 
+        <!--
+            Required, not legacy: Car App Library 1.7.0 reads this from ApplicationInfo.metaData at
+            runtime (androidx.car.app.AppInfo.retrieveMinCarAppApiLevel) and throws
+            IllegalArgumentException("Min API level not declared in manifest") if it is absent.
+            Valid range is [CarAppApiLevels.getOldest()..getLatest()] == [1..8] in 1.7.0.
+            Value 1 keeps the app visible on the widest range of hosts; the app also uses the
+            API-7 `Header` on PaneTemplate/MessageTemplate, which is safe because it is a lint-level
+            annotation only (no runtime enforcement) and every current Android Auto host is API 8.
+            Do NOT remove this meta-data (card 45 verification).
+        -->
         <meta-data
             android:name="androidx.car.app.minCarApiLevel"
             android:value="1" />

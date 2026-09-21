@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Toll display strings (remediation card 44). Kept in a dedicated file to avoid touching
+     strings.xml, which parallel work owns. -->
+<resources>
+    <string name="route_toll_amount">אגרה: ₪ %1$s</string>
+    <string name="route_total_includes_toll">הסכום הכולל כולל אגרה של ₪ %1$s</string>
+</resources>

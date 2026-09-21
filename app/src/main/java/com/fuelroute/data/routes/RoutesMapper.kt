@@ -71,13 +71,21 @@ object RoutesMapper {
             routeCursor += leg.steps.sumOf { it.distanceMeters }
         }
 
-        // `TOLLS` is always requested (see ComputeRoutesRequest defaults). Per the Routes API,
-        // `travelAdvisory.tollInfo` is omitted when the route has no toll road, while a present
-        // `tollInfo` with an empty `estimatedPrice` means tolls exist but the amount is unknown.
-        // Absence therefore means "no toll", not "couldn't determine".
-        val tollInfo = dto.travelAdvisory?.tollInfo
-        val toll = tollInfo?.estimatedPrice?.firstOrNull()?.let { it.units + it.nanos / 1e9 }
-        val tollUnknown = tollInfo != null && toll == null
+        // `TOLLS` is always requested and the field mask asks for the parent
+        // `travelAdvisory.tollInfo` at route and leg level. Route-level tollInfo is the route
+        // total; when Google only fills the per-leg advisories, sum the leg estimates.
+        // Absence everywhere means "no toll", while present-but-unpriced means tolls exist but
+        // the amount is unknown.
+        val routeTollInfo = dto.travelAdvisory?.tollInfo
+        val legTollInfos = dto.legs.mapNotNull { it.travelAdvisory?.tollInfo }
+        val toll: Double? = when {
+            routeTollInfo != null -> routeTollInfo.firstPrice()
+            legTollInfos.isNotEmpty() -> legTollInfos
+                .mapNotNull { it.firstPrice() }
+                .takeIf { it.isNotEmpty() }
+                ?.sum()
+            else -> 0.0
+        }
 
         return Route(
             id = "route-$index",
@@ -86,8 +94,8 @@ object RoutesMapper {
             staticDurationSeconds = staticSec,
             durationSeconds = durationSec,
             segments = segments,
-            tollCost = toll ?: if (tollInfo == null) 0.0 else null,
-            tollUnknown = tollUnknown,
+            tollCost = toll,
+            tollUnknown = toll == null,
             trafficResolution = when {
                 usedPerSegment -> TrafficResolution.PER_SEGMENT
                 usedRouteAverage -> TrafficResolution.ROUTE_AVERAGE
@@ -96,6 +104,10 @@ object RoutesMapper {
             encodedPolyline = dto.polyline?.encodedPolyline,
         )
     }
+
+    /** First `estimatedPrice` as a decimal amount, or null when the toll exists but is unpriced. */
+    private fun TollInfoDto.firstPrice(): Double? =
+        estimatedPrice.firstOrNull()?.let { it.units + it.nanos / 1e9 }
 
     private fun congestionIntervals(
         raw: List<SpeedReadingIntervalDto>,

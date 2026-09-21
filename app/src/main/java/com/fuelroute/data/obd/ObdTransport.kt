@@ -10,6 +10,12 @@ interface ObdTransport {
 
     val deviceName: String
 
+    /**
+     * True when this transport produces a synthetic drive cycle (the "הדגמה" demo)
+     * rather than reading a real vehicle, so the recorded trip can be flagged as such.
+     */
+    val isSimulated: Boolean get() = false
+
     suspend fun connect(): Result<Unit>
 
     suspend fun disconnect()

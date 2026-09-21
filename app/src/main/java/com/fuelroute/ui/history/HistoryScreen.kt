@@ -1,5 +1,6 @@
 package com.fuelroute.ui.history
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -12,10 +13,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -60,6 +65,20 @@ fun HistoryScreen(
             onPick = viewModel::linkToSearch,
             onNearest = viewModel::linkToNearest,
             onDismiss = viewModel::dismissManualLink,
+        )
+    }
+
+    state.selectedEntry?.let { entry ->
+        RideDetailDialog(
+            entry = entry,
+            onDismiss = viewModel::dismissDetail,
+        )
+    }
+
+    if (state.pendingDelete != null) {
+        DeleteRideDialog(
+            onConfirm = viewModel::confirmDelete,
+            onDismiss = viewModel::cancelDelete,
         )
     }
 
@@ -130,7 +149,9 @@ fun HistoryScreen(
             items(state.entries) { entry ->
                 HistoryRideCard(
                     entry = entry,
+                    onClick = { viewModel.openDetail(entry) },
                     onLink = { viewModel.openManualLink(entry) },
+                    onDelete = { viewModel.requestDelete(entry) },
                 )
             }
         }
@@ -142,8 +163,17 @@ fun HistoryScreen(
  * outcome (actual ₪/L/min) with a delta and a state label.
  */
 @Composable
-private fun HistoryRideCard(entry: DriveHistoryEntry, onLink: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+private fun HistoryRideCard(
+    entry: DriveHistoryEntry,
+    onClick: () -> Unit,
+    onLink: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+    ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -160,9 +190,25 @@ private fun HistoryRideCard(entry: DriveHistoryEntry, onLink: () -> Unit) {
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                // Own click handler so the delete tap never also opens the detail dialog.
+                IconButton(onClick = onDelete) {
+                    Icon(
+                        imageVector = Icons.Filled.Delete,
+                        contentDescription = stringResource(R.string.history_delete_title),
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                }
             }
 
-            RideStateLabel(entry.rideState)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RideStateLabel(entry.rideState)
+                if (entry.isDemo) {
+                    DemoBadge()
+                }
+            }
 
             if (entry.hasActual && entry.savedAmount > 0.0) {
                 Text(
@@ -258,6 +304,16 @@ private fun HistoryRideCard(entry: DriveHistoryEntry, onLink: () -> Unit) {
     }
 }
 
+/** Marks a simulated "הדגמה" ride so it is never mistaken for a real one. */
+@Composable
+private fun DemoBadge() {
+    Text(
+        text = stringResource(R.string.history_demo_badge),
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.error,
+    )
+}
+
 @Composable
 private fun RideStateLabel(state: RideState) {
     val (textRes, color) = when (state) {
@@ -272,6 +328,161 @@ private fun RideStateLabel(state: RideState) {
         text = stringResource(textRes),
         style = MaterialTheme.typography.labelMedium,
         color = color,
+    )
+}
+
+/**
+ * Full predicted-vs-actual breakdown for one ride, opened by tapping a history card.
+ * Delete lives in a later card, so this dialog is read-only.
+ */
+@Composable
+private fun RideDetailDialog(entry: DriveHistoryEntry, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.history_detail_title)) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 400.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = routeTitle(entry).ifBlank {
+                        stringResource(R.string.history_detail_unlinked)
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    text = formatDate(entry.timestampMs),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RideStateLabel(entry.rideState)
+                    if (entry.isDemo) {
+                        DemoBadge()
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+
+                val predicted = entry.predictedCost
+                val actual = entry.actualCost
+
+                if (predicted != null) {
+                    Text(
+                        text = stringResource(
+                            R.string.history_ride_predicted,
+                            format(predicted, 2),
+                            entry.predictedLiters?.let { format(it, 1) } ?: DASH,
+                            entry.predictedMinutes?.let { format(it, 0) } ?: DASH,
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                } else {
+                    Text(
+                        text = stringResource(R.string.history_ride_state_no_prediction),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                if (entry.hasActual && actual != null) {
+                    Text(
+                        text = stringResource(
+                            R.string.history_ride_actual,
+                            format(actual, 2),
+                            entry.actualLiters?.let { format(it, 1) } ?: DASH,
+                            entry.actualMinutes?.let { format(it, 0) } ?: DASH,
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                } else if (predicted != null) {
+                    Text(
+                        text = stringResource(R.string.history_ride_actual_waiting),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                if (predicted != null && actual != null && predicted > 0.0) {
+                    val delta = actual - predicted
+                    val pct = PredictionAccuracy.errorPct(predicted, actual)
+                    Text(
+                        text = stringResource(
+                            R.string.history_delta,
+                            signed(delta),
+                            pct?.let { signed(it) } ?: DASH,
+                        ),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = if (delta > 0.0) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.primary
+                        },
+                    )
+                }
+
+                entry.distanceKm?.let { distance ->
+                    Text(
+                        text = stringResource(R.string.history_km, format(distance, 1)),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                entry.pricePerLiterAtSearch?.let { price ->
+                    Text(
+                        text = stringResource(
+                            R.string.history_detail_price_search,
+                            format(price, 2),
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                entry.pricePerLiterAtTrip?.let { price ->
+                    Text(
+                        text = stringResource(
+                            R.string.history_detail_price_trip,
+                            format(price, 2),
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.history_detail_close))
+            }
+        },
+    )
+}
+
+/** Confirmation shown before a History entry (and its underlying row) is deleted. */
+@Composable
+private fun DeleteRideDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.history_delete_title)) },
+        text = { Text(stringResource(R.string.history_delete_message)) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(stringResource(R.string.history_delete_confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.history_delete_cancel))
+            }
+        },
     )
 }
 

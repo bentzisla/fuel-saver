@@ -28,6 +28,14 @@ class ComputeRoutesRequestTest {
     }
 
     @Test
+    fun `field mask requests full toll info at route and leg level`() {
+        // The API only returns tollInfo when the parent message is masked (a leaf such as
+        // `...tollInfo.estimatedPrice` alone is not enough), so guard the parent paths.
+        assertTrue(ROUTES_FIELD_MASK.contains("routes.travelAdvisory.tollInfo"))
+        assertTrue(ROUTES_FIELD_MASK.contains("routes.legs.travelAdvisory.tollInfo"))
+    }
+
+    @Test
     fun `serializes departure time when provided`() {
         val request = ComputeRoutesRequest(
             origin = WaypointDto(placeId = "origin"),

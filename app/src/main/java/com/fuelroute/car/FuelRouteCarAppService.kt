@@ -33,7 +33,11 @@ class FuelRouteCarAppService : CarAppService() {
      */
     override fun onCreate() {
         super.onCreate()
-        Log.i(TAG, "car service created (host may bind)")
+        // Build type matters for bring-up (card 45): DEBUG accepts every host (DHU + real car),
+        // RELEASE only accepts the allow-listed host signatures below. Seeing "release" here while
+        // the dashboard does not appear is a strong signal to re-test with a DEBUG build.
+        val build = if (BuildConfig.DEBUG) "debug" else "release"
+        Log.i(TAG, "car service created (build=$build, host may bind)")
     }
 
     override fun createHostValidator(): HostValidator {
@@ -64,7 +68,13 @@ class FuelRouteCarAppService : CarAppService() {
             if (accepted) {
                 Log.i(TAG, "car host accepted: ${host.packageName} (uid=${host.uid})")
             } else {
-                Log.w(TAG, "car host rejected by validator: ${host.packageName}")
+                // The Car App Library logs the exact digest to add under the "CarApp.Val" tag; point
+                // at it so a release build that rejects the real host is one logcat line from fixed.
+                Log.w(
+                    TAG,
+                    "car host rejected by validator: ${host.packageName}; " +
+                        "use a DEBUG build or check `adb logcat -s CarApp.Val:*` for the digest to allow-list",
+                )
             }
         }
         return FuelRouteSession(
@@ -83,11 +93,16 @@ class FuelRouteCarAppService : CarAppService() {
          * Release allow-list: the real Android Auto and Android Automotive OS hosts, by package
          * name + SHA-256 signing-certificate digest.
          *
-         * Do **not** use `androidx.car.app.R.array.hosts_allowlist_sample` here. That is the Car
-         * App Library's *sample* allow-list; it only matches the sample host, so the real host is
-         * rejected and the dashboard never appears (card 26's "not showing" bug). These digests
-         * are the public signing certificates of the production hosts; update them if Google
-         * rotates the host certificates.
+         * Verified (card 45) against the AAR actually resolved by Gradle:
+         * `androidx.car.app:app:1.7.0` ships these exact six `(digest, package)` pairs in
+         * `res/values/values.xml` under the string-array `hosts_allowlist_sample`. Despite the
+         * "sample" name, that array is the production projected/automotive host allow-list the
+         * library's own samples use — it is *not* a sample-host-only list (card 26's premise).
+         * Because the values are byte-identical, keeping the explicit list here changes nothing
+         * today; if Google rotates a host certificate, bump the Car App Library (which updates
+         * the array) and re-copy the digests from the new AAR, or switch this builder to
+         * `addAllowedHosts(androidx.car.app.R.array.hosts_allowlist_sample)` to track it
+         * automatically (not done here: that array is not a public resource).
          */
         val ALLOWED_HOSTS: List<Pair<String, String>> = listOf(
             // Android Auto (projected) host.

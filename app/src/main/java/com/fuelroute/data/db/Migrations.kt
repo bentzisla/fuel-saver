@@ -65,4 +65,11 @@ object Migrations {
             )
         }
     }
+
+    // v5 -> v6: marks each trip as a real drive or a simulated "הדגמה" ride.
+    val MIGRATION_5_6 = object : Migration(5, 6) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE trip ADD COLUMN source TEXT NOT NULL DEFAULT 'real'")
+        }
+    }
 }

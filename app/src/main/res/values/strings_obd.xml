@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  OBD connect-progress strings (card 43). Kept in a separate file so parallel feature work can
+  edit res/values/strings.xml without merge conflicts. Hebrew is the default locale.
+-->
+<resources>
+    <string name="stats_connect_stage_socket">מתחבר לדונגל…</string>
+    <string name="stats_connect_stage_init">מאתחל את מתאם ה־ELM327…</string>
+    <string name="stats_connect_stage_settle">מזהה פרוטוקול OBD…</string>
+    <string name="stats_connect_stage_pids">בודק חיישנים נתמכים…</string>
+    <string name="stats_connect_stage_vin">קורא מספר שלדה (VIN)…</string>
+    <string name="stats_connect_elapsed">שניות: %1$d</string>
+    <string name="stats_connect_hint">החיבור עשוי לקחת עד ~30 שניות; אם הדונגל כבוי הוא ייכשל מהר</string>
+    <string name="stats_error_init_timeout">הדונגל לא הגיב לפקודת האתחול</string>
+</resources>

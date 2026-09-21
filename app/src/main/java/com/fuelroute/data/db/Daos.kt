@@ -130,10 +130,13 @@ interface TripDao {
     )
     suspend fun findActiveRouteSearch(tripStartMs: Long, windowMs: Long): RouteSearchEntity?
 
-    /** Closed trips that have not yet been linked to a route search, since [sinceMs]. */
+    /**
+     * Closed trips that have not yet been linked to a route search, since [sinceMs].
+     * Demo ("הדגמה") trips are excluded so a simulated ride is never paired with a real search.
+     */
     @Query(
         "SELECT * FROM trip WHERE isOpen = 0 AND routeSearchId IS NULL " +
-            "AND endedAtMs >= :sinceMs ORDER BY startedAtMs DESC"
+            "AND source != 'demo' AND endedAtMs >= :sinceMs ORDER BY startedAtMs DESC"
     )
     suspend fun findUnlinkedSince(sinceMs: Long): List<TripEntity>
 
@@ -141,8 +144,27 @@ interface TripDao {
     @Query("UPDATE trip SET routeSearchId = :routeSearchId, linkedAtMs = :linkedAtMs WHERE id = :tripId")
     suspend fun linkToRouteSearch(tripId: Long, routeSearchId: Int, linkedAtMs: Long)
 
+    /** Clears a trip's route-search link, returning it to an orphan drive. */
+    @Query("UPDATE trip SET routeSearchId = NULL, linkedAtMs = NULL WHERE id = :tripId")
+    suspend fun unlinkTrip(tripId: Long)
+
+    /** Clears the link on every trip that owns [routeSearchId] (used before deleting the search). */
+    @Query("UPDATE trip SET routeSearchId = NULL, linkedAtMs = NULL WHERE routeSearchId = :routeSearchId")
+    suspend fun unlinkTripsForSearch(routeSearchId: Int)
+
+    /** Deletes one trip; a search it was linked to simply reverts to an undriven search. */
+    @Query("DELETE FROM trip WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
     @Query("SELECT * FROM trip WHERE isOpen = 0 ORDER BY startedAtMs DESC LIMIT :limit")
     suspend fun recentClosed(limit: Int): List<TripEntity>
+
+    /** Closed trips for one vehicle, newest first (per-vehicle History list). */
+    @Query(
+        "SELECT * FROM trip WHERE isOpen = 0 AND vehicleId = :vehicleId " +
+            "ORDER BY startedAtMs DESC LIMIT :limit"
+    )
+    suspend fun recentClosedForVehicle(vehicleId: String, limit: Int): List<TripEntity>
 }
 
 @Dao
@@ -153,6 +175,10 @@ interface RefuelDao {
 
     @Query("SELECT * FROM refuel ORDER BY timestampMs DESC LIMIT :limit")
     suspend fun recent(limit: Int): List<RefuelEntity>
+
+    /** Refuels for one vehicle, newest first (per-vehicle Refuel list). */
+    @Query("SELECT * FROM refuel WHERE vehicleId = :vehicleId ORDER BY timestampMs DESC LIMIT :limit")
+    suspend fun recentForVehicle(vehicleId: String, limit: Int): List<RefuelEntity>
 
     /** One-shot dump of the whole table (backup/export). */
     @Query("SELECT * FROM refuel")
@@ -209,6 +235,10 @@ interface RouteSearchDao {
 
     @Query("SELECT * FROM route_search WHERE timestampMs >= :sinceMs ORDER BY timestampMs DESC")
     suspend fun recentWithinWindow(sinceMs: Long): List<RouteSearchEntity>
+
+    /** Deletes one route search. Callers must unlink any trip that still owns it first. */
+    @Query("DELETE FROM route_search WHERE id = :id")
+    suspend fun deleteById(id: Long)
 }
 
 @Dao

@@ -16,6 +16,14 @@ object ObdConnectionPolicy {
     const val CONNECT_TIMEOUT_MS = 15_000L
 
     /**
+     * Short read timeout applied to each ELM initialization command. A powered-off or silent
+     * dongle never answers, so aborting an init read after this window surfaces a specific error
+     * in well under a second instead of dragging through every command at the full socket
+     * read-timeout (1.5 s each). The run-loop reads keep their normal timeout.
+     */
+    const val INIT_READ_TIMEOUT_MS = 600L
+
+    /**
      * A freshly started logging service never stops itself during this window, so the engine
      * state flow's initial `Disconnected` value cannot kill it before the first `Connecting`
      * emission (the `Disconnected -> Connecting` transient).
@@ -163,4 +171,7 @@ object ObdConnectionPolicy {
     const val ERROR_SOCKET_CLOSED = "SOCKET CLOSED"
     const val ERROR_SECURITY = "SECURITY"
     const val ERROR_SEARCHING = "SEARCHING"
+
+    /** An ELM init command produced no reply within [INIT_READ_TIMEOUT_MS]. */
+    const val ERROR_INIT_TIMEOUT = "INIT TIMEOUT"
 }

@@ -976,6 +976,39 @@ private fun RouteCard(
                 )
             }
 
+            // A toll is a real cost driver, so give it its own unmissable line instead of a
+            // small info-grid cell. Unknown and genuinely toll-free routes are surfaced here
+            // too, so the user always knows where the total stands.
+            when {
+                cost.tollCost > TollEpsilon -> Column(
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.route_toll_amount, format(cost.tollCost, 2)),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        text = stringResource(
+                            R.string.route_total_includes_toll,
+                            format(cost.tollCost, 2),
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                cost.route.tollUnknown -> Text(
+                    text = stringResource(R.string.route_toll_unknown),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                else -> Text(
+                    text = stringResource(R.string.route_toll_free),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
             if (costPremium(cost, cheapest) > 0.005) {
                 Text(
                     text = stringResource(R.string.route_delta_cost, format(costPremium(cost, cheapest), 2)),
@@ -1014,15 +1047,6 @@ private fun RouteCard(
                     value = "₪ ${format(cost.totalCost, 2)}",
                 )
                 InfoColumn(
-                    label = stringResource(R.string.route_toll_label),
-                    value = when {
-                        cost.route.tollUnknown -> "—"
-                        cost.route.tollCost == null || cost.route.tollCost <= 0.005 ->
-                            stringResource(R.string.route_toll_free)
-                        else -> "₪ ${format(cost.tollCost, 1)}"
-                    },
-                )
-                InfoColumn(
                     label = stringResource(R.string.route_eta_label),
                     value = formatTime(etaMillis),
                 )
@@ -1034,26 +1058,14 @@ private fun RouteCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (cost.route.tollUnknown) {
-                    Text(
-                        text = stringResource(R.string.route_toll_unknown),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-                Text(
-                    text = stringResource(
-                        R.string.route_traffic_label,
-                        stringResource(cost.route.trafficResolution.labelRes()),
-                    ),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            Text(
+                text = stringResource(
+                    R.string.route_traffic_label,
+                    stringResource(cost.route.trafficResolution.labelRes()),
+                ),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -1180,7 +1192,7 @@ private fun RouteDetailDialog(
                     Text(
                         text = when {
                             cost.route.tollUnknown -> stringResource(R.string.route_toll_unknown)
-                            cost.route.tollCost == null || cost.route.tollCost <= 0.005 ->
+                            cost.route.tollCost == null || cost.route.tollCost <= TollEpsilon ->
                                 stringResource(R.string.route_toll_free)
                             else -> stringResource(R.string.route_detail_toll, format(cost.tollCost, 2))
                         },
@@ -1307,6 +1319,9 @@ private fun speedProfile(cost: RouteCost): List<SpeedProfilePoint> {
 
 /** Delay before re-scrolling a focused input into view, letting the IME animation start. */
 private const val ImeBringIntoViewDelayMs = 150L
+
+/** Below this a toll estimate is treated as zero (same threshold as the detail dialog). */
+private const val TollEpsilon = 0.005
 
 private val GraphYAxisWidth = 44.dp
 private val GraphChartHeight = 200.dp

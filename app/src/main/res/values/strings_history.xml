@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- History-screen strings (remediation card 46). Kept in a dedicated file to avoid touching
+     strings.xml, which parallel work owns. -->
+<resources>
+    <string name="history_demo_badge">הדגמה</string>
+    <string name="history_detail_title">פרטי נסיעה</string>
+    <string name="history_detail_unlinked">נסיעה לא מקושרת</string>
+    <string name="history_detail_price_search">מחיר בחיפוש: %1$s ₪/ל׳</string>
+    <string name="history_detail_price_trip">מחיר בתדלוק: %1$s ₪/ל׳</string>
+    <string name="history_detail_close">סגור</string>
+    <string name="history_delete_title">מחיקת נסיעה</string>
+    <string name="history_delete_message">האם למחוק את הנסיעה מההיסטוריה? הפעולה אינה ניתנת לביטול.</string>
+    <string name="history_delete_confirm">מחק</string>
+    <string name="history_delete_cancel">ביטול</string>
+</resources>

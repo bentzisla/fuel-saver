@@ -416,6 +416,64 @@ Third round of user feedback. Cards 34-42.
 
 ---
 
+## Phase 13 - Round-4 UX & correctness fixes (2026-09-21)
+
+Seven user-reported issues. Each has a card (43-49). One schema change (v5 -> v6) lives in card 46.
+
+Root causes (investigated):
+- **#1 OBD connect is slow and opaque** — `ObdEngine.start()` runs a long, silent pipeline (connect retry chain →
+  sequential ELM init, each read bounded by a 1.5 s socket timeout → `settleProtocol` up to 3 s → PID negotiation →
+  VIN), but `LiveObdState` only exposes `status=Connecting`, so the UI shows a bare "מתחבר" spinner.
+- **#2 Demo rides look real** — `SimulatedObdTransport` (started when `ObdLoggingService` is started with a null address)
+  writes ordinary `trip` rows; `trip` has no `source` column, so History cannot tell a demo drive from a real one.
+- **#3 History rows are inert** — `HistoryRideCard` is a plain `Card` with no `onClick` and there is no detail view.
+- **#4 No delete** — neither `TripDao` nor `RouteSearchDao` has a delete, and History has no delete affordance.
+- **#5 Not per-vehicle** — Stats trips already filter by vehicle, but `DriveHistoryRepository.recent()` and
+  `RefuelRepository.recent()` query without a `vehicleId`, so History and Refuel mix every vehicle.
+- **#6 Tolls never shown** — the mapper/`FuelModel`/`RouteCard` paths are correct and unit-tested; the suspect is the
+  live request (`ROUTES_FIELD_MASK`/`extraComputations`) not actually returning `travelAdvisory.tollInfo`, plus the toll
+  line is easy to miss. Card 44 verifies end-to-end and fixes whatever blocks it.
+- **#7 Android Auto still down** — code paths exist (cards 15/26/42), so this is a hands-on bring-up: verify the
+  installed build vs the release host-validator digests, the manifest category, "Unknown sources", and DHU; fix the
+  actual blocker.
+
+- [x] **13.1 OBD connection progress + faster connect.** *(#1)* Add a `connectionStage` to `LiveObdState`, emit it
+      through the connect pipeline, show stage + elapsed time + cancel; tighten the init read timeout so a dead dongle
+      fails fast. See `remediation/tasks/43-obd-connect-progress.md`.
+- [x] **13.2 Tolls shown when present.** *(#6)* Verify `travelAdvisory.tollInfo` actually arrives (field mask /
+      `extraComputations`), fix the request if not, and make the toll line unmissable on result cards.
+      See `remediation/tasks/44-tolls-display.md`.
+- [x] **13.3 Android Auto bring-up.** *(#7)* End-to-end: validate host digests/category/manifest, DHU test, runtime
+      self-check in Settings. See `remediation/tasks/45-android-auto-bringup.md`.
+- [x] **13.4 Demo-trip flag.** *(#2)* `trip.source` column (migration v5->v6), thread `isSimulated` from the transport
+      into `TripRecorder`, badge demo rows in History, exclude them from accuracy. See
+      `remediation/tasks/46-demo-trip-flag.md`.
+- [x] **13.5 Per-vehicle History + Refuel.** *(#5)* Scope `DriveHistoryRepository` and `RefuelRepository` to the active
+      vehicle. See `remediation/tasks/47-per-vehicle-scope.md`.
+- [x] **13.6 History tap → detail.** *(#3)* Tap a ride to open a rich predicted-vs-actual detail dialog.
+      See `remediation/tasks/48-history-detail.md`.
+- [x] **13.7 History delete.** *(#4)* Delete a ride (and its linked search when appropriate) with confirmation.
+      See `remediation/tasks/49-history-delete.md`.
+
+### Dispatch order
+
+```
+Wave 1 (parallel, file-disjoint):  43-obd-connect-progress  44-tolls-display  45-android-auto-bringup
+Wave 2 (SEQUENTIAL, shared ui/history + data/db + data/history):
+      46-demo-trip-flag  ->  47-per-vehicle-scope  ->  48-history-detail  ->  49-history-delete
+```
+
+- 46 owns the schema change (Entities/Migrations/AppDatabase) and shares `data/obd/ObdEngine.kt` with 43, so it runs
+  after Wave 1. 47/48/49 all touch `ui/history/*` + `data/history/DriveHistoryRepository.kt` + `data/db/Daos.kt`, so
+  they run sequentially.
+- Strings: to avoid `strings.xml` write races across the parallel Wave-1 cards, each card adds its Hebrew strings to a
+  **feature-scoped** resource file (`res/values/strings_obd.xml`, `strings_tolls.xml`, `strings_car.xml`,
+  `strings_history.xml`) which Android merges automatically. Do not reorder or reformat the existing `strings.xml`.
+- Sub-agents edit + add unit tests but do **not** run `gradlew`; the orchestrator runs the serial build gate
+  (`.\gradlew.bat testDebugUnitTest lintDebug --console=plain`) once per wave and commits.
+
+---
+
 ## Manual steps outside the codebase
 
 - Cloud Console: second API key for Routes/Places REST with Android restriction + `X-Android-*` headers, hard daily quota cap,

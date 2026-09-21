@@ -6,13 +6,17 @@ import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 
+// The Routes API only fills `travelAdvisory.tollInfo` when the parent message is requested
+// (not just a leaf such as `...tollInfo.estimatedPrice`) and `TOLLS` is in
+// `extraComputations` (see ComputeRoutesRequest defaults). Request the parent at both route
+// and leg level; the full `TollInfo` (estimatedPrice + currencyCode) comes back with it.
 const val ROUTES_FIELD_MASK = "routes.routeLabels,routes.description,routes.distanceMeters," +
     "routes.duration,routes.staticDuration,routes.polyline.encodedPolyline," +
     "routes.legs.distanceMeters,routes.legs.duration,routes.legs.staticDuration," +
     "routes.legs.polyline.encodedPolyline,routes.legs.steps.distanceMeters," +
     "routes.legs.steps.staticDuration,routes.legs.steps.polyline.encodedPolyline," +
-    "routes.legs.travelAdvisory.speedReadingIntervals," +
-    "routes.travelAdvisory.speedReadingIntervals,routes.travelAdvisory.tollInfo.estimatedPrice"
+    "routes.legs.travelAdvisory.speedReadingIntervals,routes.legs.travelAdvisory.tollInfo," +
+    "routes.travelAdvisory.speedReadingIntervals,routes.travelAdvisory.tollInfo"
 
 @Serializable
 data class ComputeRoutesRequest(

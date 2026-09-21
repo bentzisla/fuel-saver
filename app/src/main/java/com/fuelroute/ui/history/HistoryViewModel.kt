@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.fuelroute.data.history.DriveHistoryEntry
 import com.fuelroute.data.history.DriveHistoryRepository
 import com.fuelroute.data.history.LinkableSearch
+import com.fuelroute.data.vehicle.VehicleRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,23 +26,56 @@ data class HistoryUiState(
     val linkCandidates: List<LinkableSearch> = emptyList(),
     val isLoadingCandidates: Boolean = false,
     val linkFeedback: LinkFeedback? = null,
+    /** The ride whose detail dialog is open, or null when no dialog is shown. */
+    val selectedEntry: DriveHistoryEntry? = null,
+    /** The entry awaiting delete confirmation, or null when the confirm dialog is hidden. */
+    val pendingDelete: DriveHistoryEntry? = null,
 )
 
 @HiltViewModel
 class HistoryViewModel @Inject constructor(
     private val repository: DriveHistoryRepository,
+    private val vehicleRepository: VehicleRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(HistoryUiState())
     val state: StateFlow<HistoryUiState> = _state.asStateFlow()
 
+    /** Active vehicle the history is scoped to; reloads whenever it changes. */
+    private val activeVehicleId = MutableStateFlow<String?>(null)
+
     init {
-        load()
+        viewModelScope.launch {
+            vehicleRepository.vehicles().collect { list ->
+                val current = list.firstOrNull { it.id == activeVehicleId.value } ?: list.firstOrNull()
+                if (current != null && current.id != activeVehicleId.value) {
+                    activeVehicleId.value = current.id
+                }
+            }
+        }
+        viewModelScope.launch {
+            val active = vehicleRepository.active()
+            if (active.id != activeVehicleId.value) activeVehicleId.value = active.id
+        }
+        viewModelScope.launch {
+            activeVehicleId.collect { id ->
+                if (id != null) load()
+            }
+        }
+    }
+
+    /** Switches the active vehicle; History reloads for that vehicle. */
+    fun selectVehicle(id: String) {
+        viewModelScope.launch {
+            vehicleRepository.setActive(id)
+            activeVehicleId.value = vehicleRepository.active().id
+        }
     }
 
     fun load() {
+        val vehicleId = activeVehicleId.value ?: return
         viewModelScope.launch {
-            val history = repository.recent()
+            val history = repository.recent(vehicleId)
             _state.value = _state.value.copy(
                 entries = history.entries,
                 accuracyPct = history.accuracyPct,
@@ -61,7 +95,8 @@ class HistoryViewModel @Inject constructor(
             isLoadingCandidates = true,
         )
         viewModelScope.launch {
-            val candidates = repository.linkCandidates()
+            val vehicleId = activeVehicleId.value ?: return@launch
+            val candidates = repository.linkCandidates(vehicleId)
             _state.value = _state.value.copy(
                 linkCandidates = candidates,
                 isLoadingCandidates = false,
@@ -101,6 +136,39 @@ class HistoryViewModel @Inject constructor(
             )
             if (linked) load()
         }
+    }
+
+    /** Opens the detail dialog for the tapped ride. */
+    fun openDetail(entry: DriveHistoryEntry) {
+        _state.value = _state.value.copy(selectedEntry = entry)
+    }
+
+    /** Closes the detail dialog. */
+    fun dismissDetail() {
+        _state.value = _state.value.copy(selectedEntry = null)
+    }
+
+    /** Asks for confirmation before deleting [entry]; the dialog is shown until confirmed/cancelled. */
+    fun requestDelete(entry: DriveHistoryEntry) {
+        _state.value = _state.value.copy(pendingDelete = entry)
+    }
+
+    /** Confirms the pending delete, removes the underlying rows, and reloads History. */
+    fun confirmDelete() {
+        val entry = _state.value.pendingDelete ?: return
+        viewModelScope.launch {
+            repository.delete(entry)
+            _state.value = _state.value.copy(
+                pendingDelete = null,
+                selectedEntry = _state.value.selectedEntry?.takeUnless { it == entry },
+            )
+            load()
+        }
+    }
+
+    /** Dismisses the delete confirmation without deleting anything. */
+    fun cancelDelete() {
+        _state.value = _state.value.copy(pendingDelete = null)
     }
 
     fun clearLinkFeedback() {

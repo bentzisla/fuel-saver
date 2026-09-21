@@ -2,6 +2,7 @@ package com.fuelroute.data.obd
 
 import com.fuelroute.data.db.TripDao
 import com.fuelroute.data.db.TripEntity
+import com.fuelroute.data.db.TripSource
 import com.fuelroute.domain.history.TripCost
 
 /**
@@ -13,6 +14,8 @@ class TripRecorder(private val tripDao: TripDao) {
 
     private var tripId: Long? = null
     private var startedAtMs: Long = 0L
+    // Carried across checkpoint/end so every full-row rewrite keeps the trip's provenance.
+    private var source: String = TripSource.REAL
 
     val isOpen: Boolean
         get() = tripId != null
@@ -30,8 +33,9 @@ class TripRecorder(private val tripDao: TripDao) {
         tripDao.closeOpenTrips(nowMs)
     }
 
-    suspend fun start(vehicleId: String, startedAtMs: Long) {
+    suspend fun start(vehicleId: String, startedAtMs: Long, source: String = TripSource.REAL) {
         this.startedAtMs = startedAtMs
+        this.source = source
         tripId = tripDao.insert(
             TripEntity(
                 vehicleId = vehicleId,
@@ -43,6 +47,7 @@ class TripRecorder(private val tripDao: TripDao) {
                 maxSpeedKmh = 0.0,
                 idleSeconds = 0.0,
                 isOpen = 1,
+                source = source,
             ),
         )
     }
@@ -110,6 +115,7 @@ class TripRecorder(private val tripDao: TripDao) {
                 isOpen = if (open) 1 else 0,
                 actualCost = if (open) 0.0 else cost.actualCost,
                 pricePerLiterAtTrip = if (open) 0.0 else cost.pricePerLiterAtTrip,
+                source = source,
             ),
         )
     }

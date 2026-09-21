@@ -79,6 +79,79 @@ class RoutesMapperTest {
     }
 
     @Test
+    fun `leg toll info is summed when the route has none`() {
+        val response = ComputeRoutesResponse(
+            routes = listOf(
+                RouteDto(
+                    distanceMeters = 2_000,
+                    duration = "200s",
+                    staticDuration = "200s",
+                    legs = listOf(
+                        legWithToll(distanceMeters = 1_000, units = 4L, nanos = 0),
+                        legWithToll(distanceMeters = 1_000, units = 8L, nanos = 250_000_000),
+                    ),
+                ),
+            ),
+        )
+
+        val route = RoutesMapper.toDomain(response).single()
+
+        assertFalse(route.tollUnknown)
+        assertEquals(12.25, route.tollCost!!, 1e-9)
+    }
+
+    @Test
+    fun `leg toll info without a price marks the toll unknown`() {
+        val response = ComputeRoutesResponse(
+            routes = listOf(
+                RouteDto(
+                    distanceMeters = 1_000,
+                    duration = "100s",
+                    staticDuration = "100s",
+                    legs = listOf(
+                        LegDto(
+                            distanceMeters = 1_000,
+                            duration = "100s",
+                            staticDuration = "100s",
+                            steps = listOf(StepDto(distanceMeters = 1_000, staticDuration = "100s")),
+                            travelAdvisory = TravelAdvisoryDto(tollInfo = TollInfoDto()),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val route = RoutesMapper.toDomain(response).single()
+
+        assertNull(route.tollCost)
+        assertTrue(route.tollUnknown)
+    }
+
+    @Test
+    fun `route toll info takes precedence over leg tolls`() {
+        val response = ComputeRoutesResponse(
+            routes = listOf(
+                RouteDto(
+                    distanceMeters = 1_000,
+                    duration = "100s",
+                    staticDuration = "100s",
+                    travelAdvisory = TravelAdvisoryDto(
+                        tollInfo = TollInfoDto(
+                            estimatedPrice = listOf(MoneyDto(units = 20L)),
+                        ),
+                    ),
+                    legs = listOf(legWithToll(distanceMeters = 1_000, units = 4L, nanos = 0)),
+                ),
+            ),
+        )
+
+        val route = RoutesMapper.toDomain(response).single()
+
+        assertFalse(route.tollUnknown)
+        assertEquals(20.0, route.tollCost!!, 1e-9)
+    }
+
+    @Test
     fun `route level intervals fall back and set ROUTE_AVERAGE`() {
         val encoded = encode(listOf(0.0 to 0.0, 0.0 to 0.01, 0.0 to 0.02))
         val response = ComputeRoutesResponse(
@@ -181,6 +254,18 @@ class RoutesMapperTest {
     fun `maps empty response to empty list`() {
         assertEquals(0, RoutesMapper.toDomain(ComputeRoutesResponse()).size)
     }
+
+    private fun legWithToll(distanceMeters: Int, units: Long, nanos: Int) = LegDto(
+        distanceMeters = distanceMeters,
+        duration = "100s",
+        staticDuration = "100s",
+        steps = listOf(StepDto(distanceMeters = distanceMeters, staticDuration = "100s")),
+        travelAdvisory = TravelAdvisoryDto(
+            tollInfo = TollInfoDto(
+                estimatedPrice = listOf(MoneyDto(currencyCode = "ILS", units = units, nanos = nanos)),
+            ),
+        ),
+    )
 
     private fun routeResponse(travelAdvisory: TravelAdvisoryDto?) = ComputeRoutesResponse(
         routes = listOf(

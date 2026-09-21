@@ -52,6 +52,12 @@ data class SpeedBinStatsEntity(
     val samples: Int,
 )
 
+/** Values of [TripEntity.source]: a real OBD drive vs. a simulated "הדגמה" ride. */
+object TripSource {
+    const val REAL = "real"
+    const val DEMO = "demo"
+}
+
 @Entity(tableName = "trip")
 data class TripEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -69,6 +75,7 @@ data class TripEntity(
     val actualCost: Double = 0.0,
     val pricePerLiterAtTrip: Double = 0.0,
     val linkedAtMs: Long? = null,
+    val source: String = TripSource.REAL,
 )
 
 @Entity(tableName = "refuel")
