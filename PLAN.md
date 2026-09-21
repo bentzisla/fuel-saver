@@ -259,15 +259,14 @@ idle_L_h    = fuel_L / hours                       # לפח 0, רק כש-RPM > 0
 
 ```
 fuel/
+├── README.md                     # מדריך הפרויקט
 ├── AGENTS.md                     # הנחיות ל-OpenCode
-├── PLAN.md                       # המסמך הזה
-├── REMEDIATION.md                # סטטוס התיקונים (checklist)
-├── remediation/tasks/*.md        # כרטיסי משימות לתתי-סוכנים
+├── PLAN.md                       # מסמך העיצוב
 ├── gradle/libs.versions.toml     # version catalog
 ├── local.properties              # MAPS_API_KEY=... (לא ב-git!)
 └── app/
     ├── build.gradle.kts
-    ├── schemas/…/AppDatabase/{4,5}.json   # schema של Room (exportSchema)
+    ├── schemas/…/AppDatabase/{4,5,6}.json  # schema של Room (exportSchema)
     └── src/
         ├── main/
         │   ├── AndroidManifest.xml
@@ -305,7 +304,7 @@ fuel/
         │       │   ├── refuel/     RefuelRepository.kt
         │       │   ├── learning/   ColdStartRepository.kt
         │       │   ├── settings/   SettingsRepository.kt
-        │       │   └── db/         AppDatabase.kt, Entities.kt, Daos.kt, Migrations.kt (MIGRATION_3_4 + 4_5)
+        │       │   └── db/         AppDatabase.kt, Entities.kt, Daos.kt, Migrations.kt (MIGRATION_3_4 + 4_5 + 5_6)
         │       ├── service/        ObdLoggingService.kt, BluetoothAclReceiver.kt, BootReceiver.kt, BatteryOptimization.kt, ObdOverlayController.kt
         │       ├── nav/            FuelRouteNavHost.kt, NavigationLauncher.kt, NavigationUris.kt, NavDestination.kt
         │       └── di/             AppModule.kt, NetworkModule.kt, DatabaseModule.kt
@@ -346,10 +345,10 @@ https://www.google.com/maps/dir/?api=1
 
 ## 8. שלבי פיתוח (Milestones)
 
-> **סטטוס עדכני (2026-09-20):** רשימת השלבים להלן היא התכנית המקורית. המצב בפועל מנוהל כ-checklist ב-`REMEDIATION.md` —
-> שלבים 0-5 (P0 + Waves 1-5) **הושלמו**, ונוספו **Phase 8** (בקשות מוצר: היסטוריית חיזוי-מול-בפועל, תיקון מסירת כתובת,
-> יעדים מועדפים, רישום OBD אוטומטי ללא מגע, לוח מחוונים ב-Android Auto). כל שינוי סכמה בוצע כמיגרציה אחת
-> (`MIGRATION_3_4`, `MIGRATION_4_5`) בלי `fallbackToDestructiveMigration`.
+> **סטטוס עדכני (2026-09-21):** רשימת השלבים להלן היא התכנית המקורית. כל השלבים וסבבי בקשות המוצר הבאים
+> (היסטוריית חיזוי-מול-בפועל, תיקון מסירת כתובת, יעדים מועדפים, רישום OBD אוטומטי, לוח מחוונים ב-Android Auto,
+> ותיקוני UX) **מיושמים בקוד**. כל שינוי סכמה בוצע כמיגרציה לא-הרסנית (`MIGRATION_3_4`, `MIGRATION_4_5`, `MIGRATION_5_6`)
+> בלי `fallbackToDestructiveMigration`.
 
 שני מסלולי עבודה מקבילים - **A: למידת רכב (OBD)** ו-**B: בחירת מסלול** - שנפגשים בשלב 5. מסלול A קודם, כי ככל שמתחילים לאסוף נתונים מוקדם יותר, העקומה מדויקת יותר כשמסלול B מוכן.
 
@@ -429,7 +428,7 @@ https://www.google.com/maps/dir/?api=1
 | Google Maps לא שומר על המסלול עם waypoints | להציג את המסלול במפה בתוך האפליקציה כגיבוי; לשקול הצגת הוראות step-by-step מה-API |
 | מפתח API בתוך ה-APK | הגבלת package+SHA-1; זו אפליקציה אישית, לא לפרסום בחנות |
 | Java 24 של Oracle ב-PATH המערכתי | Gradle משתמש ב-`JAVA_HOME` (jdk-24) - מוגדר ב-`gradle.properties` (`org.gradle.java.home`). אין להסתמך על `java` ב-PATH |
-| אובדן keystore של ה-release | גיבוי `release/fuelroute.jks` + `keystore.properties` מחוץ למחשב (Password Manager); ה-SHA-1 מתועד ב-`REMEDIATION.md` 0.2 |
+| אובדן keystore של ה-release | גיבוי `release/fuelroute.jks` + `keystore.properties` מחוץ למחשב (Password Manager); לרשום את ה-SHA-1 לצד הגיבוי (`.\gradlew.bat signingReport`) |
 | REST API key ללא הגבלת מכשיר | שליחת `X-Android-Package` + `X-Android-Cert` בכותרת על קריאות Routes/Places (4.6); הגבלת package+SHA-1 במפתח |
 | הגבלות FGS ברקע (Android 14+) | `FOREGROUND_SERVICE_CONNECTED_DEVICE`, `START_REDELIVER_INTENT`, PARTIAL_WAKE_LOCK, התנעה מ-`ACTION_ACL_CONNECTED` (טריגר מותר), פטור מאופטימיזציית סוללה |
 | נתיב לא-ASCII | הפרויקט חייב להישאר ב-`C:\dev\fuel` (ASCII בלבד); AGP ו-Gradle test worker נשברים בנתיב עם תווים שאינם ASCII |

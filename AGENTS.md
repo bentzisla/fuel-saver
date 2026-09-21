@@ -55,9 +55,5 @@ A pre-push hook is installed (`.git/hooks/pre-push`) that runs `.\gradlew.bat te
 - Recorded ELM sessions for tests/fixtures go under `app/src/test/resources/fixtures/obd/`.
 - Android Auto: `car/FuelRouteCarAppService` renders a live OBD dashboard (templates only, ~1 Hz). Test via the Desktop Head Unit (DHU), not the emulator: `sdkmanager --install "extras;google;auto"`, enable Android Auto developer mode on the phone, `adb forward tcp:5277 tcp:5277`, run `desktop-head-unit.exe`. Play Store will not approve a generic vehicle-dashboard category → sideload only (Android Auto "Unknown sources").
 
-## Remediation work (sub-agents)
-- The canonical project location is **`C:\dev\fuel`** (moved off the OneDrive-linked profile path in Phase 0 of `REMEDIATION.md`). Keep the path ASCII-only.
-- The remediation is split into self-contained task cards under `remediation/tasks/*.md`, orchestrated by `remediation/RUNBOOK.md`. Each card lists its `Objective`, `Depends on`, `Touches`, `Steps`, and `Verify` (exact commands).
-- When dispatching cheap sub-agents: give one sub-agent exactly one card, and tell it to read that card first. Do not run multiple `gradlew` builds concurrently against the same repo — do code edits in parallel but run the build/test gate serially.
-- Every item in `REMEDIATION.md` has a `- [ ]` checkbox in a task card; a sub-agent marks its own checkboxes done but never commits (the orchestrator commits).
-- Backup/export feature (REMEDIATION 1.5) uses Document intents; its dialog lives in Settings.
+## Backup / export
+- Backup/export uses the Android Storage Access Framework (document intents); its dialog lives in Settings.

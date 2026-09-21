@@ -3,7 +3,7 @@
     Bumps versionName / versionCode in app/build.gradle.kts.
 
 .DESCRIPTION
-    Implements the FuelRoute versioning policy (see remediation/RUNBOOK.md):
+    Implements the FuelRoute versioning policy (see README.md):
       * bugfix              -> -Patch : 0.2.0 -> 0.2.1
       * feature / wave      -> -Minor : 0.2.1 -> 0.3.0 (patch resets to 0)
     versionCode is always recomputed from versionName as (minor * 100 + patch),
