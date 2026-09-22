@@ -72,4 +72,15 @@ object Migrations {
             db.execSQL("ALTER TABLE trip ADD COLUMN source TEXT NOT NULL DEFAULT 'real'")
         }
     }
+
+    // v6 -> v7: adds the user's favorite OBD-II dongles (address-keyed) for the Stats picker.
+    val MIGRATION_6_7 = object : Migration(6, 7) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `favorite_obd_device` (`address` TEXT NOT NULL, " +
+                    "`name` TEXT NOT NULL, `sortOrder` INTEGER NOT NULL, `createdAtMs` INTEGER NOT NULL, " +
+                    "PRIMARY KEY(`address`))",
+            )
+        }
+    }
 }

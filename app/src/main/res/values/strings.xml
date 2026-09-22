@@ -194,6 +194,9 @@
     <string name="stats_no_devices">אין דונגלים מצומדים. צמד את ה-ELM327 בהגדרות Bluetooth של המכשיר ואז לחץ רענון.</string>
     <string name="stats_refresh">רענון</string>
     <string name="stats_demo_row">הדמיה (ללא דונגל)</string>
+    <string name="stats_obd_favorite_add">הוסף למועדפים</string>
+    <string name="stats_obd_favorite_remove">הסר מהמועדפים</string>
+    <string name="stats_obd_last_used">שומש לאחרונה</string>
     <string name="stats_connecting_to">מתחבר ל־%1$s…</string>
     <string name="stats_trips">נסיעות</string>
     <string name="stats_no_trips">אין נסיעות מתועדות עדיין</string>

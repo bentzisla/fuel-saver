@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.fuelroute.data.db.AppDatabase
 import com.fuelroute.data.db.FavoriteDestinationDao
+import com.fuelroute.data.db.FavoriteObdDeviceDao
 import com.fuelroute.data.db.LearningExtrasDao
 import com.fuelroute.data.db.Migrations
 import com.fuelroute.data.db.ObdSampleDao
@@ -27,7 +28,12 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, "fuelroute.db")
-            .addMigrations(Migrations.MIGRATION_3_4, Migrations.MIGRATION_4_5, Migrations.MIGRATION_5_6)
+            .addMigrations(
+                Migrations.MIGRATION_3_4,
+                Migrations.MIGRATION_4_5,
+                Migrations.MIGRATION_5_6,
+                Migrations.MIGRATION_6_7,
+            )
             .build()
 
     @Provides
@@ -54,4 +60,8 @@ object DatabaseModule {
     @Provides
     fun provideFavoriteDestinationDao(db: AppDatabase): FavoriteDestinationDao =
         db.favoriteDestinationDao()
+
+    @Provides
+    fun provideFavoriteObdDeviceDao(db: AppDatabase): FavoriteObdDeviceDao =
+        db.favoriteObdDeviceDao()
 }
