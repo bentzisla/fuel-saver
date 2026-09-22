@@ -10,6 +10,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -17,6 +18,8 @@ import javax.inject.Inject
 
 data class VehicleUiState(
     val isLoaded: Boolean = false,
+    /** True when loading the vehicles failed; the screen then offers a retry instead of blank. */
+    val error: Boolean = false,
     val vehicles: List<VehicleProfile> = emptyList(),
     val activeId: String? = null,
     val showForm: Boolean = false,
@@ -40,20 +43,33 @@ class VehicleViewModel @Inject constructor(
     val uiState: StateFlow<VehicleUiState> = _uiState.asStateFlow()
 
     init {
+        load()
+    }
+
+    /**
+     * Loads the vehicle list and active vehicle. Re-collectable: the screen calls this from its
+     * error-state retry button, which recovers a failed [repository.vehicles] collection.
+     */
+    fun load() {
+        _uiState.update { it.copy(isLoaded = false, error = false) }
         viewModelScope.launch {
-            repository.vehicles().collect { vehicles ->
-                _uiState.update { state ->
-                    state.copy(
-                        isLoaded = true,
-                        vehicles = vehicles,
-                        activeId = state.activeId ?: vehicles.firstOrNull()?.id,
-                    )
+            repository.vehicles()
+                .catch { _uiState.update { state -> state.copy(isLoaded = true, error = true) } }
+                .collect { vehicles ->
+                    _uiState.update { state ->
+                        state.copy(
+                            isLoaded = true,
+                            error = false,
+                            vehicles = vehicles,
+                            activeId = state.activeId ?: vehicles.firstOrNull()?.id,
+                        )
+                    }
                 }
-            }
         }
         viewModelScope.launch {
-            val active = repository.active()
-            _uiState.update { it.copy(activeId = active.id) }
+            runCatching { repository.active() }
+                .onSuccess { active -> _uiState.update { it.copy(activeId = active.id) } }
+                .onFailure { _uiState.update { it.copy(isLoaded = true, error = true) } }
         }
     }
 

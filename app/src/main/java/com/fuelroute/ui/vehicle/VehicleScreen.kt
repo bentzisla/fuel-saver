@@ -69,6 +69,8 @@ fun VehicleScreen(
         )
 
         when {
+            state.error -> VehicleLoadErrorCard(onRetry = viewModel::load)
+
             !state.isLoaded -> Box(
                 modifier = Modifier.fillMaxWidth(),
                 contentAlignment = Alignment.Center,
@@ -130,6 +132,26 @@ fun VehicleScreen(
                 }
             },
         )
+    }
+}
+
+/** Shown when loading vehicles fails, so the screen never shows an empty list or a spinner. */
+@Composable
+private fun VehicleLoadErrorCard(onRetry: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.vehicle_error_load),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+            )
+            Button(onClick = onRetry, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.vehicle_retry))
+            }
+        }
     }
 }
 

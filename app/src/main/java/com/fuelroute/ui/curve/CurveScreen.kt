@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -91,14 +92,38 @@ fun CurveScreen(
             style = MaterialTheme.typography.headlineSmall,
         )
 
-        if (state.isLoading) {
-            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        when {
+            state.isLoading -> Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
-        } else {
-            SummaryCard(state)
-            ChartCard(state)
-            ActionsCard(state, viewModel)
+
+            state.error -> CurveLoadErrorCard(onRetry = viewModel::load)
+
+            else -> {
+                SummaryCard(state)
+                ChartCard(state)
+                ActionsCard(state, viewModel)
+            }
+        }
+    }
+}
+
+/** Shown when [CurveViewModel.load] fails, so the screen never spins forever or stays blank. */
+@Composable
+private fun CurveLoadErrorCard(onRetry: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.curve_error_load),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+            )
+            Button(onClick = onRetry, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.curve_retry))
+            }
         }
     }
 }
@@ -526,16 +551,21 @@ private fun qualityLabel(quality: CurveDataQuality): String = stringResource(
     },
 )
 
-private fun qualityColor(quality: CurveDataQuality): Color = when (quality) {
-    CurveDataQuality.NONE -> Color(0xFF9E9E9E)
-    CurveDataQuality.LOW -> Color(0xFFD9534F)
-    CurveDataQuality.MEDIUM -> Color(0xFFE0A800)
-    CurveDataQuality.HIGH -> Color(0xFF1B6B4A)
+@Composable
+private fun qualityColor(quality: CurveDataQuality): Color {
+    val dark = isSystemInDarkTheme()
+    return when (quality) {
+        CurveDataQuality.NONE -> Color(0xFF9E9E9E)
+        CurveDataQuality.LOW -> if (dark) Color(0xFFEF5350) else Color(0xFFD9534F)
+        CurveDataQuality.MEDIUM -> if (dark) Color(0xFFFFCA28) else Color(0xFFE0A800)
+        CurveDataQuality.HIGH -> if (dark) Color(0xFF66BB6A) else Color(0xFF1B6B4A)
+    }
 }
 
 @Composable
 private fun ChartCard(state: CurveUiState) {
     val kmSuffix = stringResource(R.string.curve_km_suffix)
+    val seriesColors = curveSeriesColors()
     var selectedBin by remember(state.learnedPoints) { mutableStateOf<LearnedPoint?>(null) }
 
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -553,6 +583,7 @@ private fun ChartCard(state: CurveUiState) {
                 learnedPoints = state.learnedPoints,
                 selectedPoint = selectedBin,
                 onSelect = { selectedBin = it },
+                colors = seriesColors,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(260.dp),
@@ -569,7 +600,7 @@ private fun ChartCard(state: CurveUiState) {
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            Legend()
+            Legend(colors = seriesColors)
 
             Text(
                 text = stringResource(R.string.curve_confidence_hint),
@@ -591,17 +622,17 @@ private fun ChartCard(state: CurveUiState) {
 }
 
 @Composable
-private fun Legend() {
+private fun Legend(colors: CurveSeriesColors) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            LegendItem(color = DefaultColor, label = stringResource(R.string.curve_legend_default))
-            LegendItem(color = ManualColor, label = stringResource(R.string.curve_legend_manual))
-            LegendItem(color = EffectiveColor, label = stringResource(R.string.curve_legend_effective))
+            LegendItem(color = colors.default, label = stringResource(R.string.curve_legend_default))
+            LegendItem(color = colors.manual, label = stringResource(R.string.curve_legend_manual))
+            LegendItem(color = colors.effective, label = stringResource(R.string.curve_legend_effective))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            LegendItem(color = LearnedColor, label = stringResource(R.string.curve_legend_learned))
+            LegendItem(color = colors.learned, label = stringResource(R.string.curve_legend_learned))
             LegendItem(
-                color = LearnedColor.copy(alpha = 0.3f),
+                color = colors.learned.copy(alpha = 0.3f),
                 label = stringResource(R.string.curve_legend_band),
             )
         }
@@ -628,6 +659,7 @@ private fun CurveChart(
     learnedPoints: List<LearnedPoint>,
     selectedPoint: LearnedPoint?,
     onSelect: (LearnedPoint?) -> Unit,
+    colors: CurveSeriesColors,
     modifier: Modifier = Modifier,
 ) {
     val textMeasurer = rememberTextMeasurer()
@@ -769,7 +801,7 @@ private fun CurveChart(
 
         // Learned uncertainty band (drawn under the curves).
         buildBandPath(learnedPoints, { x(it) }, { y(it) })?.let { band ->
-            drawPath(band, color = LearnedColor.copy(alpha = 0.18f))
+            drawPath(band, color = colors.learned.copy(alpha = 0.18f))
         }
 
         fun drawSeries(points: List<SpeedPoint>, color: Color, width: Float) {
@@ -784,9 +816,9 @@ private fun CurveChart(
             drawPath(path, color = color, style = Stroke(width = width))
         }
 
-        drawSeries(defaultPoints, DefaultColor, width = 4f)
-        drawSeries(manualPoints, ManualColor, width = 4f)
-        drawSeries(effectivePoints, EffectiveColor, width = 6f)
+        drawSeries(defaultPoints, colors.default, width = 4f)
+        drawSeries(manualPoints, colors.manual, width = 4f)
+        drawSeries(effectivePoints, colors.effective, width = 6f)
 
         // Learned polyline connecting the measured points.
         val sortedLearned = learnedPoints.sortedBy { it.speedKmh }
@@ -797,7 +829,7 @@ private fun CurveChart(
                 val py = y(point.litersPer100Km)
                 if (index == 0) learnedPath.moveTo(px, py) else learnedPath.lineTo(px, py)
             }
-            drawPath(learnedPath, color = LearnedColor, style = Stroke(width = 3f))
+            drawPath(learnedPath, color = colors.learned, style = Stroke(width = 3f))
         }
 
         val maxKm = learnedPoints.maxOfOrNull { it.distanceKm } ?: 0.0
@@ -808,7 +840,7 @@ private fun CurveChart(
                 5.dp.toPx()
             }
             drawCircle(
-                color = LearnedColor,
+                color = colors.learned,
                 radius = radius,
                 center = Offset(x(point.speedKmh), y(point.litersPer100Km)),
             )
@@ -834,7 +866,7 @@ private fun CurveChart(
                 pathEffect = dash,
             )
             drawCircle(
-                color = LearnedColor,
+                color = colors.learned,
                 radius = 8.dp.toPx(),
                 center = Offset(px, py),
                 style = Stroke(width = 2.5f),
@@ -973,10 +1005,28 @@ private fun buildBandPath(
     return path
 }
 
-private val DefaultColor = Color(0xFF90A4AE)
-private val ManualColor = Color(0xFF3F72AF)
-private val EffectiveColor = Color(0xFF1B6B4A)
-private val LearnedColor = Color(0xFFF2C14E)
+/**
+ * Theme-aware series colours. The light-theme shades (especially the darkest, the "effective"
+ * green) are unreadable on the dark surface, so dark mode uses lighter variants.
+ */
+private data class CurveSeriesColors(
+    val default: Color,
+    val manual: Color,
+    val effective: Color,
+    val learned: Color,
+)
+
+@Composable
+private fun curveSeriesColors(): CurveSeriesColors {
+    val dark = isSystemInDarkTheme()
+    return CurveSeriesColors(
+        default = MaterialTheme.colorScheme.onSurfaceVariant,
+        manual = MaterialTheme.colorScheme.primary,
+        // The darkest light-mode line: brighten it so it stays visible on the dark surface.
+        effective = if (dark) Color(0xFF4ADE80) else Color(0xFF1B6B4A),
+        learned = MaterialTheme.colorScheme.tertiary,
+    )
+}
 
 /** Plot padding, shared by the Canvas mapping and the touch hit-testing. */
 private val PlotLeftPad = 38.dp

@@ -40,6 +40,11 @@ data class AppSettings(
     val lastAutoStartMs: Long? = null,
     val lastObdError: String? = null,
     val autoConnectIntroSeen: Boolean = false,
+    /**
+     * Sticky "the user finished the first-run setup screen" flag. When false, the onboarding
+     * screen is shown before the tabs; it gates nothing and can be dismissed with "done".
+     */
+    val onboardingSeen: Boolean = false,
     val retentionDays: Int = RetentionPolicy.DEFAULT_RETENTION_DAYS,
     /** Last time the Android Auto / Automotive host bound to the car app, or null if never (card 42). */
     val carLastSeenMs: Long? = null,
@@ -71,6 +76,13 @@ interface SettingsRepository {
     suspend fun saveLastAutoStart(value: Long?)
     suspend fun saveLastObdError(value: String?)
     suspend fun saveAutoConnectIntroSeen(value: Boolean)
+
+    /**
+     * Marks the first-run onboarding as seen. Defaulted to a no-op so lightweight test fakes
+     * that do not model onboarding still compile; [DataStoreSettingsRepository] overrides it.
+     */
+    suspend fun saveOnboardingSeen(value: Boolean) = Unit
+
     suspend fun saveRetentionDays(value: Int)
 
     /**
@@ -112,6 +124,7 @@ class DataStoreSettingsRepository @Inject constructor(
                 lastAutoStartMs = prefs[Keys.LAST_AUTO_START_MS]?.takeIf { it > 0L },
                 lastObdError = prefs[Keys.LAST_OBD_ERROR]?.takeIf { it.isNotBlank() },
                 autoConnectIntroSeen = prefs[Keys.AUTO_CONNECT_INTRO_SEEN] ?: false,
+                onboardingSeen = prefs[Keys.ONBOARDING_SEEN] ?: false,
                 retentionDays = prefs[Keys.RETENTION_DAYS] ?: RetentionPolicy.DEFAULT_RETENTION_DAYS,
                 carLastSeenMs = prefs[Keys.CAR_LAST_SEEN_MS]?.takeIf { it > 0L },
                 carLastHost = prefs[Keys.CAR_LAST_HOST]?.takeIf { it.isNotBlank() },
@@ -162,6 +175,10 @@ class DataStoreSettingsRepository @Inject constructor(
         dataStore.edit { it[Keys.AUTO_CONNECT_INTRO_SEEN] = value }
     }
 
+    override suspend fun saveOnboardingSeen(value: Boolean) {
+        dataStore.edit { it[Keys.ONBOARDING_SEEN] = value }
+    }
+
     override suspend fun saveRetentionDays(value: Int) {
         dataStore.edit { it[Keys.RETENTION_DAYS] = RetentionPolicy.applyRetentionDays(value) }
     }
@@ -190,6 +207,7 @@ class DataStoreSettingsRepository @Inject constructor(
         val LAST_AUTO_START_MS = longPreferencesKey("last_auto_start_ms")
         val LAST_OBD_ERROR = stringPreferencesKey("last_obd_error")
         val AUTO_CONNECT_INTRO_SEEN = booleanPreferencesKey("auto_connect_intro_seen")
+        val ONBOARDING_SEEN = booleanPreferencesKey("onboarding_seen")
         val RETENTION_DAYS = intPreferencesKey("retention_days")
         val CAR_LAST_SEEN_MS = longPreferencesKey("car_last_seen_ms")
         val CAR_LAST_HOST = stringPreferencesKey("car_last_host")

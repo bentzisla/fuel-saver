@@ -28,7 +28,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -231,19 +230,25 @@ class StatsViewModel @Inject constructor(
     fun disconnect() {
         _connectingName.value = null
         // Sticky latch — must be persisted BEFORE stopping so a racing ACL/STATE broadcast
-        // (the dongle is often still connected at this instant) can't re-arm logging. The
-        // async launch below was racy: the receiver could read the old (false) value.
-        runBlocking { settingsRepository.saveManualDisconnect(true) }
-        engine.disconnect()
-        ObdLoggingService.stop(appContext)
+        // (the dongle is often still connected at this instant) can't re-arm logging. Keep the
+        // ordering (await the write, then stop) but do it off the main thread: viewModelScope
+        // runs on Dispatchers.Main.immediate, and the suspend `saveManualDisconnect` suspends
+        // without blocking the UI thread.
+        viewModelScope.launch {
+            settingsRepository.saveManualDisconnect(true)
+            engine.disconnect()
+            ObdLoggingService.stop(appContext)
+        }
     }
 
     /** Full reset: stops logging and wipes engine state so the next connect starts clean. */
     fun reset() {
         _connectingName.value = null
-        runBlocking { settingsRepository.saveManualDisconnect(true) }
-        engine.reset()
-        ObdLoggingService.stop(appContext)
+        viewModelScope.launch {
+            settingsRepository.saveManualDisconnect(true)
+            engine.reset()
+            ObdLoggingService.stop(appContext)
+        }
     }
 
     /**

@@ -17,6 +17,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -28,6 +29,8 @@ data class LearnedPoint(
 
 data class CurveUiState(
     val isLoading: Boolean = true,
+    /** True when the last [CurveViewModel.load] failed; the screen then offers a retry. */
+    val error: Boolean = false,
     val effectivePoints: List<SpeedPoint> = emptyList(),
     val defaultPoints: List<SpeedPoint> = emptyList(),
     val manualPoints: List<SpeedPoint> = emptyList(),
@@ -59,7 +62,11 @@ class CurveViewModel @Inject constructor(
 
     fun load() {
         viewModelScope.launch {
-            _state.value = buildState()
+            _state.update { it.copy(isLoading = true, error = false) }
+            _state.value = runCatching { buildState() }.getOrElse {
+                // Never leave the screen spinning forever/blank on a repository failure.
+                CurveUiState(isLoading = false, error = true)
+            }
         }
     }
 
