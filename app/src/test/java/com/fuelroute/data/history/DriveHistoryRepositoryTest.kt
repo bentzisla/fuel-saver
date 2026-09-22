@@ -237,6 +237,69 @@ class DriveHistoryRepositoryTest {
     }
 
     @Test
+    fun `recent exposes the trip window separately from the display timestamp`() = runTest {
+        // A linked ride: the search happened earlier than the drive itself.
+        coEvery { routeSearchDao.recent(any()) } returns listOf(search(id = 1, ts = 1_000))
+        coEvery { tripDao.recentClosedForVehicle("v1", any()) } returns listOf(
+            trip(id = 10, vehicleId = "v1", routeSearchId = 1, ts = 50_000)
+                .copy(endedAtMs = 650_000),
+        )
+
+        val entry = repository.recent("v1").entries.single()
+
+        // The display/sort key stays the search time...
+        assertEquals(1_000L, entry.timestampMs)
+        // ...while the merge/split math gets the real drive window.
+        assertEquals(50_000L, entry.tripStartedAtMs)
+        assertEquals(650_000L, entry.tripEndedAtMs)
+    }
+
+    @Test
+    fun `recent gives an undriven search no trip window`() = runTest {
+        coEvery { routeSearchDao.recent(any()) } returns listOf(search(id = 1, ts = 1_000))
+        coEvery { tripDao.recentClosedForVehicle("v1", any()) } returns emptyList()
+
+        val entry = repository.recent("v1").entries.single()
+
+        assertNull(entry.tripStartedAtMs)
+        assertNull(entry.tripEndedAtMs)
+    }
+
+    @Test
+    fun `mergeTrips merges two demo trips and keeps the demo source`() = runTest {
+        coEvery { tripDao.findById(1) } returns trip(
+            id = 1,
+            vehicleId = "v1",
+            routeSearchId = null,
+            ts = 1_000,
+            fuel = 1.0,
+            source = TripSource.DEMO,
+        ).copy(distanceKm = 10.0)
+        coEvery { tripDao.findById(2) } returns trip(
+            id = 2,
+            vehicleId = "v1",
+            routeSearchId = null,
+            ts = 3_000,
+            fuel = 2.0,
+            source = TripSource.DEMO,
+        ).copy(distanceKm = 20.0)
+        val inserted = slot<List<TripEntity>>()
+        coEvery { tripDao.replaceTrips(any(), capture(inserted)) } returns listOf(99L)
+
+        assertEquals(99L, repository.mergeTrips(listOf(1, 2)))
+        assertEquals(TripSource.DEMO, inserted.captured.single().source)
+    }
+
+    @Test
+    fun `mergeTrips rejects a mixed real and demo set`() = runTest {
+        coEvery { tripDao.findById(1) } returns trip(1, "v1", null, 1_000, source = TripSource.REAL)
+        coEvery { tripDao.findById(2) } returns trip(2, "v1", null, 2_000, source = TripSource.DEMO)
+
+        assertNull(repository.mergeTrips(listOf(1, 2)))
+        coVerify(exactly = 0) { tripDao.replaceTrips(any(), any()) }
+    }
+
+    @Test
     fun `splitTrip apportions the original and replaces it with two parts`() = runTest {
         coEvery { tripDao.findById(5) } returns trip(
             id = 5,
@@ -276,6 +339,18 @@ class DriveHistoryRepositoryTest {
         coEvery { tripDao.findById(5) } returns trip(5, "v1", null, 0)
 
         assertNull(repository.splitTrip(5, 0))
+        coVerify(exactly = 0) { tripDao.replaceTrips(any(), any()) }
+    }
+
+    @Test
+    fun `splitTrip rejects a split anchored on a linked ride's search time`() = runTest {
+        // The search was an hour before the drive; the drive itself ran 30 minutes.
+        coEvery { tripDao.findById(10) } returns trip(10, "v1", routeSearchId = 1, ts = 3_600_000)
+            .copy(endedAtMs = 5_400_000)
+
+        // Old UI split = search time 0 + 0.95 * 30min, which lands before the drive started.
+        val buggySplitAtMs = (1_800_000L * 0.95f).toLong()
+        assertNull(repository.splitTrip(10, buggySplitAtMs))
         coVerify(exactly = 0) { tripDao.replaceTrips(any(), any()) }
     }
 

@@ -53,6 +53,7 @@ import com.fuelroute.data.history.RideState
 import com.fuelroute.domain.history.ManualCostCalculator
 import com.fuelroute.domain.history.ManualCostInput
 import com.fuelroute.domain.history.PredictionAccuracy
+import com.fuelroute.domain.history.SplitAnchor
 import kotlinx.coroutines.delay
 import java.text.DateFormat
 import java.util.Date
@@ -70,6 +71,13 @@ fun HistoryScreen(
         LaunchedEffect(feedback) {
             delay(FEEDBACK_VISIBLE_MS)
             viewModel.clearLinkFeedback()
+        }
+    }
+
+    state.mergeSplitFeedback?.let { feedback ->
+        LaunchedEffect(feedback) {
+            delay(FEEDBACK_VISIBLE_MS)
+            viewModel.clearMergeSplitFeedback()
         }
     }
 
@@ -222,6 +230,26 @@ fun HistoryScreen(
                     ),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+
+        state.mergeSplitFeedback?.let { feedback ->
+            item {
+                Text(
+                    text = stringResource(
+                        when (feedback) {
+                            MergeSplitFeedback.MERGED -> R.string.history_merge_split_merged
+                            MergeSplitFeedback.SPLIT -> R.string.history_merge_split_split
+                            MergeSplitFeedback.FAILED -> R.string.history_merge_split_failed
+                        },
+                    ),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (feedback == MergeSplitFeedback.FAILED) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    },
                 )
             }
         }
@@ -603,9 +631,10 @@ private fun MergeSplitDialog(
     }
     var splitFraction by remember(entry.tripId) { mutableFloatStateOf(0.5f) }
 
-    val durationMs = ((entry.actualMinutes ?: 0.0) * 60_000.0).toLong()
-    val canSplit = durationMs > 0L
-    val splitAtMs = entry.timestampMs + (durationMs * splitFraction).toLong()
+    val splitStartedAtMs = entry.tripStartedAtMs
+    val splitEndedAtMs = entry.tripEndedAtMs
+    val canSplit = SplitAnchor.canSplit(splitStartedAtMs, splitEndedAtMs)
+    val splitAtMs = SplitAnchor.splitAtMs(splitStartedAtMs, splitEndedAtMs, splitFraction)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -664,11 +693,12 @@ private fun MergeSplitDialog(
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
-                Text(
-                    text = stringResource(R.string.history_split_title),
-                    style = MaterialTheme.typography.titleSmall,
-                )
-                if (canSplit) {
+                // The split anchor needs the real trip window; an undriven search has none.
+                if (canSplit && splitAtMs != null && splitStartedAtMs != null && splitEndedAtMs != null) {
+                    Text(
+                        text = stringResource(R.string.history_split_title),
+                        style = MaterialTheme.typography.titleSmall,
+                    )
                     Text(
                         text = stringResource(
                             R.string.history_split_point,
@@ -686,7 +716,7 @@ private fun MergeSplitDialog(
                     }
                 } else {
                     Text(
-                        text = stringResource(R.string.history_ride_actual_waiting),
+                        text = stringResource(R.string.history_split_unavailable),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -978,17 +1008,24 @@ private fun LinkRideDialog(
 }
 
 /**
- * Trips that can be merged with [anchor]: real drives close enough in time that they are likely
- * the same journey split by a pause/restart.
+ * Trips that can be merged with [anchor]: drives close enough in time that they are likely the
+ * same journey split by a pause/restart. Proximity uses the underlying trip start, not the display
+ * timestamp (which is the search time for a linked ride). Demo rides may only merge with demo
+ * rides and real drives only with real drives, so a simulated ride is never folded into real data.
  */
-private fun mergeCandidates(
+internal fun mergeCandidates(
     entries: List<DriveHistoryEntry>,
     anchor: DriveHistoryEntry,
-): List<DriveHistoryEntry> = entries.filter { candidate ->
-    candidate.tripId != null &&
-        candidate.tripId != anchor.tripId &&
-        !candidate.isDemo &&
-        abs(candidate.timestampMs - anchor.timestampMs) <= MERGE_WINDOW_MS
+): List<DriveHistoryEntry> {
+    val anchorStartMs = anchor.tripStartedAtMs ?: return emptyList()
+    return entries.filter { candidate ->
+        val candidateStartMs = candidate.tripStartedAtMs
+        candidate.tripId != null &&
+            candidate.tripId != anchor.tripId &&
+            candidateStartMs != null &&
+            candidate.isDemo == anchor.isDemo &&
+            abs(candidateStartMs - anchorStartMs) <= MERGE_WINDOW_MS
+    }
 }
 
 private fun routeTitle(entry: DriveHistoryEntry): String = when {
