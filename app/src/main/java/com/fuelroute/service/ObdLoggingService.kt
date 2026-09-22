@@ -68,6 +68,10 @@ class ObdLoggingService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var lastLiveAtMs = 0L
     private var lastStale: Boolean? = null
+    // Notification throttle: the live collector fires ~4 Hz, but the notification text only
+    // changes rarely, so skip redundant notify() calls.
+    private var lastNotifiedKey: String? = null
+    private var lastNotifiedAtMs = 0L
     private var latestState: LiveObdState? = null
     // Time the current logging run started. Combined with a short startup grace this keeps
     // the engine's initial Disconnected value from stopping the service before it has had a
@@ -127,11 +131,19 @@ class ObdLoggingService : Service() {
         val transport: ObdTransport? = if (address == null) {
             SimulatedObdTransport()
         } else {
-            BluetoothAdapter.getDefaultAdapter()
-                ?.getRemoteDevice(address)
-                ?.let { BluetoothClassicTransport(it) }
+            try {
+                BluetoothAdapter.getDefaultAdapter()
+                    ?.getRemoteDevice(address)
+                    ?.let { BluetoothClassicTransport(it) }
+            } catch (t: Throwable) {
+                // A malformed address (or Bluetooth turning off between resolving the device and
+                // starting the service) must not crash the foreground service.
+                Log.w(TAG, "invalid Bluetooth address \"$address\" — stopping logging service", t)
+                null
+            }
         }
         if (transport == null) {
+            Log.w(TAG, "no usable OBD transport — stopping logging service")
             stopSelf()
             return
         }
@@ -140,6 +152,8 @@ class ObdLoggingService : Service() {
         stopped = false
         latestState = null
         lastStale = null
+        lastNotifiedKey = null
+        lastNotifiedAtMs = 0L
         lastLiveAtMs = System.currentTimeMillis()
         startedAtMs = System.currentTimeMillis()
         sawData = false
@@ -217,7 +231,15 @@ class ObdLoggingService : Service() {
                 }
 
                 getSystemService(NotificationManager::class.java)
-                    .notify(NOTIFICATION_ID, buildNotification(state, stale = false))
+                    .let { manager ->
+                        val key = notificationKey(state, stale = false)
+                        val nowMs = System.currentTimeMillis()
+                        if (key != lastNotifiedKey || nowMs - lastNotifiedAtMs >= NOTIFY_MIN_INTERVAL_MS) {
+                            manager.notify(NOTIFICATION_ID, buildNotification(state, stale = false))
+                            lastNotifiedKey = key
+                            lastNotifiedAtMs = nowMs
+                        }
+                    }
                 if (overlayEnabled) {
                     if (!overlay.isShowing) {
                         overlay.show(onTap = {
@@ -342,6 +364,17 @@ class ObdLoggingService : Service() {
         lock.acquire(WAKE_LOCK_TIMEOUT_MS)
     }
 
+    /**
+     * Signature of the text [buildNotification] would render, so the ~4 Hz live collector can
+     * skip a redundant `notify()` until the display actually changes (or a second elapses).
+     */
+    private fun notificationKey(state: LiveObdState?, stale: Boolean): String {
+        val status = state?.status?.name ?: "null"
+        val speed = state?.speedKmh?.let { Math.round(it).toString() } ?: "-"
+        val l100 = state?.instantL100?.let { String.format(Locale.US, "%.1f", it) } ?: "-"
+        return "$status|$speed|$l100|$stale"
+    }
+
     private fun buildNotification(state: LiveObdState?, stale: Boolean): Notification {
         val contentIntent = PendingIntent.getActivity(
             this,
@@ -398,6 +431,7 @@ class ObdLoggingService : Service() {
         private const val WAKE_LOCK_TIMEOUT_MS = 4L * 60 * 60 * 1000
         private const val SERVICE_TICK_MS = 5_000L
         private const val STALE_AFTER_MS = 10_000L
+        private const val NOTIFY_MIN_INTERVAL_MS = 1_000L
         private const val TAG = "FuelRoute"
 
         /**

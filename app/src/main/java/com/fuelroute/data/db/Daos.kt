@@ -57,6 +57,10 @@ interface ObdSampleDao {
     @Insert
     suspend fun insert(sample: ObdSampleEntity)
 
+    /** Batch persist: the run loop buffers samples and flushes them on an interval. */
+    @Insert
+    suspend fun insertAll(samples: List<ObdSampleEntity>)
+
     @Query("SELECT COUNT(*) FROM obd_sample")
     suspend fun count(): Int
 
@@ -110,8 +114,18 @@ interface TripDao {
     @Query("SELECT * FROM trip WHERE isOpen = 1 ORDER BY startedAtMs DESC")
     suspend fun recentOpenTrips(): List<TripEntity>
 
-    /** Closes every trip left open by a crash/kill so a new engine start is clean. */
-    @Query("UPDATE trip SET isOpen = 0, endedAtMs = :endedAtMs WHERE isOpen = 1")
+    /**
+     * Closes every trip left open by a crash/kill so a new engine start is clean. A checkpointed
+     * `endedAtMs` (one that no longer equals `startedAtMs`) is preserved; only a trip that never
+     * advanced past its start is stamped with [endedAtMs]. Mirrors
+     * [com.fuelroute.domain.history.TripCloseTime.preservedEndMs], so a stale recovery days later
+     * cannot inflate a trip's duration.
+     */
+    @Query(
+        "UPDATE trip SET isOpen = 0, " +
+            "endedAtMs = CASE WHEN endedAtMs = startedAtMs THEN :endedAtMs ELSE endedAtMs END " +
+            "WHERE isOpen = 1"
+    )
     suspend fun closeOpenTrips(endedAtMs: Long): Int
 
     /** Sum of trip fuel recorded inside the [fromMs, toMs] window (inclusive). */

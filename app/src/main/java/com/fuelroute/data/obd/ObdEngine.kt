@@ -17,17 +17,22 @@ import com.fuelroute.domain.model.SpeedBinStats
 import com.fuelroute.domain.model.VehicleProfile
 import com.fuelroute.domain.obd.ElmProtocol
 import com.fuelroute.domain.obd.ObdConnectionPolicy
+import com.fuelroute.domain.obd.ObdRunGeneration
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.net.SocketTimeoutException
 import javax.inject.Inject
@@ -84,6 +89,12 @@ class ObdEngine @Inject constructor(
     private var job: Job? = null
 
     /**
+     * Monotonic start generation. A newer [start] invalidates every earlier run so a stale
+     * coroutine's `finally` can detect it no longer owns the engine and skip its state updates.
+     */
+    private val runGeneration = ObdRunGeneration()
+
+    /**
      * Set by [stop]/[disconnect]/[reset] to interrupt a reconnect backoff loop and the run
      * loop promptly, even while a blocking `connect()` is in flight. Volatile because a
      * stop may be requested from the UI thread while the engine loop runs on `Default`.
@@ -94,15 +105,30 @@ class ObdEngine @Inject constructor(
     val isRunning: Boolean
         get() = job?.isActive == true
 
-    fun start(transport: ObdTransport, vehicle: VehicleProfile) {
-        if (job?.isActive == true) return
+    /**
+     * Starts (or restarts) the engine for [transport]/[vehicle].
+     *
+     * Any prior loop is cancelled and *joined* before the new one launches, so its
+     * [NonCancellable] cleanup (persist bins, close the open trip, flush buffered samples,
+     * close the socket) is guaranteed to have finished before the new loop can touch shared
+     * state or the same transport. The generation token further ensures a stale loop's
+     * `finally` cannot publish its `Disconnected` state over the new one.
+     */
+    suspend fun start(transport: ObdTransport, vehicle: VehicleProfile) {
+        val runId = runGeneration.next()
+        // Cancel + join the previous loop. Keep stopRequested set while it unwinds so it cannot
+        // squeeze in another poll, then clear it for the new run.
+        stopRequested = true
+        job?.cancelAndJoin()
+        job = null
         stopRequested = false
+
         val vehicleId = vehicle.id
         job = scope.launch {
             // Every fresh attempt starts from a clean slate: a stale error/VIN from the
             // previous run must not leak into the new status line. The first connect stage and
             // its start timestamp are set here so the UI can show live progress immediately.
-            mutableLive.update {
+            publish(runId) {
                 it.copy(
                     status = ObdStatus.Connecting,
                     lastError = null,
@@ -114,7 +140,7 @@ class ObdEngine @Inject constructor(
                 )
             }
             val connected = transport.connect()
-            if (stopRequested) return@launch
+            if (stopRequested || !runGeneration.isCurrent(runId)) return@launch
             if (connected.isFailure) {
                 // Terminal: the run loop is never entered, so the logging service can stop
                 // instead of lingering on the foreground notification.
@@ -123,7 +149,7 @@ class ObdEngine @Inject constructor(
                     ?: if (cause is SocketTimeoutException) ObdConnectionPolicy.ERROR_CONNECT_TIMEOUT
                     else ObdConnectionPolicy.ERROR_CONNECT
                 Log.w(TAG, "OBD connect failed ($reason)", cause)
-                mutableLive.update {
+                publish(runId) {
                     it.copy(
                         status = ObdStatus.Error,
                         lastError = reason,
@@ -134,11 +160,11 @@ class ObdEngine @Inject constructor(
                 return@launch
             }
 
-            if (!initializeAdapter(transport)) {
-                transport.disconnect()
+            if (!initializeAdapter(transport, runId)) {
+                runCatching { transport.disconnect() }
                 // Preserve the detailed `bad ATZ: …` reason set by initializeAdapter so the
                 // UI can tell the user the dongle did not answer like an ELM327.
-                mutableLive.update {
+                publish(runId) {
                     it.copy(
                         status = ObdStatus.Error,
                         lastError = it.lastError ?: "INIT",
@@ -151,21 +177,33 @@ class ObdEngine @Inject constructor(
 
             // Status stays `Connecting` through settle/negotiate/VIN so every pipeline stage is
             // visible; `runLoop` flips to `Connected` (and clears the stage) once it finishes.
-            settleProtocol(transport)
-            runLoop(transport, vehicle, vehicleId)
+            settleProtocol(transport, runId)
+            runLoop(transport, vehicle, vehicleId, runId)
         }
     }
 
+    /**
+     * Requests a stop and waits for the run loop's cleanup to finish, so callers know the
+     * socket is closed and the open trip / buffered samples are flushed. The wait is bounded by
+     * that cleanup work and does not affect a newer run that an interleaved [start] may own.
+     */
     fun stop() {
+        val generation = runGeneration.current()
         stopRequested = true
-        job?.cancel()
-        job = null
-        mutableLive.update {
-            it.copy(
-                status = ObdStatus.Disconnected,
-                connectionStage = null,
-                connectingSinceMs = null,
-            )
+        val current = job
+        if (current != null) {
+            runBlocking { current.cancelAndJoin() }
+        }
+        if (job === current) job = null
+        // Only publish the disconnected status if no newer start has superseded this stop.
+        if (runGeneration.isCurrent(generation)) {
+            mutableLive.update {
+                it.copy(
+                    status = ObdStatus.Disconnected,
+                    connectionStage = null,
+                    connectingSinceMs = null,
+                )
+            }
         }
     }
 
@@ -189,9 +227,14 @@ class ObdEngine @Inject constructor(
         mutableLive.value = LiveObdState()
     }
 
+    /** Publishes a state transform only while [runId] still owns the engine. */
+    private inline fun publish(runId: Long, transform: (LiveObdState) -> LiveObdState) {
+        if (runGeneration.isCurrent(runId)) mutableLive.update(transform)
+    }
+
     /** Sends the ELM init sequence and validates the `ATZ` banner. */
-    private suspend fun initializeAdapter(transport: ObdTransport): Boolean {
-        mutableLive.update { it.copy(connectionStage = ObdConnectStage.InitializingElm) }
+    private suspend fun initializeAdapter(transport: ObdTransport, runId: Long): Boolean {
+        publish(runId) { it.copy(connectionStage = ObdConnectStage.InitializingElm) }
         val replies = mutableMapOf<String, String>()
         for (command in ElmProtocol.initializationCommands) {
             val reply = sendInitCommand(transport, command)
@@ -200,9 +243,10 @@ class ObdEngine @Inject constructor(
                 // waiting out the full socket read-timeout on every remaining init command.
                 Log.e(
                     TAG,
-                    "ELM init $command got no reply within ${ObdConnectionPolicy.INIT_READ_TIMEOUT_MS}ms",
+                    "ELM init $command got no reply within " +
+                        "${ObdConnectionPolicy.initReadTimeoutMs(command)}ms",
                 )
-                mutableLive.update { it.copy(lastError = ObdConnectionPolicy.ERROR_INIT_TIMEOUT) }
+                publish(runId) { it.copy(lastError = ObdConnectionPolicy.ERROR_INIT_TIMEOUT) }
                 return false
             }
             replies[command] = reply
@@ -210,23 +254,33 @@ class ObdEngine @Inject constructor(
         }
 
         val atz = replies["ATZ"].orEmpty()
-        if (!atz.contains("ELM327", ignoreCase = true)) {
-            Log.e(TAG, "ATZ did not return ELM327 banner: \"$atz\"")
-            mutableLive.update { it.copy(lastError = "bad ATZ: ${atz.trim()}") }
+        if (!ElmProtocol.isAcceptedAdapterBanner(atz)) {
+            Log.e(TAG, "ATZ did not return an acceptable banner: \"$atz\"")
+            publish(runId) { it.copy(lastError = "bad ATZ: ${atz.trim()}") }
             return false
         }
         return true
     }
 
     /**
-     * Sends one ELM init command with the short [ObdConnectionPolicy.INIT_READ_TIMEOUT_MS]
-     * timeout, returning `null` when the adapter never answered. Only init uses this; the
-     * run-loop reads keep their normal socket timeout.
+     * Sends one ELM init command with a per-command timeout ([ObdConnectionPolicy.initReadTimeoutMs]):
+     * a longer window for `ATZ`, the short one for the rest, returning `null` when the adapter
+     * never answered.
+     *
+     * A blocking socket `read()` cannot be interrupted by `withTimeoutOrNull`, so on timeout the
+     * abandoned read is unblocked by closing the socket. This keeps the orphaned read from
+     * surviving into the next command and desyncing the request/response stream; the init is
+     * abandoned and the transport reconnects from a fresh socket.
      */
-    private suspend fun sendInitCommand(transport: ObdTransport, command: String): String? =
-        withTimeoutOrNull(ObdConnectionPolicy.INIT_READ_TIMEOUT_MS) {
+    private suspend fun sendInitCommand(transport: ObdTransport, command: String): String? {
+        val reply = withTimeoutOrNull(ObdConnectionPolicy.initReadTimeoutMs(command)) {
             transport.sendCommand(command)
         }
+        if (reply == null) {
+            runCatching { transport.disconnect() }
+        }
+        return reply
+    }
 
     /**
      * After `ATSP0` some adapters keep answering `SEARCHING...` while they auto-detect the
@@ -234,8 +288,8 @@ class ObdEngine @Inject constructor(
      * PID that is no longer SEARCHING wins). If it never settles we keep going — the run
      * loop surfaces SEARCHING via `lastError` instead of crashing.
      */
-    private suspend fun settleProtocol(transport: ObdTransport) {
-        mutableLive.update { it.copy(connectionStage = ObdConnectStage.SettlingProtocol) }
+    private suspend fun settleProtocol(transport: ObdTransport, runId: Long) {
+        publish(runId) { it.copy(connectionStage = ObdConnectStage.SettlingProtocol) }
         val deadline = System.currentTimeMillis() + PROTOCOL_LOCK_TIMEOUT_MS
         while (System.currentTimeMillis() < deadline) {
             val raw = transport.sendCommand(ElmProtocol.command(ElmProtocol.PID_SPEED))
@@ -246,24 +300,33 @@ class ObdEngine @Inject constructor(
     }
 
     /** Probes `0100`/`0120`/`0140`/`0160` and merges the bitmaps. */
-    private suspend fun negotiatePids(transport: ObdTransport): Set<Int> {
-        mutableLive.update { it.copy(connectionStage = ObdConnectStage.NegotiatingPids) }
+    private suspend fun negotiatePids(transport: ObdTransport, runId: Long): ElmProtocol.PidSupport {
+        publish(runId) { it.copy(connectionStage = ObdConnectStage.NegotiatingPids) }
         val replies = mutableMapOf<Int, String>()
         for (base in ElmProtocol.supportedPidBlocks) {
             replies[base] = transport.sendCommand(ElmProtocol.command(base))
         }
-        val supported = ElmProtocol.supportedPids(replies)
-        Log.d(TAG, "supported PIDs: ${supported.sorted().joinToString { "%02X".format(it) }}")
-        return supported
+        val support = ElmProtocol.negotiateSupport(replies)
+        Log.d(
+            TAG,
+            "supported PIDs (failed=${support.negotiationFailed}): " +
+                support.pids.sorted().joinToString { "%02X".format(it) },
+        )
+        return support
     }
 
     /** Reads the VIN once (Mode 09 PID 02). */
-    private suspend fun readVin(transport: ObdTransport): String? {
-        mutableLive.update { it.copy(connectionStage = ObdConnectStage.ReadingVin) }
+    private suspend fun readVin(transport: ObdTransport, runId: Long): String? {
+        publish(runId) { it.copy(connectionStage = ObdConnectStage.ReadingVin) }
         return ElmProtocol.vin(transport.sendCommand(ElmProtocol.command09(ElmProtocol.PID_VIN)))
     }
 
-    private suspend fun runLoop(transport: ObdTransport, vehicle: VehicleProfile, vehicleId: String) {
+    private suspend fun runLoop(
+        transport: ObdTransport,
+        vehicle: VehicleProfile,
+        vehicleId: String,
+        runId: Long,
+    ) {
         val bins = mutableMapOf<Int, SpeedBinStats>()
         speedBinDao.getForVehicle(vehicleId).forEach {
             bins[it.binIndex] = SpeedBinStats(
@@ -304,15 +367,21 @@ class ObdEngine @Inject constructor(
         var batteryVoltage: Double? = null
         var rpmNullSinceMs: Long? = null
         var consecutiveBad = 0
+        var pidNegotiationFailed = false
         var supportedPids: Set<Int> = emptySet()
+        // Samples buffered since the last flush; the run loop inserts them in one batch instead
+        // of one row per ~250 ms poll.
+        val sampleBuffer = mutableListOf<ObdSampleEntity>()
         val loopStartMs = System.currentTimeMillis()
 
         try {
-            supportedPids = negotiatePids(transport)
-            val vin = readVin(transport)
+            val negotiation = negotiatePids(transport, runId)
+            supportedPids = negotiation.pids
+            pidNegotiationFailed = negotiation.negotiationFailed
+            val vin = readVin(transport, runId)
             // The whole connect pipeline (init -> settle -> negotiate -> VIN) is done: flip to
             // Connected and clear the progress stage in the same update.
-            mutableLive.update {
+            publish(runId) {
                 it.copy(
                     status = ObdStatus.Connected,
                     deviceName = transport.deviceName,
@@ -326,7 +395,7 @@ class ObdEngine @Inject constructor(
             while (true) {
                 // A manual stop between polls must unwind immediately instead of waiting for
                 // the next cancellation point.
-                if (stopRequested) return
+                if (stopRequested || !runGeneration.isCurrent(runId)) return
                 val now = System.currentTimeMillis()
 
                 val rawSpeed = transport.sendCommand(ElmProtocol.command(ElmProtocol.PID_SPEED))
@@ -334,12 +403,12 @@ class ObdEngine @Inject constructor(
                 // Coolant is always polled: the cold-engine exclusion in the aggregator
                 // depends on it and it is not part of the optional negotiation set.
                 val rawCoolant = transport.sendCommand(ElmProtocol.command(ElmProtocol.PID_COOLANT_TEMP))
-                val rawMaf = pollIf(transport, ElmProtocol.PID_MAF, supportedPids)
-                val rawFuelRate = pollIf(transport, ElmProtocol.PID_FUEL_RATE, supportedPids)
-                val rawMap = pollIf(transport, ElmProtocol.PID_MAP, supportedPids)
-                val rawIat = pollIf(transport, ElmProtocol.PID_INTAKE_TEMP, supportedPids)
-                val rawLoad = pollIf(transport, ElmProtocol.PID_ENGINE_LOAD, supportedPids)
-                val rawFuelLevel = pollIf(transport, ElmProtocol.PID_FUEL_LEVEL, supportedPids)
+                val rawMaf = pollIf(transport, ElmProtocol.PID_MAF, supportedPids, pidNegotiationFailed)
+                val rawFuelRate = pollIf(transport, ElmProtocol.PID_FUEL_RATE, supportedPids, pidNegotiationFailed)
+                val rawMap = pollIf(transport, ElmProtocol.PID_MAP, supportedPids, pidNegotiationFailed)
+                val rawIat = pollIf(transport, ElmProtocol.PID_INTAKE_TEMP, supportedPids, pidNegotiationFailed)
+                val rawLoad = pollIf(transport, ElmProtocol.PID_ENGINE_LOAD, supportedPids, pidNegotiationFailed)
+                val rawFuelLevel = pollIf(transport, ElmProtocol.PID_FUEL_LEVEL, supportedPids, pidNegotiationFailed)
 
                 val speed = ElmProtocol.speed(rawSpeed)
                 val rpm = ElmProtocol.rpm(rawRpm)
@@ -413,8 +482,12 @@ class ObdEngine @Inject constructor(
                 }
 
                 sampleCount++
+                sampleBuffer += sample.toEntity(vehicleId)
                 if (now - lastSamplePersistMs >= SAMPLE_PERSIST_INTERVAL_MS) {
-                    sampleDao.insert(sample.toEntity(vehicleId))
+                    if (sampleBuffer.isNotEmpty()) {
+                        sampleDao.insertAll(sampleBuffer.toList())
+                        sampleBuffer.clear()
+                    }
                     lastSamplePersistMs = now
                 }
 
@@ -447,7 +520,12 @@ class ObdEngine @Inject constructor(
                     lastVoltageMs = now
                 }
 
-                if (rpm == null) {
+                // RPM absence is only ignition-off evidence when PID 0C is supported (or
+                // negotiation failed and we fall back to the mandatory trio) or the car is
+                // stationary; otherwise a clone that never answers 0C would stop the loop mid-drive.
+                val rpmPidSupported = supportedPids.isEmpty() ||
+                    supportedPids.contains(ElmProtocol.PID_RPM)
+                if (rpm == null && ObdConnectionPolicy.shouldTrackRpmAbsence(rpmPidSupported, speed)) {
                     if (rpmNullSinceMs == null) rpmNullSinceMs = now
                 } else {
                     rpmNullSinceMs = null
@@ -470,7 +548,7 @@ class ObdEngine @Inject constructor(
                 val elapsedSec = ((now - loopStartMs) / 1000.0).coerceAtLeast(0.001)
                 val sampleRateHz = sampleCount / elapsedSec
 
-                mutableLive.update {
+                publish(runId) {
                     it.copy(
                         speedKmh = speed,
                         rpm = rpm,
@@ -497,7 +575,7 @@ class ObdEngine @Inject constructor(
                 if (ObdConnectionPolicy.shouldReconnect(consecutiveBad)) {
                     Log.w(TAG, "reconnecting after $consecutiveBad consecutive bad speed replies")
                     transport.disconnect()
-                    mutableLive.update {
+                    publish(runId) {
                         it.copy(
                             status = ObdStatus.Connecting,
                             lastError = "RECONNECT",
@@ -506,8 +584,8 @@ class ObdEngine @Inject constructor(
                         )
                     }
                     if (!reconnectWithBackoff(transport)) {
-                        if (stopRequested) return
-                        mutableLive.update {
+                        if (stopRequested || !runGeneration.isCurrent(runId)) return
+                        publish(runId) {
                             it.copy(
                                 status = ObdStatus.Error,
                                 lastError = "RECONNECT FAILED",
@@ -519,9 +597,9 @@ class ObdEngine @Inject constructor(
                     }
                     // A fresh socket must be re-initialized exactly like a first connect;
                     // an adapter that no longer answers ATZ is a real failure, not a retry.
-                    if (!initializeAdapter(transport)) {
-                        transport.disconnect()
-                        mutableLive.update {
+                    if (!initializeAdapter(transport, runId)) {
+                        runCatching { transport.disconnect() }
+                        publish(runId) {
                             it.copy(
                                 status = ObdStatus.Error,
                                 lastError = it.lastError ?: "INIT",
@@ -531,9 +609,13 @@ class ObdEngine @Inject constructor(
                         }
                         return
                     }
-                    settleProtocol(transport)
-                    supportedPids = negotiatePids(transport)
-                    mutableLive.update {
+                    settleProtocol(transport, runId)
+                    // Re-negotiate once on reconnect so a stale bitmap (or a failed initial
+                    // negotiation) is refreshed against the live socket.
+                    val renegotiation = negotiatePids(transport, runId)
+                    supportedPids = renegotiation.pids
+                    pidNegotiationFailed = renegotiation.negotiationFailed
+                    publish(runId) {
                         it.copy(
                             status = ObdStatus.Connected,
                             supportedPids = supportedPids,
@@ -554,39 +636,63 @@ class ObdEngine @Inject constructor(
                 delay(POLL_INTERVAL_MS)
             }
         } finally {
-            speedBinDao.upsertAll(bins.values.map { it.toEntity() })
-            val end = tripDetector.forceEnd(lastSample?.timestampMs ?: System.currentTimeMillis())
-            if (end is TripDetector.TripTransition.Ended) {
-                val startedAtMs = tripRecorder.tripStartedAtMs
-                val closedTripId = tripRecorder.end(
-                    vehicleId = vehicleId,
-                    endedAtMs = end.endedAtMs,
-                    distanceKm = tripDistance,
-                    fuelL = tripFuel,
-                    maxSpeedKmh = tripMaxSpeed,
-                    idleSeconds = tripIdleSeconds,
-                    pricePerLiter = pricePerLiter,
-                )
-                closedTripId?.let {
-                    if (source == TripSource.REAL) {
-                        tripLinker.autoLink(it, startedAtMs, end.endedAtMs)
-                    }
+            // The cleanup must survive cancellation: without NonCancellable the first suspend
+            // call would throw CancellationException and skip the rest, leaking the socket,
+            // leaving the trip open and dropping the buffered samples/bins. Each step is also
+            // shielded so one failure cannot abort the remaining cleanup.
+            withContext(NonCancellable) {
+                if (sampleBuffer.isNotEmpty()) {
+                    runCatching { sampleDao.insertAll(sampleBuffer.toList()) }
+                        .onFailure { Log.w(TAG, "flush samples on stop failed", it) }
                 }
-            }
-            transport.disconnect()
-            mutableLive.update {
-                it.copy(
-                    status = if (it.status == ObdStatus.Error) it.status else ObdStatus.Disconnected,
-                    connectionStage = null,
-                    connectingSinceMs = null,
-                )
+                runCatching { speedBinDao.upsertAll(bins.values.map { it.toEntity() }) }
+                    .onFailure { Log.w(TAG, "persist bins on stop failed", it) }
+                runCatching {
+                    val end = tripDetector.forceEnd(lastSample?.timestampMs ?: System.currentTimeMillis())
+                    if (end is TripDetector.TripTransition.Ended) {
+                        val startedAtMs = tripRecorder.tripStartedAtMs
+                        val closedTripId = tripRecorder.end(
+                            vehicleId = vehicleId,
+                            endedAtMs = end.endedAtMs,
+                            distanceKm = tripDistance,
+                            fuelL = tripFuel,
+                            maxSpeedKmh = tripMaxSpeed,
+                            idleSeconds = tripIdleSeconds,
+                            pricePerLiter = pricePerLiter,
+                        )
+                        closedTripId?.let {
+                            if (source == TripSource.REAL) {
+                                tripLinker.autoLink(it, startedAtMs, end.endedAtMs)
+                            }
+                        }
+                    }
+                }.onFailure { Log.w(TAG, "close trip on stop failed", it) }
+                runCatching { transport.disconnect() }
+                    .onFailure { Log.w(TAG, "disconnect on stop failed", it) }
+                publish(runId) {
+                    it.copy(
+                        status = if (it.status == ObdStatus.Error) it.status else ObdStatus.Disconnected,
+                        connectionStage = null,
+                        connectingSinceMs = null,
+                    )
+                }
             }
         }
     }
 
-    /** Sends a PID only when negotiation says it is supported (or negotiation failed). */
-    private suspend fun pollIf(transport: ObdTransport, pid: Int, supported: Set<Int>): String =
-        if (supported.isEmpty() || supported.contains(pid)) {
+    /**
+     * Sends an optional PID. When negotiation failed we fall back to the mandatory trio
+     * (speed/RPM/coolant, always polled) only, instead of blasting 8 possibly-unsupported PIDs
+     * that each wait the full socket timeout; when negotiation succeeded, poll only what the
+     * bitmap advertises.
+     */
+    private suspend fun pollIf(
+        transport: ObdTransport,
+        pid: Int,
+        supported: Set<Int>,
+        negotiationFailed: Boolean,
+    ): String =
+        if (!negotiationFailed && supported.contains(pid)) {
             transport.sendCommand(ElmProtocol.command(pid))
         } else {
             ""

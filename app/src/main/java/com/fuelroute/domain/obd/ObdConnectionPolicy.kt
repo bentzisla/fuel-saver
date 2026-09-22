@@ -16,12 +16,24 @@ object ObdConnectionPolicy {
     const val CONNECT_TIMEOUT_MS = 15_000L
 
     /**
-     * Short read timeout applied to each ELM initialization command. A powered-off or silent
-     * dongle never answers, so aborting an init read after this window surfaces a specific error
-     * in well under a second instead of dragging through every command at the full socket
+     * Short read timeout applied to each non-reset ELM initialization command. A powered-off or
+     * silent dongle never answers, so aborting an init read after this window surfaces a specific
+     * error in well under a second instead of dragging through every command at the full socket
      * read-timeout (1.5 s each). The run-loop reads keep their normal timeout.
      */
     const val INIT_READ_TIMEOUT_MS = 600L
+
+    /**
+     * `ATZ` resets the whole adapter and takes noticeably longer than the other init commands
+     * (a real ELM327 answers in ~1 s, clones can be slower), so it gets its own window instead
+     * of being aborted by the short [INIT_READ_TIMEOUT_MS].
+     */
+    const val ATZ_READ_TIMEOUT_MS = 3_000L
+
+    /** Per-command init read window: [ATZ_READ_TIMEOUT_MS] for `ATZ`, else [INIT_READ_TIMEOUT_MS]. */
+    fun initReadTimeoutMs(command: String): Long =
+        if (command.trim().equals("ATZ", ignoreCase = true)) ATZ_READ_TIMEOUT_MS
+        else INIT_READ_TIMEOUT_MS
 
     /**
      * A freshly started logging service never stops itself during this window, so the engine
@@ -108,6 +120,23 @@ object ObdConnectionPolicy {
 
     /** Below this voltage the engine cannot be running. */
     const val LOW_BATTERY_VOLTS = 11.5
+
+    /**
+     * At/below this speed the vehicle is treated as stationary when deciding whether a missing
+     * RPM reply may be used as ignition-off evidence.
+     */
+    const val STATIONARY_SPEED_KMH = 1.0
+
+    /**
+     * True when an unavailable RPM reading may be accumulated toward the ignition-off timeout.
+     *
+     * Some clones simply do not answer PID 0C, so if RPM absence always armed the 60 s timer the
+     * engine would stop itself mid-drive. RPM absence is therefore only meaningful when the PID
+     * is actually supported (or negotiation failed and we fall back to the mandatory trio), or
+     * when the vehicle is stationary and a missing RPM is expected.
+     */
+    fun shouldTrackRpmAbsence(rpmPidSupported: Boolean, speedKmh: Double?): Boolean =
+        rpmPidSupported || (speedKmh ?: 0.0) < STATIONARY_SPEED_KMH
 
     /**
      * Plausible automotive battery voltage window. Readings outside it are adapter noise:

@@ -12,6 +12,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.io.IOException
@@ -41,6 +43,14 @@ class BluetoothClassicTransport(
     private var socket: BluetoothSocket? = null
     private var input: java.io.InputStream? = null
     private var output: java.io.OutputStream? = null
+
+    /**
+     * Serializes command/response exchanges so a second command can never be written while a
+     * prior blocking `read()` is still outstanding (which would desync the ELM request/response
+     * stream). A timed-out command holds this lock until its socket is closed by [disconnect],
+     * which unblocks the read.
+     */
+    private val commandMutex = Mutex()
 
     private val _connected = kotlinx.coroutines.flow.MutableStateFlow(false)
 
@@ -202,6 +212,9 @@ class BluetoothClassicTransport(
 
     override suspend fun disconnect(): Unit = withContext(Dispatchers.IO) {
         _connected.value = false
+        // Intentionally does not take [commandMutex]: closing the socket is what unblocks an
+        // in-flight (possibly abandoned) blocking read, so the lock is released by that read's
+        // failure rather than held here.
         runCatching { input?.close() }
         runCatching { output?.close() }
         runCatching { socket?.close() }
@@ -211,32 +224,37 @@ class BluetoothClassicTransport(
     }
 
     override suspend fun sendCommand(command: String): String = withContext(Dispatchers.IO) {
-        val out = output ?: return@withContext ""
-        val stream = input ?: return@withContext ""
+        commandMutex.withLock {
+            val out = output ?: return@withLock ""
+            val stream = input ?: return@withLock ""
 
-        Log.d(TAG, "ELM>> $command")
-        val started = System.currentTimeMillis()
+            Log.d(TAG, "ELM>> $command")
+            val started = System.currentTimeMillis()
 
-        runCatching {
-            drain(stream)
-            out.write((command + '\r').toByteArray(Charsets.US_ASCII))
-            out.flush()
-        }.onFailure { e ->
-            Log.e(TAG, "ELM write failed", e)
-            return@withContext ""
+            val writeFailed = runCatching {
+                drain(stream)
+                out.write((command + '\r').toByteArray(Charsets.US_ASCII))
+                out.flush()
+            }.onFailure { e ->
+                Log.e(TAG, "ELM write failed", e)
+            }.isFailure
+            if (writeFailed) return@withLock ""
+
+            val reply = readUntilPrompt(stream)
+            val elapsed = System.currentTimeMillis() - started
+            Log.d(TAG, "ELM<< ${truncate(reply)} (${elapsed}ms)")
+            reply
         }
-
-        val reply = readUntilPrompt(stream)
-        val elapsed = System.currentTimeMillis() - started
-        Log.d(TAG, "ELM<< ${truncate(reply)} (${elapsed}ms)")
-        reply
     }
 
     /**
      * `android.bluetooth.BluetoothSocket` has no public `setSoTimeout` and blocks forever
      * on a non-responsive adapter, so reach the underlying `java.net.Socket` via reflection
-     * (best effort). If hidden-API policy blocks it, a stuck read is instead interrupted by
-     * `disconnect()` closing the socket.
+     * (best effort). If hidden-API policy blocks it, the read is not independently
+     * cancellable: a timeout/cancellation cannot interrupt a thread parked in `read()`.
+     * The engine therefore closes the socket on an init timeout (see
+     * `ObdEngine.sendInitCommand`), and [sendCommand] serializes exchanges with
+     * [commandMutex] so the orphaned read cannot desync the next command.
      */
     private fun applySoTimeout(bt: BluetoothSocket, timeoutMs: Int) {
         try {

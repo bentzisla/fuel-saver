@@ -203,6 +203,18 @@ class ObdConnectionPolicyTest {
         assertFalse(ObdConnectionPolicy.shouldStopForIgnitionOff(null, 500_000L, null))
     }
 
+    @Test
+    fun `rpm absence only counts when the pid is supported or the car is stationary`() {
+        // Supported PID 0C: a missing reply is meaningful at any speed.
+        assertTrue(ObdConnectionPolicy.shouldTrackRpmAbsence(rpmPidSupported = true, speedKmh = 90.0))
+        // Unsupported PID 0C while driving: a clone that never answers 0C must not trip the loop.
+        assertFalse(ObdConnectionPolicy.shouldTrackRpmAbsence(rpmPidSupported = false, speedKmh = 90.0))
+        // Unsupported PID 0C while stationary: a missing RPM is expected (engine off).
+        assertTrue(ObdConnectionPolicy.shouldTrackRpmAbsence(rpmPidSupported = false, speedKmh = 0.0))
+        assertTrue(ObdConnectionPolicy.shouldTrackRpmAbsence(rpmPidSupported = false, speedKmh = null))
+        assertFalse(ObdConnectionPolicy.shouldTrackRpmAbsence(rpmPidSupported = false, speedKmh = 1.0))
+    }
+
     // --- Mid-session auto-reconnect (bug #2) ----------------------------------------------
 
     @Test

@@ -50,14 +50,37 @@ object ElmProtocol {
      * Merges the four supported-PID bitmaps (`0100`/`0120`/`0140`/`0160`) into one
      * set. Blocks whose reply is missing or unparseable simply contribute nothing.
      */
-    fun supportedPids(replies: Map<Int, String>): Set<Int> {
-        val result = mutableSetOf<Int>()
+    fun supportedPids(replies: Map<Int, String>): Set<Int> = negotiateSupport(replies).pids
+
+    /** Result of probing the supported-PID bitmaps. */
+    data class PidSupport(
+        val pids: Set<Int>,
+        /** True when not a single block reply parsed — the adapter did not negotiate. */
+        val negotiationFailed: Boolean,
+    )
+
+    /**
+     * Like [supportedPids] but also reports whether any block parsed at all. A "supported but
+     * empty" set (a valid reply advertising nothing) must be distinguished from a failed
+     * negotiation, because the engine falls back to the mandatory trio only on failure.
+     */
+    fun negotiateSupport(replies: Map<Int, String>): PidSupport {
+        val pids = mutableSetOf<Int>()
+        var parsedAnyBlock = false
         for (base in supportedPidBlocks) {
-            val raw = replies[base] ?: continue
-            result += PidParser.parseSupportedPids(raw, base) ?: emptySet()
+            val parsed = PidParser.parseSupportedPids(replies[base] ?: "", base) ?: continue
+            parsedAnyBlock = true
+            pids += parsed
         }
-        return result
+        return PidSupport(pids = pids, negotiationFailed = !parsedAnyBlock)
     }
+
+    /**
+     * True when an `ATZ` reset reply is an acceptable adapter banner. Recommended STN/OBDLink
+     * adapters (and many clones) do not say "ELM327", so accept any non-blank reply that is not
+     * an explicit no-answer marker (`NO DATA`, `?`, `UNABLE TO CONNECT`, …).
+     */
+    fun isAcceptedAdapterBanner(raw: String): Boolean = !PidParser.isError(raw)
 
     /**
      * Parses the leading float of an `ATRV` reply (e.g. `12.3V`). Returns null for
