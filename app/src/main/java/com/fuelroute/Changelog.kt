@@ -15,6 +15,15 @@ object Changelog {
 
     val entries: List<Entry> = listOf(
         Entry(
+            versionName = "0.5.0",
+            title = "היסטוריית נסיעות משופרת",
+            changes = listOf(
+                "הזנת עלות נסיעה ידנית (מחיר ישיר או ק״מ + צריכה ממוצעת)",
+                "מחיקה מרובה של נסיעות בהיסטוריה",
+                "מיזוג נסיעות סמוכות לנסיעה אחת ופיצול נסיעה לפי זמן",
+            ),
+        ),
+        Entry(
             versionName = "0.4.3",
             title = "Android Auto",
             changes = listOf(
