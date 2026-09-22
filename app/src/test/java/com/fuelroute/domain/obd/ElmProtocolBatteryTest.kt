@@ -22,10 +22,21 @@ class ElmProtocolBatteryTest {
     }
 
     @Test
+    fun `parses clone logic-rail voltages`() {
+        assertEquals(3.3, ElmProtocol.batteryVoltage("3.3V")!!, 1e-9)
+        assertEquals(0.0, ElmProtocol.batteryVoltage("0.0V")!!, 1e-9)
+    }
+
+    @Test
     fun `returns null for no data and connect errors`() {
         assertNull(ElmProtocol.batteryVoltage("NO DATA"))
         assertNull(ElmProtocol.batteryVoltage("UNABLE TO CONNECT"))
         assertNull(ElmProtocol.batteryVoltage(""))
+    }
+
+    @Test
+    fun `returns null for the ELM error prompt`() {
+        assertNull(ElmProtocol.batteryVoltage("?"))
     }
 
     @Test

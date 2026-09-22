@@ -17,16 +17,20 @@ import com.fuelroute.MainActivity
 import com.fuelroute.R
 import com.fuelroute.data.obd.BluetoothClassicTransport
 import com.fuelroute.data.obd.LiveObdState
+import com.fuelroute.data.obd.ObdConnectStage
 import com.fuelroute.data.obd.ObdEngine
 import com.fuelroute.data.obd.ObdStatus
 import com.fuelroute.data.obd.ObdTransport
 import com.fuelroute.data.obd.SimulatedObdTransport
+import com.fuelroute.data.settings.AppSettings
 import com.fuelroute.data.settings.SettingsRepository
 import com.fuelroute.data.vehicle.VehicleRepository
+import com.fuelroute.domain.model.VehicleProfile
 import com.fuelroute.domain.obd.ObdConnectionPolicy
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -73,6 +77,15 @@ class ObdLoggingService : Service() {
     // that is a real stop even inside the grace window.
     private var sawData = false
     private var lastPersistedError: String? = null
+    // Latest settings snapshot, used to gate mid-session auto-reconnect without suspending
+    // inside the engine state collector.
+    private var latestSettings: AppSettings? = null
+    // Kept so a terminal drop can re-arm the engine without rebuilding the transport.
+    private var activeTransport: ObdTransport? = null
+    private var activeVehicle: VehicleProfile? = null
+    // Consecutive automatic re-arms in this logging session (0-based) and the pending backoff.
+    private var reconnectAttempt = 0
+    private var reconnectJob: Job? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -131,6 +144,13 @@ class ObdLoggingService : Service() {
         startedAtMs = System.currentTimeMillis()
         sawData = false
         lastPersistedError = null
+        // A fresh user-initiated start begins a new reconnect budget and supersedes any
+        // pending re-arm from a previous session.
+        reconnectJob?.cancel()
+        reconnectJob = null
+        reconnectAttempt = 0
+        activeTransport = transport
+        activeVehicle = null
         acquireWakeLock()
 
         startForeground(NOTIFICATION_ID, buildNotification(null, stale = false))
@@ -141,11 +161,13 @@ class ObdLoggingService : Service() {
 
         scope.launch {
             val vehicle = vehicleRepository.active()
+            activeVehicle = vehicle
             engine.start(transport, vehicle)
         }
 
         scope.launch {
             settingsRepository.settings.collect { settings ->
+                latestSettings = settings
                 overlayEnabled = settings.showOverlay && Settings.canDrawOverlays(this@ObdLoggingService)
                 if (!overlayEnabled) overlay.hide()
             }
@@ -166,18 +188,27 @@ class ObdLoggingService : Service() {
                 if (state.status == ObdStatus.Connecting || state.status == ObdStatus.Connected) {
                     sawData = true
                 }
+                if (state.status == ObdStatus.Connected) {
+                    // A successful connect clears the auto-reconnect budget so one long-running
+                    // session can recover from many separate drops.
+                    reconnectAttempt = 0
+                }
                 if (ObdConnectionPolicy.shouldAutoStop(
                         status = state.status.name,
                         elapsedMs = System.currentTimeMillis() - startedAtMs,
                         sawData = sawData,
                     )
                 ) {
-                    // Ignition off (run loop returned) or a failed/timed-out connect: stop
-                    // the foreground service instead of lingering on a powered-but-idle
-                    // dongle. Unlike the old `sawActive` gate this also fires when no data
-                    // was ever read.
+                    // Ignition off (run loop returned), a protocol-level drop, or a
+                    // failed/timed-out connect. When auto-connect is on and the user did not
+                    // explicitly disconnect, re-arm instead of lingering on the terminal
+                    // status (or, once the budget is exhausted, stopping).
                     if (state.status == ObdStatus.Error) {
                         settingsRepository.saveLastObdError(state.lastError ?: "ERROR")
+                    }
+                    if (canAutoReconnect()) {
+                        scheduleReconnect()
+                        return@collect
                     }
                     Log.i(TAG, "engine finished (${state.status}) — stopping logging service")
                     stopForeground(STOP_FOREGROUND_REMOVE)
@@ -218,8 +249,79 @@ class ObdLoggingService : Service() {
         }
     }
 
+    /**
+     * True when the terminal engine state should be followed by an automatic re-arm rather
+     * than stopping the service. The dongle must still be reachable: a real Bluetooth
+     * transport whose ACL link is up and a remembered last device address. The simulated
+     * demo transport is never auto-reconnected.
+     */
+    private fun canAutoReconnect(): Boolean {
+        val settings = latestSettings ?: return false
+        val transport = activeTransport as? BluetoothClassicTransport ?: return false
+        val deviceConnected = settings.lastDeviceAddress != null && transport.isDeviceAclConnected
+        return ObdConnectionPolicy.shouldAutoReconnect(
+            attempt = reconnectAttempt,
+            autoConnect = settings.autoConnect,
+            manualDisconnect = settings.manualDisconnect,
+            deviceConnected = deviceConnected,
+        )
+    }
+
+    /**
+     * Schedules a single re-arm of the engine after [ObdConnectionPolicy.backoffDelayMs] for
+     * the current attempt, and immediately surfaces the reconnecting state so the ongoing
+     * notification never lingers on the terminal Error/Disconnected text.
+     */
+    private fun scheduleReconnect() {
+        val transport = activeTransport
+        val vehicle = activeVehicle
+        if (transport == null || vehicle == null) {
+            Log.w(TAG, "auto-reconnect skipped: no active transport/vehicle")
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return
+        }
+        val attempt = reconnectAttempt
+        reconnectAttempt++
+        val delayMs = ObdConnectionPolicy.backoffDelayMs(attempt)
+        Log.i(
+            TAG,
+            "auto-reconnect ${attempt + 1}/${ObdConnectionPolicy.MAX_AUTO_RECONNECT_ATTEMPTS} " +
+                "in ${delayMs}ms",
+        )
+
+        val reconnecting = (latestState ?: LiveObdState()).copy(
+            status = ObdStatus.Connecting,
+            lastError = null,
+            connectionStage = ObdConnectStage.ConnectingSocket,
+            connectingSinceMs = System.currentTimeMillis(),
+        )
+        latestState = reconnecting
+        lastLiveAtMs = System.currentTimeMillis()
+        lastStale = false
+        getSystemService(NotificationManager::class.java)
+            .notify(NOTIFICATION_ID, buildNotification(reconnecting, stale = false))
+
+        reconnectJob?.cancel()
+        reconnectJob = scope.launch {
+            delay(delayMs)
+            if (!logging || stopped) return@launch
+            // Reset the per-attempt startup gate so a failed re-arm still gets its grace
+            // window before the service would stop itself.
+            startedAtMs = System.currentTimeMillis()
+            sawData = false
+            lastLiveAtMs = System.currentTimeMillis()
+            acquireWakeLock()
+            engine.start(transport, vehicle)
+        }
+    }
+
     override fun onDestroy() {
         logging = false
+        reconnectJob?.cancel()
+        reconnectJob = null
+        activeTransport = null
+        activeVehicle = null
         engine.stop()
         overlay.hide()
         wakeLock?.let { if (it.isHeld) it.release() }
