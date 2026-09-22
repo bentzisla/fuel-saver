@@ -1,13 +1,12 @@
 package com.fuelroute.ui.stats
 
 import android.annotation.SuppressLint
-import android.bluetooth.BluetoothDevice
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.fuelroute.data.obd.BluetoothDevicesRepository
 import com.fuelroute.data.obd.LearnedCurveRepository
 import com.fuelroute.data.obd.LiveObdState
+import com.fuelroute.data.obd.ObdDeviceRepository
 import com.fuelroute.data.obd.ObdEngine
 import com.fuelroute.data.obd.ObdStatus
 import com.fuelroute.data.obd.TripRepository
@@ -19,6 +18,7 @@ import com.fuelroute.domain.fuel.CurveBlender
 import com.fuelroute.domain.fuel.DefaultCurve
 import com.fuelroute.domain.model.Trip
 import com.fuelroute.domain.model.VehicleProfile
+import com.fuelroute.domain.obd.ObdDevice
 import com.fuelroute.service.ObdLoggingService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -42,7 +42,7 @@ data class TripDisplay(
 class StatsViewModel @Inject constructor(
     @ApplicationContext private val appContext: Context,
     private val engine: ObdEngine,
-    private val bluetoothRepository: BluetoothDevicesRepository,
+    private val obdDeviceRepository: ObdDeviceRepository,
     private val tripRepository: TripRepository,
     private val settingsRepository: SettingsRepository,
     private val vehicleRepository: VehicleRepository,
@@ -54,8 +54,9 @@ class StatsViewModel @Inject constructor(
     val settings: StateFlow<AppSettings> = settingsRepository.settings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppSettings())
 
-    private val _bonded = MutableStateFlow<List<BluetoothDevice>>(emptyList())
-    val bonded: StateFlow<List<BluetoothDevice>> = _bonded.asStateFlow()
+    /** Enriched, sorted adapter list for the connect card (last used → favorites → name). */
+    val devices: StateFlow<List<ObdDevice>> = obdDeviceRepository.devices
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _connectingName = MutableStateFlow<String?>(null)
     val connectingName: StateFlow<String?> = _connectingName.asStateFlow()
@@ -113,7 +114,14 @@ class StatsViewModel @Inject constructor(
 
     fun refreshDevices() {
         viewModelScope.launch {
-            _bonded.value = bluetoothRepository.bondedDevices()
+            obdDeviceRepository.refresh()
+        }
+    }
+
+    /** Stars/unstars an adapter; the enriched [devices] flow re-sorts automatically. */
+    fun toggleFavorite(device: ObdDevice) {
+        viewModelScope.launch {
+            obdDeviceRepository.toggleFavorite(device.address, device.name)
         }
     }
 
@@ -189,9 +197,9 @@ class StatsViewModel @Inject constructor(
     }
 
     @SuppressLint("MissingPermission")
-    fun connect(device: BluetoothDevice) {
+    fun connect(device: ObdDevice) {
         lastAddress = device.address
-        lastName = device.name ?: device.address
+        lastName = device.name
         if (!engine.isRunning) engine.reset()
         _connectingName.value = lastName
         ObdLoggingService.start(appContext, device.address)

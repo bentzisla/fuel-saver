@@ -124,3 +124,11 @@ data class FavoriteDestinationEntity(
     val sortOrder: Int = 0,
     val createdAtMs: Long,
 )
+
+@Entity(tableName = "favorite_obd_device")
+data class FavoriteObdDeviceEntity(
+    @PrimaryKey val address: String,
+    val name: String,
+    val sortOrder: Int = 0,
+    val createdAtMs: Long,
+)

@@ -259,3 +259,16 @@ interface FavoriteDestinationDao {
     @Query("UPDATE favorite_destination SET sortOrder = :sortOrder WHERE id = :id")
     suspend fun updateSortOrder(id: Long, sortOrder: Int)
 }
+
+@Dao
+interface FavoriteObdDeviceDao {
+
+    @Query("SELECT * FROM favorite_obd_device ORDER BY sortOrder, createdAtMs")
+    fun observeAll(): Flow<List<FavoriteObdDeviceEntity>>
+
+    @Upsert
+    suspend fun upsert(entity: FavoriteObdDeviceEntity)
+
+    @Query("DELETE FROM favorite_obd_device WHERE address = :address")
+    suspend fun deleteByAddress(address: String)
+}

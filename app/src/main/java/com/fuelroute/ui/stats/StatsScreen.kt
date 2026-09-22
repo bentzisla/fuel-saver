@@ -1,8 +1,6 @@
 package com.fuelroute.ui.stats
 
 import android.Manifest
-import android.annotation.SuppressLint
-import android.bluetooth.BluetoothDevice
 import android.os.Build
 import android.view.WindowManager
 import android.widget.Toast
@@ -19,10 +17,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.Star as StarOutline
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -54,6 +57,7 @@ import com.fuelroute.domain.fuel.ModelConstants
 import com.fuelroute.domain.fuel.RangeEstimator
 import com.fuelroute.domain.model.Trip
 import com.fuelroute.domain.model.VehicleProfile
+import com.fuelroute.domain.obd.ObdDevice
 import com.fuelroute.ui.permission.PermissionGate
 import com.fuelroute.ui.permission.findActivity
 import dagger.hilt.EntryPoint
@@ -74,7 +78,7 @@ fun StatsScreen(
     viewModel: StatsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.live.collectAsStateWithLifecycle()
-    val bonded by viewModel.bonded.collectAsStateWithLifecycle()
+    val devices by viewModel.devices.collectAsStateWithLifecycle()
     val connectingName by viewModel.connectingName.collectAsStateWithLifecycle()
     val trips by viewModel.trips.collectAsStateWithLifecycle()
     val vehicles by viewModel.vehicles.collectAsStateWithLifecycle()
@@ -203,7 +207,7 @@ fun StatsScreen(
                         permanentlyDeniedMessage = stringResource(R.string.permission_obd_permanently_denied),
                         onGranted = onPermissionsGranted,
                     ) {
-                        ConnectionCard(bonded = bonded, viewModel = viewModel)
+                        ConnectionCard(devices = devices, viewModel = viewModel)
                     }
                 }
             }
@@ -266,7 +270,7 @@ fun StatsScreen(
                         permanentlyDeniedMessage = stringResource(R.string.permission_obd_permanently_denied),
                         onGranted = onPermissionsGranted,
                     ) {
-                        ConnectionCard(bonded = bonded, viewModel = viewModel)
+                        ConnectionCard(devices = devices, viewModel = viewModel)
                     }
                 }
             }
@@ -445,7 +449,7 @@ private fun connectStageText(stage: ObdConnectStage?): String = when (stage) {
 
 @Composable
 private fun ConnectionCard(
-    bonded: List<BluetoothDevice>,
+    devices: List<ObdDevice>,
     viewModel: StatsViewModel,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -456,15 +460,19 @@ private fun ConnectionCard(
                     style = MaterialTheme.typography.titleMedium,
                 )
 
-                if (bonded.isEmpty()) {
+                if (devices.isEmpty()) {
                     Text(
                         text = stringResource(R.string.stats_no_devices),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 } else {
-                    bonded.forEach { device ->
-                        DeviceRow(device = device, onClick = { viewModel.connect(device) })
+                    devices.forEach { device ->
+                        DeviceRow(
+                            device = device,
+                            onClick = { viewModel.connect(device) },
+                            onToggleFavorite = { viewModel.toggleFavorite(device) },
+                        )
                     }
                 }
 
@@ -480,24 +488,56 @@ private fun ConnectionCard(
     }
 }
 
-@SuppressLint("MissingPermission")
 @Composable
-private fun DeviceRow(device: BluetoothDevice, onClick: () -> Unit) {
+private fun DeviceRow(
+    device: ObdDevice,
+    onClick: () -> Unit,
+    onToggleFavorite: () -> Unit,
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
     ) {
-        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-            Text(
-                text = device.name ?: stringResource(R.string.stats_demo_row),
-                style = MaterialTheme.typography.titleSmall,
-            )
-            Text(
-                text = device.address,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        Row(
+            modifier = Modifier.padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = device.name,
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(
+                    text = device.address,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (device.isLastUsed) {
+                    Text(
+                        text = stringResource(R.string.stats_obd_last_used),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+            IconButton(onClick = onToggleFavorite) {
+                Icon(
+                    imageVector = if (device.isFavorite) Icons.Filled.Star else Icons.Outlined.StarOutline,
+                    contentDescription = stringResource(
+                        if (device.isFavorite) {
+                            R.string.stats_obd_favorite_remove
+                        } else {
+                            R.string.stats_obd_favorite_add
+                        },
+                    ),
+                    tint = if (device.isFavorite) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
         }
     }
 }
