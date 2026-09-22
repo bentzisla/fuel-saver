@@ -67,9 +67,15 @@ class CalibrationViewModel @Inject constructor(
         viewModelScope.launch {
             val overrides = settingsRepository.modelOverrides.first()
             val pairs = linkedPairs()
+            val currentCorrection = overrides.effectiveFuelCorrection
+            val uncorrected = CalibrationFitter.uncorrectedPairs(pairs, currentCorrection)
             _state.value = fromOverrides(overrides).copy(
                 pairCount = pairs.size,
-                currentMape = if (pairs.isEmpty()) null else CalibrationFitter.suggestedMape(pairs, 1.0),
+                currentMape = if (pairs.isEmpty()) {
+                    null
+                } else {
+                    CalibrationFitter.suggestedMape(uncorrected, currentCorrection)
+                },
             )
             loadRefuelCalibration()
         }
@@ -132,15 +138,22 @@ class CalibrationViewModel @Inject constructor(
     fun fit() {
         viewModelScope.launch {
             _state.update { it.copy(isFitting = true) }
-            val pairs = linkedPairs()
-            val factor = CalibrationFitter.fitCorrection(pairs)
+            val currentCorrection = _state.value.fuelCorrection.toDoubleOrNull() ?: 1.0
+            // Stored predictions already include the active correction; undo it before fitting so
+            // the result is an absolute correction rather than a compounding one.
+            val uncorrected = CalibrationFitter.uncorrectedPairs(linkedPairs(), currentCorrection)
+            val factor = CalibrationFitter.fitCorrection(uncorrected)
             _state.update {
                 it.copy(
                     isFitting = false,
                     suggestedFactor = factor,
-                    currentMape = if (factor == null) null else CalibrationFitter.suggestedMape(pairs, 1.0),
-                    afterMape = if (factor == null) null else CalibrationFitter.suggestedMape(pairs, factor),
-                    pairCount = pairs.size,
+                    currentMape = if (factor == null) {
+                        null
+                    } else {
+                        CalibrationFitter.suggestedMape(uncorrected, currentCorrection)
+                    },
+                    afterMape = if (factor == null) null else CalibrationFitter.suggestedMape(uncorrected, factor),
+                    pairCount = uncorrected.size,
                 )
             }
         }

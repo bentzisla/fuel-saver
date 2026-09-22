@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import android.util.Log
 import com.fuelroute.R
 import com.fuelroute.data.history.TripLinker
+import com.fuelroute.data.learning.ColdStartRepository
 import com.fuelroute.data.location.Coordinates
 import com.fuelroute.data.location.LocationRepository
 import com.fuelroute.data.location.ReverseGeocoder
@@ -89,6 +90,7 @@ class RouteViewModel @Inject constructor(
     private val fuelPriceRepository: FuelPriceRepository,
     private val routeSearchRepository: RouteSearchRepository,
     private val tripLinker: TripLinker,
+    private val coldStartRepository: ColdStartRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(RouteUiState())
@@ -516,8 +518,11 @@ class RouteViewModel @Inject constructor(
                 )
                 val notice = RoutesError.fromRoutes(routes)
                 val fuelPrice = fuelPriceRepository.current(vehicle.grade).pricePerLiter
+                val coldStartStats = coldStartRepository.stats(vehicle.id)
                 val ranked = RouteRanker.rank(
-                    routes.map { fuelModel.cost(it, fuelPrice) },
+                    routes.map {
+                        fuelModel.cost(it, fuelPrice, coldStartLiters = coldStartStats.effectiveExtraL)
+                    },
                     valuePerMinute = settings.valuePerMinute,
                 )
                 _uiState.update {

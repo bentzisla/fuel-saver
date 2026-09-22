@@ -45,6 +45,14 @@ object RoutesMapper {
                 else -> emptyList()
             }
 
+            // Fallback static duration for steps that omit it: the leg's own staticDuration,
+            // else its traffic-inclusive duration, else the route-level static fallback. It is
+            // shared across the leg's steps in proportion to their distance.
+            val legStaticSec = leg.staticDuration?.parseDurationSeconds()?.takeIf { it > 0.0 }
+                ?: leg.duration.parseDurationSeconds().takeIf { it > 0.0 }
+                ?: staticSec
+            val legDistance = leg.steps.sumOf { it.distanceMeters }.toDouble()
+
             // Per-leg intervals index into the leg polyline (cursor from 0); route-level
             // intervals index into the route polyline, so the cursor keeps advancing across legs.
             var cursor = if (useRouteLevel) routeCursor else 0.0
@@ -60,9 +68,18 @@ object RoutesMapper {
                 } else {
                     CongestionModel.dominantLevel(intervals, cursor, end)
                 }
+                // `staticDuration` absent/0 with real distance: distribute the leg's static time
+                // by distance. Charging 0 here would make FuelModel fall through to speed 0 and
+                // bill the whole step at the curve's crawl rate.
+                val stepStaticSec = step.staticDuration?.parseDurationSeconds()?.takeIf { it > 0.0 }
+                    ?: if (step.distanceMeters > 0 && legDistance > 0.0) {
+                        legStaticSec * (step.distanceMeters / legDistance)
+                    } else {
+                        0.0
+                    }
                 segments += RouteSegment(
                     distanceMeters = step.distanceMeters.toDouble(),
-                    staticDurationSeconds = step.staticDuration?.parseDurationSeconds() ?: 0.0,
+                    staticDurationSeconds = stepStaticSec,
                     congestionFactor = factor,
                     congestion = level,
                 )

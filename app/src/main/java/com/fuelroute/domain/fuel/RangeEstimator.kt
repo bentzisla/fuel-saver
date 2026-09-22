@@ -18,6 +18,7 @@ object RangeEstimator {
         litersPer100Km: Double?,
     ): Double? {
         if (tankCapacityL == null || levelPct == null || litersPer100Km == null) return null
+        if (!tankCapacityL.isFinite() || !levelPct.isFinite() || !litersPer100Km.isFinite()) return null
         if (tankCapacityL <= 0.0 || litersPer100Km <= 0.0) return null
         val level = levelPct.coerceIn(0.0, 100.0)
         return tankCapacityL * level / 100.0 / litersPer100Km * 100.0
@@ -29,6 +30,7 @@ object RangeEstimator {
      */
     fun exceedsTankCapacity(liters: Double?, tankCapacityL: Double?): Boolean {
         if (liters == null || tankCapacityL == null || tankCapacityL <= 0.0) return false
+        if (!liters.isFinite() || !tankCapacityL.isFinite()) return false
         return liters > tankCapacityL
     }
 }

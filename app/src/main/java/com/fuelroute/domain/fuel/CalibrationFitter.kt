@@ -9,6 +9,9 @@ import kotlin.math.abs
  * `predicted * k`, and [fitCorrection] returns the `k` minimizing `Σ (predicted·k − actual)²`,
  * which has the closed form `Σ(p·a) / Σ(p²)`.
  *
+ * Callers whose `predictedLiters` are already corrected by the active override must run them
+ * through [uncorrectedPairs] first; otherwise the fit double-counts that correction.
+ *
  * Scope note (card 18): this is deliberately a single multiplier. A per-segment re-fit of the
  * stop-go weight and congestion factors would need per-route segment geometry that
  * `route_search` does not persist. Keep the fit global until that geometry is stored.
@@ -26,6 +29,26 @@ object CalibrationFitter {
         }
         if (denominator <= 0.0) return null
         return numerator / denominator
+    }
+
+    /**
+     * Divides [currentCorrection] back out of every [Pair]'s predicted liters so the
+     * [fitCorrection] input is the *uncorrected* model output.
+     *
+     * Stored `predictedLiters` already include the correction that was active at search time
+     * (the `FuelModel` is built with `overrides.fuelCorrection`), so fitting an absolute factor
+     * directly against them would fold the current correction in twice and the calibrator would
+     * oscillate away from a good value. A non-finite/non-positive [currentCorrection] means
+     * "no scaling to undo" and is returned unchanged.
+     */
+    fun uncorrectedPairs(
+        pairs: List<Pair<Double, Double>>,
+        currentCorrection: Double,
+    ): List<Pair<Double, Double>> {
+        if (!currentCorrection.isFinite() || currentCorrection <= 0.0 || currentCorrection == 1.0) {
+            return pairs
+        }
+        return pairs.map { (predicted, actual) -> (predicted / currentCorrection) to actual }
     }
 
     /**

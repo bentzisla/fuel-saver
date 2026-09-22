@@ -26,6 +26,15 @@ class ConsumptionCurveTest {
     }
 
     @Test
+    fun `non-finite speed returns an endpoint instead of NaN`() {
+        val curve = ConsumptionCurve(listOf(SpeedPoint(10.0, 10.0), SpeedPoint(20.0, 20.0)))
+
+        assertEquals(10.0, curve.litersPer100Km(Double.NaN), 1e-9)
+        assertEquals(10.0, curve.litersPer100Km(Double.NEGATIVE_INFINITY), 1e-9)
+        assertEquals(20.0, curve.litersPer100Km(Double.POSITIVE_INFINITY), 1e-9)
+    }
+
+    @Test
     fun `default curve scales with rated consumption`() {
         val economical = DefaultCurve.forVehicle(6.0)
         val thirsty = DefaultCurve.forVehicle(12.0)

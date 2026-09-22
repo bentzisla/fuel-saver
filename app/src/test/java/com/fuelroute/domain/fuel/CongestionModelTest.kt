@@ -59,4 +59,41 @@ class CongestionModelTest {
     fun `dominant level falls back to normal when empty`() {
         assertEquals(CongestionLevel.NORMAL, CongestionModel.dominantLevel(emptyList(), 0.0, 100.0))
     }
+
+    @Test
+    fun `uncovered length is weighted as normal`() {
+        val intervals = listOf(
+            CongestionInterval(0.0, 50.0, CongestionLevel.TRAFFIC_JAM),
+        )
+
+        val factor = CongestionModel.weightedSpeedFactor(intervals, startM = 0.0, endM = 100.0)
+
+        // 50 m jammed at 0.25 + 50 m uncovered at 1.0 over the full 100 m.
+        assertEquals(0.625, factor, 1e-9)
+    }
+
+    @Test
+    fun `overlapping intervals are not double counted`() {
+        val intervals = listOf(
+            CongestionInterval(0.0, 100.0, CongestionLevel.TRAFFIC_JAM),
+            CongestionInterval(0.0, 100.0, CongestionLevel.SLOW),
+        )
+
+        val factor = CongestionModel.weightedSpeedFactor(intervals, startM = 0.0, endM = 100.0)
+
+        // The more severe interval wins on the shared metre; the old code averaged both.
+        assertEquals(0.25, factor, 1e-9)
+    }
+
+    @Test
+    fun `dominant level merges overlapping intervals of the same level`() {
+        val intervals = listOf(
+            CongestionInterval(0.0, 40.0, CongestionLevel.SLOW),
+            CongestionInterval(0.0, 40.0, CongestionLevel.SLOW),
+            CongestionInterval(40.0, 100.0, CongestionLevel.TRAFFIC_JAM),
+        )
+
+        // De-overlapped: SLOW 40 m vs JAM 60 m -> JAM. Double-counted SLOW would win.
+        assertEquals(CongestionLevel.TRAFFIC_JAM, CongestionModel.dominantLevel(intervals, 0.0, 100.0))
+    }
 }
