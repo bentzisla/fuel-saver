@@ -54,6 +54,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fuelroute.BuildConfig
+import com.fuelroute.Changelog
 import com.fuelroute.R
 import com.fuelroute.data.price.FuelGrades
 import com.fuelroute.data.settings.AppSettings
@@ -314,6 +315,7 @@ fun SettingsScreen(
             initiallyExpanded = false,
         ) {
             VersionFooter()
+            ChangelogCard()
             Text(
                 text = stringResource(R.string.settings_autosaved),
                 style = MaterialTheme.typography.labelSmall,
@@ -429,6 +431,39 @@ private fun VersionFooter() {
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+/**
+ * In-app "מה חדש" changelog. Renders [Changelog.entries] newest-first so the user can see what
+ * changed in the installed build without opening a store page.
+ */
+@Composable
+private fun ChangelogCard() {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.settings_changelog_title),
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Changelog.entries.forEach { entry ->
+                Text(
+                    text = "${entry.versionName} — ${entry.title}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                entry.changes.forEach { change ->
+                    Text(
+                        text = "• $change",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
     }
 }

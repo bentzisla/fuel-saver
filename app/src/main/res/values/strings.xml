@@ -349,6 +349,7 @@
     <string name="settings_autosaved">ההגדרות נשמרות אוטומטית</string>
     <string name="settings_version_label">גרסה: %1$s (%2$d)</string>
     <string name="settings_build_date_label">נבנה ב־: %1$s</string>
+    <string name="settings_changelog_title">מה חדש</string>
 
     <string name="settings_backup_title">גיבוי נתונים</string>
     <string name="settings_backup_hint">ייצוא נתוני הלמידה, הנסיעות וההגדרות לקובץ, או מיזוג מקובץ גיבוי קיים.</string>
