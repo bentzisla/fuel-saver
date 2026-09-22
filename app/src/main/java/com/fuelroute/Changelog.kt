@@ -15,6 +15,16 @@ object Changelog {
 
     val entries: List<Entry> = listOf(
         Entry(
+            versionName = "0.4.0",
+            title = "חיבור OBD אמין וניווט לפי המסלול הנבחר",
+            changes = listOf(
+                "תוקן ניתוק OBD מוקדם שנגרם מקריאת מתח סוללה שגויה",
+                "חיבור מחדש אוטומטי אחרי ניתוק (כל עוד הדונגל מחובר)",
+                "Google Maps עוקב כעת אחרי המסלול הנבחר (נקודות מעבר, ללא עצירות ביניים)",
+                "הבהרה: Waze מקבל את היעד בלבד ובוחר מסלול בעצמו",
+            ),
+        ),
+        Entry(
             versionName = "0.3.1",
             title = "יציבות ואיכות",
             changes = listOf(
