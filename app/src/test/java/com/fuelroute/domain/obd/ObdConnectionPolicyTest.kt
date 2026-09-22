@@ -152,4 +152,103 @@ class ObdConnectionPolicyTest {
         assertFalse(ObdConnectionPolicy.shouldRetryReconnect(1, deviceConnected = false))
         assertFalse(ObdConnectionPolicy.shouldRetryReconnect(2, deviceConnected = false))
     }
+
+    // --- Ignition-off detection (bug #1) ---------------------------------------------------
+
+    @Test
+    fun `implausible low voltage readings never stop the engine`() {
+        val now = 100_000L
+        // Cheap clones answer ATRV with their internal rail (0 / 3.3 / 5 V); none of these
+        // is evidence that the engine is off.
+        assertFalse(ObdConnectionPolicy.shouldStopForIgnitionOff(null, now, 0.0))
+        assertFalse(ObdConnectionPolicy.shouldStopForIgnitionOff(null, now, 3.3))
+        assertFalse(ObdConnectionPolicy.shouldStopForIgnitionOff(null, now, 5.0))
+        assertFalse(ObdConnectionPolicy.shouldStopForIgnitionOff(null, now, 7.9))
+    }
+
+    @Test
+    fun `a healthy battery reading does not stop the engine`() {
+        assertFalse(ObdConnectionPolicy.shouldStopForIgnitionOff(null, 0L, 12.0))
+        assertFalse(ObdConnectionPolicy.shouldStopForIgnitionOff(null, 0L, 12.6))
+        assertFalse(ObdConnectionPolicy.shouldStopForIgnitionOff(null, 0L, 14.2))
+    }
+
+    @Test
+    fun `a plausible but low voltage stops the engine`() {
+        assertTrue(ObdConnectionPolicy.shouldStopForIgnitionOff(null, 0L, 11.4))
+        assertTrue(ObdConnectionPolicy.shouldStopForIgnitionOff(null, 0L, 8.0))
+    }
+
+    @Test
+    fun `rpm missing past the timeout stops the engine regardless of voltage`() {
+        val since = 1_000L
+        assertTrue(
+            ObdConnectionPolicy.shouldStopForIgnitionOff(
+                rpmNullSinceMs = since,
+                nowMs = since + ObdConnectionPolicy.IGNITION_OFF_RPM_TIMEOUT_MS,
+                batteryVoltage = 12.6,
+            ),
+        )
+        assertFalse(
+            ObdConnectionPolicy.shouldStopForIgnitionOff(
+                rpmNullSinceMs = since,
+                nowMs = since + ObdConnectionPolicy.IGNITION_OFF_RPM_TIMEOUT_MS - 1,
+                batteryVoltage = 12.6,
+            ),
+        )
+    }
+
+    @Test
+    fun `null voltage and live rpm never stop the engine`() {
+        assertFalse(ObdConnectionPolicy.shouldStopForIgnitionOff(null, 500_000L, null))
+    }
+
+    // --- Mid-session auto-reconnect (bug #2) ----------------------------------------------
+
+    @Test
+    fun `auto-reconnect is allowed while the budget remains and the dongle is reachable`() {
+        for (attempt in 0 until ObdConnectionPolicy.MAX_AUTO_RECONNECT_ATTEMPTS) {
+            assertTrue(
+                ObdConnectionPolicy.shouldAutoReconnect(
+                    attempt = attempt,
+                    autoConnect = true,
+                    manualDisconnect = false,
+                    deviceConnected = true,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `auto-reconnect stops once the attempt budget is exhausted`() {
+        assertFalse(
+            ObdConnectionPolicy.shouldAutoReconnect(
+                attempt = ObdConnectionPolicy.MAX_AUTO_RECONNECT_ATTEMPTS,
+                autoConnect = true,
+                manualDisconnect = false,
+                deviceConnected = true,
+            ),
+        )
+        assertFalse(
+            ObdConnectionPolicy.shouldAutoReconnect(
+                attempt = ObdConnectionPolicy.MAX_AUTO_RECONNECT_ATTEMPTS + 3,
+                autoConnect = true,
+                manualDisconnect = false,
+                deviceConnected = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `auto-reconnect is suppressed by user disconnect, disabled auto-connect or absent dongle`() {
+        assertFalse(
+            ObdConnectionPolicy.shouldAutoReconnect(0, autoConnect = false, manualDisconnect = false, deviceConnected = true),
+        )
+        assertFalse(
+            ObdConnectionPolicy.shouldAutoReconnect(0, autoConnect = true, manualDisconnect = true, deviceConnected = true),
+        )
+        assertFalse(
+            ObdConnectionPolicy.shouldAutoReconnect(0, autoConnect = true, manualDisconnect = false, deviceConnected = false),
+        )
+    }
 }
