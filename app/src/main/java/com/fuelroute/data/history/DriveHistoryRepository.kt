@@ -43,7 +43,16 @@ data class DriveHistoryEntry(
     val tripId: Long?,
     val originLabel: String?,
     val destinationLabel: String?,
+    /**
+     * Display/sort key. For a linked ride this is the route-search time; for an orphan drive it
+     * is the trip start. Use [tripStartedAtMs]/[tripEndedAtMs] for anything that reasons about
+     * the actual drive window (merge proximity, split anchor).
+     */
     val timestampMs: Long,
+    /** Underlying `TripEntity.startedAtMs`; null when the row is an undriven search. */
+    val tripStartedAtMs: Long? = null,
+    /** Underlying `TripEntity.endedAtMs`; null when the row is an undriven search. */
+    val tripEndedAtMs: Long? = null,
     val predictedCost: Double?,
     val predictedLiters: Double?,
     val predictedMinutes: Double?,
@@ -241,6 +250,9 @@ class DriveHistoryRepository @Inject constructor(
         if (trips.size < 2) return null
         val vehicleId = trips.first().vehicleId
         if (trips.any { it.vehicleId != vehicleId }) return null
+        // Never mix simulated ("הדגמה") rides with real drives: all inputs must agree.
+        val demoCount = trips.count { it.source == TripSource.DEMO }
+        if (demoCount != 0 && demoCount != trips.size) return null
         val totals = TripSplitCalculator.merge(trips.map { it.toTotals() }) ?: return null
 
         val latest = trips.maxByOrNull { it.startedAtMs }
@@ -263,6 +275,9 @@ class DriveHistoryRepository @Inject constructor(
             maxSpeedKmh = totals.maxSpeedKmh,
             idleSeconds = totals.idleSeconds,
             isOpen = 0,
+            // The merged span covers 2+ drives, so no single route search fully describes it.
+            // Clearing the link leaves the originals' searches as undriven (they are not deleted),
+            // and the merge deletes the originals via replaceTrips, so none double-appear.
             routeSearchId = null,
             coldStartFuelL = trips.sumOf { it.coldStartFuelL },
             actualCost = cost,
@@ -354,6 +369,8 @@ class DriveHistoryRepository @Inject constructor(
             originLabel = originLabel,
             destinationLabel = destinationLabel,
             timestampMs = timestampMs,
+            tripStartedAtMs = trip?.startedAtMs,
+            tripEndedAtMs = trip?.endedAtMs,
             predictedCost = cost,
             predictedLiters = liters,
             predictedMinutes = minutes,
@@ -377,6 +394,8 @@ class DriveHistoryRepository @Inject constructor(
         originLabel = null,
         destinationLabel = null,
         timestampMs = startedAtMs,
+        tripStartedAtMs = startedAtMs,
+        tripEndedAtMs = endedAtMs,
         predictedCost = null,
         predictedLiters = null,
         predictedMinutes = null,

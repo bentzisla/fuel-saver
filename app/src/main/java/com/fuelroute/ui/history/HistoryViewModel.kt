@@ -18,6 +18,9 @@ import javax.inject.Inject
 /** Result of a manual "קשר נסיעה" attempt, surfaced as a snackbar-style message. */
 enum class LinkFeedback { LINKED, NONE_FOUND }
 
+/** Transient result of a merge/split action, shown inline like [LinkFeedback]. */
+enum class MergeSplitFeedback { MERGED, SPLIT, FAILED }
+
 /** A pending split, awaiting the destructive-write confirmation. */
 data class SplitRequest(val tripId: Long, val splitAtMs: Long)
 
@@ -51,6 +54,8 @@ data class HistoryUiState(
     val pendingMerge: List<Long>? = null,
     /** The split awaiting confirmation, or null. */
     val pendingSplit: SplitRequest? = null,
+    /** Transient merge/split result, shown inline and cleared after a moment. */
+    val mergeSplitFeedback: MergeSplitFeedback? = null,
 )
 
 @HiltViewModel
@@ -299,8 +304,16 @@ class HistoryViewModel @Inject constructor(
     fun confirmMerge() {
         val ids = _state.value.pendingMerge ?: return
         viewModelScope.launch {
-            repository.mergeTrips(ids)
-            _state.value = _state.value.copy(pendingMerge = null, mergeSplitEntry = null)
+            val newId = repository.mergeTrips(ids)
+            _state.value = _state.value.copy(
+                pendingMerge = null,
+                mergeSplitEntry = null,
+                mergeSplitFeedback = if (newId != null) {
+                    MergeSplitFeedback.MERGED
+                } else {
+                    MergeSplitFeedback.FAILED
+                },
+            )
             load()
         }
     }
@@ -318,9 +331,21 @@ class HistoryViewModel @Inject constructor(
     fun confirmSplit() {
         val request = _state.value.pendingSplit ?: return
         viewModelScope.launch {
-            repository.splitTrip(request.tripId, request.splitAtMs)
-            _state.value = _state.value.copy(pendingSplit = null, mergeSplitEntry = null)
+            val result = repository.splitTrip(request.tripId, request.splitAtMs)
+            _state.value = _state.value.copy(
+                pendingSplit = null,
+                mergeSplitEntry = null,
+                mergeSplitFeedback = if (result != null) {
+                    MergeSplitFeedback.SPLIT
+                } else {
+                    MergeSplitFeedback.FAILED
+                },
+            )
             load()
         }
+    }
+
+    fun clearMergeSplitFeedback() {
+        _state.value = _state.value.copy(mergeSplitFeedback = null)
     }
 }

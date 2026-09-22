@@ -145,6 +145,75 @@ class HistoryViewModelTest {
     }
 
     @Test
+    fun `confirmMerge reports success feedback when the merge succeeds`() = runTest(dispatcher) {
+        val repository = mockk<DriveHistoryRepository>()
+        val vehicleRepository = mockk<VehicleRepository>()
+        val fuelPriceRepository = mockk<FuelPriceRepository>()
+        every { vehicleRepository.vehicles() } returns MutableStateFlow(listOf(vehicle("v1")))
+        coEvery { vehicleRepository.active() } returns vehicle("v1")
+        coEvery { fuelPriceRepository.current(any()) } returns FuelPrice(7.0, "95", false)
+        coEvery { repository.recent("v1", any()) } returns DriveHistory(emptyList(), null)
+        coEvery { repository.mergeTrips(listOf(1L, 2L)) } returns 99L
+
+        val viewModel = HistoryViewModel(repository, vehicleRepository, fuelPriceRepository)
+        advanceUntilIdle()
+
+        viewModel.requestMerge(listOf(1L, 2L))
+        viewModel.confirmMerge()
+        advanceUntilIdle()
+
+        assertEquals(MergeSplitFeedback.MERGED, viewModel.state.value.mergeSplitFeedback)
+        assertEquals(null, viewModel.state.value.pendingMerge)
+    }
+
+    @Test
+    fun `confirmMerge reports failure feedback when the merge is rejected`() = runTest(dispatcher) {
+        val repository = mockk<DriveHistoryRepository>()
+        val vehicleRepository = mockk<VehicleRepository>()
+        val fuelPriceRepository = mockk<FuelPriceRepository>()
+        every { vehicleRepository.vehicles() } returns MutableStateFlow(listOf(vehicle("v1")))
+        coEvery { vehicleRepository.active() } returns vehicle("v1")
+        coEvery { fuelPriceRepository.current(any()) } returns FuelPrice(7.0, "95", false)
+        coEvery { repository.recent("v1", any()) } returns DriveHistory(emptyList(), null)
+        coEvery { repository.mergeTrips(listOf(1L, 2L)) } returns null
+
+        val viewModel = HistoryViewModel(repository, vehicleRepository, fuelPriceRepository)
+        advanceUntilIdle()
+
+        viewModel.requestMerge(listOf(1L, 2L))
+        viewModel.confirmMerge()
+        advanceUntilIdle()
+
+        assertEquals(MergeSplitFeedback.FAILED, viewModel.state.value.mergeSplitFeedback)
+    }
+
+    @Test
+    fun `confirmSplit reports success and failure feedback`() = runTest(dispatcher) {
+        val repository = mockk<DriveHistoryRepository>()
+        val vehicleRepository = mockk<VehicleRepository>()
+        val fuelPriceRepository = mockk<FuelPriceRepository>()
+        every { vehicleRepository.vehicles() } returns MutableStateFlow(listOf(vehicle("v1")))
+        coEvery { vehicleRepository.active() } returns vehicle("v1")
+        coEvery { fuelPriceRepository.current(any()) } returns FuelPrice(7.0, "95", false)
+        coEvery { repository.recent("v1", any()) } returns DriveHistory(emptyList(), null)
+
+        val viewModel = HistoryViewModel(repository, vehicleRepository, fuelPriceRepository)
+        advanceUntilIdle()
+
+        coEvery { repository.splitTrip(7, 500L) } returns (10L to 11L)
+        viewModel.requestSplit(7, 500L)
+        viewModel.confirmSplit()
+        advanceUntilIdle()
+        assertEquals(MergeSplitFeedback.SPLIT, viewModel.state.value.mergeSplitFeedback)
+
+        coEvery { repository.splitTrip(7, 900L) } returns null
+        viewModel.requestSplit(7, 900L)
+        viewModel.confirmSplit()
+        advanceUntilIdle()
+        assertEquals(MergeSplitFeedback.FAILED, viewModel.state.value.mergeSplitFeedback)
+    }
+
+    @Test
     fun `saveManualCost persists the entry and closes the dialog`() = runTest(dispatcher) {
         val repository = mockk<DriveHistoryRepository>()
         val vehicleRepository = mockk<VehicleRepository>()
