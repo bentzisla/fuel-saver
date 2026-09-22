@@ -22,6 +22,8 @@ import javax.inject.Inject
 
 data class CalibrationUiState(
     val isLoaded: Boolean = false,
+    /** True when the initial load failed; the screen then offers a retry instead of blanking. */
+    val error: Boolean = false,
     /**
      * Raw persisted override text per field. Blank means "no override" (use the model
      * default); the screen derives the effective value as `text.toDoubleOrNull() ?: default`.
@@ -64,20 +66,31 @@ class CalibrationViewModel @Inject constructor(
     val state: StateFlow<CalibrationUiState> = _state.asStateFlow()
 
     init {
+        load()
+    }
+
+    /** Loads overrides, linked drives and refuel calibration; retryable from the screen. */
+    fun load() {
+        _state.update { it.copy(isLoaded = false, error = false) }
         viewModelScope.launch {
-            val overrides = settingsRepository.modelOverrides.first()
-            val pairs = linkedPairs()
-            val currentCorrection = overrides.effectiveFuelCorrection
-            val uncorrected = CalibrationFitter.uncorrectedPairs(pairs, currentCorrection)
-            _state.value = fromOverrides(overrides).copy(
-                pairCount = pairs.size,
-                currentMape = if (pairs.isEmpty()) {
-                    null
-                } else {
-                    CalibrationFitter.suggestedMape(uncorrected, currentCorrection)
-                },
-            )
-            loadRefuelCalibration()
+            runCatching {
+                val overrides = settingsRepository.modelOverrides.first()
+                val pairs = linkedPairs()
+                val currentCorrection = overrides.effectiveFuelCorrection
+                val uncorrected = CalibrationFitter.uncorrectedPairs(pairs, currentCorrection)
+                _state.value = fromOverrides(overrides).copy(
+                    pairCount = pairs.size,
+                    currentMape = if (pairs.isEmpty()) {
+                        null
+                    } else {
+                        CalibrationFitter.suggestedMape(uncorrected, currentCorrection)
+                    },
+                )
+                loadRefuelCalibration()
+            }.onFailure {
+                // Never leave the guided flow invisible (isLoaded stays false) on a failure.
+                _state.update { it.copy(isLoaded = true, error = true) }
+            }
         }
     }
 

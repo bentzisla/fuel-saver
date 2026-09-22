@@ -10,6 +10,7 @@ import androidx.annotation.StringRes
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -51,11 +52,13 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -73,10 +76,12 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import android.widget.Toast
@@ -346,7 +351,7 @@ fun RouteScreen(
 
             state.error?.let { error ->
                 item {
-                    RouteErrorCard(error)
+                    RouteErrorCard(error, onRetry = viewModel::refresh)
                 }
             }
 
@@ -565,7 +570,7 @@ private fun DeparturePicker(
 }
 
 @Composable
-private fun RouteErrorCard(error: RoutesError) {
+private fun RouteErrorCard(error: RoutesError, onRetry: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
@@ -580,14 +585,36 @@ private fun RouteErrorCard(error: RoutesError) {
                 color = MaterialTheme.colorScheme.onErrorContainer,
             )
             error.actionRes()?.let { action ->
-                Text(
-                    text = stringResource(action),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                )
+                if (error.isRetryable()) {
+                    // Actionable failures get a real button that re-runs the search.
+                    TextButton(onClick = onRetry) {
+                        Text(
+                            text = stringResource(action),
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                        )
+                    }
+                } else {
+                    // Pure hints (quota/key/time) stay as plain, non-interactive text.
+                    Text(
+                        text = stringResource(action),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                }
             }
         }
     }
+}
+
+/** Whether the error's action sentence means "just try the same search again". */
+private fun RoutesError.isRetryable(): Boolean = when (this) {
+    RoutesError.NoNetwork,
+    RoutesError.Timeout,
+    is RoutesError.Parse,
+    is RoutesError.Unknown,
+    -> true
+
+    else -> false
 }
 
 @StringRes
@@ -681,13 +708,18 @@ private fun RecentDestinations(
                     onClick = { onSelect(place) },
                     label = { Text(place.label) },
                     trailingIcon = {
-                        Icon(
-                            imageVector = Icons.Outlined.StarOutline,
-                            contentDescription = stringResource(R.string.route_favorite_add),
-                            modifier = Modifier
-                                .size(FilterChipDefaults.IconSize)
-                                .clickable { onToggleFavorite(place) },
-                        )
+                        // Real button (role + 48dp target) instead of an 18dp nested clickable
+                        // icon: TalkBack now reaches "שמור במועדפים" as its own action.
+                        IconButton(
+                            onClick = { onToggleFavorite(place) },
+                            modifier = Modifier.minimumInteractiveComponentSize(),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.StarOutline,
+                                contentDescription = stringResource(R.string.route_favorite_add),
+                                modifier = Modifier.size(FilterChipDefaults.IconSize),
+                            )
+                        }
                     },
                 )
             }
@@ -741,13 +773,16 @@ private fun FavoriteDestinations(
                             )
                         },
                         trailingIcon = {
-                            Icon(
-                                imageVector = Icons.Filled.MoreVert,
-                                contentDescription = stringResource(R.string.route_favorite_edit),
-                                modifier = Modifier
-                                    .size(FilterChipDefaults.IconSize)
-                                    .clickable { onEdit(favorite) },
-                            )
+                            IconButton(
+                                onClick = { onEdit(favorite) },
+                                modifier = Modifier.minimumInteractiveComponentSize(),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.MoreVert,
+                                    contentDescription = stringResource(R.string.route_favorite_edit),
+                                    modifier = Modifier.size(FilterChipDefaults.IconSize),
+                                )
+                            }
                         },
                     )
                 }
@@ -764,6 +799,7 @@ private fun FavoriteEditDialog(
     onDelete: () -> Unit,
 ) {
     var label by remember { mutableStateOf(initialLabel) }
+    var confirmDelete by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.route_favorite_rename_title)) },
@@ -784,11 +820,44 @@ private fun FavoriteEditDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDelete) {
+            TextButton(onClick = { confirmDelete = true }) {
                 Text(stringResource(R.string.route_favorite_delete))
             }
         },
     )
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text(stringResource(R.string.route_favorite_delete_title)) },
+            text = {
+                Text(
+                    stringResource(
+                        R.string.route_favorite_delete_message,
+                        label.ifBlank { initialLabel },
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDelete = false
+                        onDelete()
+                    },
+                ) {
+                    Text(
+                        text = stringResource(R.string.route_favorite_delete_confirm),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }) {
+                    Text(stringResource(R.string.route_favorite_cancel))
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -1363,9 +1432,33 @@ private fun RouteSpeedGraph(
     modifier: Modifier = Modifier,
     chartHeight: Dp = GraphChartHeight,
 ) {
+    // Distance/speed charts are inherently LTR: the Canvas plots distance increasing to the
+    // right. Force LTR for the axis labels too, otherwise under an RTL locale the labels are
+    // mirrored and disagree with the plotted curve.
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+        RouteSpeedGraphContent(cost = cost, modifier = modifier, chartHeight = chartHeight)
+    }
+}
+
+@Composable
+private fun RouteSpeedGraphContent(
+    cost: RouteCost,
+    modifier: Modifier = Modifier,
+    chartHeight: Dp = GraphChartHeight,
+) {
     val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
     val gridColor = MaterialTheme.colorScheme.outlineVariant
     val lineColor = MaterialTheme.colorScheme.primary
+    // Resolve congestion colours on the composition (theme/dark aware) so the Canvas can use
+    // them without needing a MaterialTheme lookup inside DrawScope.
+    val colorNormal = congestionColor(CongestionLevel.NORMAL)
+    val colorSlow = congestionColor(CongestionLevel.SLOW)
+    val colorJam = congestionColor(CongestionLevel.TRAFFIC_JAM)
+    fun congestionColorOf(level: CongestionLevel): Color = when (level) {
+        CongestionLevel.NORMAL -> colorNormal
+        CongestionLevel.SLOW -> colorSlow
+        CongestionLevel.TRAFFIC_JAM -> colorJam
+    }
     val points = remember(cost) { speedProfile(cost) }
     val maxDistance = (points.maxOfOrNull { it.distanceKm } ?: 0.0).coerceAtLeast(0.1)
     val maxSpeed = niceSpeedMax(points.maxOfOrNull { it.speedKmh } ?: 0.0)
@@ -1427,7 +1520,7 @@ private fun RouteSpeedGraph(
                         lineTo(x(end.distanceKm), size.height)
                         close()
                     }
-                    drawPath(path = band, color = level.graphColor().copy(alpha = 0.25f))
+                    drawPath(path = band, color = congestionColorOf(level).copy(alpha = 0.25f))
                 }
 
                 // Smoothed speed line.
@@ -1461,7 +1554,7 @@ private fun RouteSpeedGraph(
                 points.forEachIndexed { index, point ->
                     val level = cost.segments.getOrNull(index)?.congestion ?: return@forEachIndexed
                     drawCircle(
-                        color = level.graphColor(),
+                        color = congestionColorOf(level),
                         radius = 4.dp.toPx(),
                         center = Offset(x(point.distanceKm), y(point.speedKmh)),
                     )
@@ -1516,7 +1609,7 @@ private fun GraphLegend() {
                 Box(
                     modifier = Modifier
                         .size(10.dp)
-                        .background(level.graphColor(), CircleShape),
+                        .background(congestionColor(level), CircleShape),
                 )
                 Text(
                     text = stringResource(level.labelRes()),
@@ -1528,10 +1621,18 @@ private fun GraphLegend() {
     }
 }
 
-private fun CongestionLevel.graphColor(): Color = when (this) {
-    CongestionLevel.NORMAL -> Color(0xFF2E7D32)
-    CongestionLevel.SLOW -> Color(0xFFF9A825)
-    CongestionLevel.TRAFFIC_JAM -> Color(0xFFC62828)
+/**
+ * Theme-aware traffic colours: the light-theme shades are too dark to read against the dark
+ * surface, so dark mode uses lighter, higher-contrast variants.
+ */
+@Composable
+private fun congestionColor(level: CongestionLevel): Color {
+    val dark = isSystemInDarkTheme()
+    return when (level) {
+        CongestionLevel.NORMAL -> if (dark) Color(0xFF66BB6A) else Color(0xFF2E7D32)
+        CongestionLevel.SLOW -> if (dark) Color(0xFFFFCA28) else Color(0xFFF9A825)
+        CongestionLevel.TRAFFIC_JAM -> if (dark) Color(0xFFEF5350) else Color(0xFFC62828)
+    }
 }
 
 @StringRes

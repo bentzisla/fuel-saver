@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Star as StarOutline
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -88,6 +89,9 @@ fun StatsScreen(
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+
+    // "אפס" wipes the live engine state/learning view; confirm before doing it.
+    var showResetConfirm by remember { mutableStateOf(false) }
 
     // Fuel price used for the live trip cost (₪). Read directly through a minimal Hilt entry
     // point (same pattern as `CarDiagnosticsEntryPoint`) instead of widening `StatsViewModel`.
@@ -194,7 +198,7 @@ fun StatsScreen(
                         }
                     }
                     item {
-                        OutlinedButton(onClick = viewModel::reset, modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(onClick = { showResetConfirm = true }, modifier = Modifier.fillMaxWidth()) {
                             Text(stringResource(R.string.stats_reset))
                         }
                     }
@@ -240,7 +244,7 @@ fun StatsScreen(
                             Text(stringResource(R.string.stats_disconnect))
                         }
                         OutlinedButton(
-                            onClick = viewModel::reset,
+                            onClick = { showResetConfirm = true },
                             modifier = Modifier.weight(1f),
                         ) {
                             Text(stringResource(R.string.stats_reset))
@@ -255,7 +259,7 @@ fun StatsScreen(
                     }
                 }
                 item {
-                    OutlinedButton(onClick = viewModel::reset, modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(onClick = { showResetConfirm = true }, modifier = Modifier.fillMaxWidth()) {
                         Text(stringResource(R.string.stats_reset))
                     }
                 }
@@ -297,6 +301,32 @@ fun StatsScreen(
                 TripRow(trips[index].trip, trips[index].predictedL100)
             }
         }
+    }
+
+    if (showResetConfirm) {
+        AlertDialog(
+            onDismissRequest = { showResetConfirm = false },
+            title = { Text(stringResource(R.string.stats_reset_confirm_title)) },
+            text = { Text(stringResource(R.string.stats_reset_confirm_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showResetConfirm = false
+                        viewModel.reset()
+                    },
+                ) {
+                    Text(
+                        text = stringResource(R.string.stats_reset_confirm),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetConfirm = false }) {
+                    Text(stringResource(R.string.stats_cancel))
+                }
+            },
+        )
     }
 }
 

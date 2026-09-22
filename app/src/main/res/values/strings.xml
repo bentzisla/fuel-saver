@@ -490,4 +490,37 @@
     <string name="car_error">שגיאה: %1$s</string>
     <string name="car_error_unknown">שגיאת חיבור לדונגל OBD</string>
     <string name="car_connect">התחבר</string>
+
+    <!-- First-run onboarding: shown once before the tabs, gates nothing. -->
+    <string name="onboarding_title">הגדרה ראשונית</string>
+    <string name="onboarding_intro">FuelRoute עובד גם בלי הגדרה, אבל כדי לקבל מסלולים אמיתיים ורישום דלק מלא יש להשלים שני דברים — אפשר גם פשוט לנסות הדגמה ולהשלים אחר כך.</string>
+
+    <string name="onboarding_google_title">1. מפתח Google Cloud ו-API</string>
+    <string name="onboarding_google_step_1">1. צרו פרויקט ב-Google Cloud Console והפעילו את השירותים: Routes API, Maps SDK for Android ו-Places API (New).</string>
+    <string name="onboarding_google_step_2">2. הפעילו חיוב (Billing) והגדירו התראת תקציב (Budget alert) כדי למנוע חיוב לא צפוי.</string>
+    <string name="onboarding_google_step_3">3. צרו API Key והגבילו אותו לאפליקציה: הוסיפו את שם החבילה com.fuelroute ואת טביעת האצבע SHA-1 של החתימה שחתמה על ה-APK (הריצו gradlew signingReport).</string>
+    <string name="onboarding_google_step_4">4. שמרו את המפתח בקובץ local.properties בשורה MAPS_API_KEY=... (הקובץ אינו נכנס ל-git).</string>
+    <string name="onboarding_google_note">בלי הגבלת שם החבילה ו-SHA-1 המפתח עלול להיחסם או לשמש אחרים.</string>
+
+    <string name="onboarding_obd_title">2. דונגל ELM327 ורישום OBD</string>
+    <string name="onboarding_obd_step_1">1. צמדו את דונגל ה-ELM327 דרך הגדרות Bluetooth של המכשיר (לא מתוך האפליקציה).</string>
+    <string name="onboarding_obd_step_2">2. אשרו הרשאות Bluetooth (והתראות) כשהאפליקציה תבקש — בלעדיהן לא ניתן להתחבר לדונגל.</string>
+    <string name="onboarding_obd_step_3">3. פטרו את FuelRoute מאופטימיזציית סוללה כדי שרישום הדלק ימשיך לפעול כשהמסך כבוי.</string>
+    <string name="onboarding_obd_note">אפשר להתחיל בהדמיה ללא דונגל כדי להתרשם מהמסך החי, ולחבר את הדונגל מאוחר יותר.</string>
+    <string name="onboarding_demo">נסה הדגמה (ללא דונגל)</string>
+    <string name="onboarding_done">סיימתי</string>
+
+    <!-- Confirmation for the destructive "אפס" action on the stats screen. -->
+    <string name="stats_reset_confirm_title">לאפס את הרישום?</string>
+    <string name="stats_reset_confirm_message">הפעולה תעצור את הרישום הפעיל ותאפס את מצב המנוע. נתוני הלמידה שנשמרו לא יימחקו. להמשיך?</string>
+    <string name="stats_reset_confirm">אפס</string>
+    <string name="stats_cancel">ביטול</string>
+
+    <!-- Retry cards for screens that can fail to load. -->
+    <string name="curve_error_load">טעינת העקומה נכשלה</string>
+    <string name="curve_retry">נסה שוב</string>
+    <string name="vehicle_error_load">טעינת הרכבים נכשלה</string>
+    <string name="vehicle_retry">נסה שוב</string>
+    <string name="calibration_error_load">טעינת הכיול נכשלה</string>
+    <string name="calibration_retry">נסה שוב</string>
 </resources>
