@@ -166,6 +166,13 @@ fun SettingsScreen(
                     label = { Text(stringResource(R.string.settings_nav_waze)) },
                 )
             }
+            if (state.navigationApp == NAV_WAZE) {
+                Text(
+                    text = stringResource(R.string.nav_waze_destination_only),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
         }
 
         SettingsSection(title = stringResource(R.string.settings_section_obd)) {

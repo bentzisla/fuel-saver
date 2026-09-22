@@ -1177,6 +1177,15 @@ private fun RouteDetailDialog(
                 modifier = Modifier.heightIn(max = 440.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
+                if (navigationApp == NAV_WAZE) {
+                    item {
+                        Text(
+                            text = stringResource(R.string.nav_waze_destination_only),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
                 item {
                     Text(
                         text = stringResource(

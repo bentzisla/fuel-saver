@@ -1,6 +1,7 @@
 package com.fuelroute.nav
 
 import java.net.URLDecoder
+import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -104,10 +105,54 @@ class NavigationUrisTest {
     }
 
     @Test
-    fun `waypoints are retained in the google maps url`() {
+    fun `coordinate formatting ignores a comma-decimal default locale`() {
+        val previous = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale.GERMANY) // decimal comma separator
+            assertEquals("32.1234", NavigationUris.coord(32.1234))
+            assertEquals("34.8567", NavigationUris.coord(34.8567))
+        } finally {
+            Locale.setDefault(previous)
+        }
+    }
+
+    @Test
+    fun `google maps passes the full polyline as a pass-through waypoint and requests navigation`() {
+        val dest = NavDestination(label = "יצחק שדה, הרצליה", placeId = "ChIJ_place")
+        val polyline = "_p~iF~ps|U_ulLnnqC_mqNvxq`@"
+        val url = NavigationUris.googleMaps(dest, encodedPolyline = polyline)
+        assertTrue(url.contains("dir_action=navigate"))
+        // Documented Directions-API pass-through syntax: via: = no stop, enc:...: = encoded polyline.
+        assertTrue(url.contains("waypoints=via:enc:$polyline:"))
+        assertTrue(url.contains("travelmode=driving"))
+    }
+
+    @Test
+    fun `waypoints are omitted cleanly when there is no polyline`() {
+        val dest = NavDestination(label = "יצחק שדה, הרצליה", placeId = "ChIJ_place")
+        val url = NavigationUris.googleMaps(dest)
+        assertFalse(url.contains("waypoints"))
+        assertFalse(url.contains("enc:"))
+        assertTrue(url.contains("dir_action=navigate"))
+    }
+
+    @Test
+    fun `waypoints fall back to coordinates when no polyline is provided`() {
         val dest = NavDestination(label = "יצחק שדה, הרצליה", placeId = "ChIJ_place")
         val url = NavigationUris.googleMaps(dest, waypoints = listOf(31.5 to 34.5, 31.6 to 34.6))
         val waypoints = queryValue(url, "waypoints")
         assertEquals("31.5,34.5|31.6,34.6", waypoints)
+    }
+
+    @Test
+    fun `waze stays destination only with no waypoints or polyline`() {
+        val dest = NavDestination(label = "יצחק שדה, הרצליה", latitude = 32.1234, longitude = 34.8567)
+        val url = NavigationUris.waze(dest)
+        assertTrue(url.startsWith("waze://?"))
+        assertTrue(url.contains("ll=32.1234,34.8567"))
+        assertTrue(url.contains("navigate=yes"))
+        assertFalse(url.contains("waypoints"))
+        assertFalse(url.contains("enc"))
+        assertFalse(url.contains("q="))
     }
 }

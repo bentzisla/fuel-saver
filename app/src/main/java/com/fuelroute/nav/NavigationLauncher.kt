@@ -13,8 +13,18 @@ object NavigationLauncher {
         origin: NavDestination? = null,
         encodedPolyline: String? = null,
     ) {
-        val waypoints = encodedPolyline?.let { pickWaypoints(it) }.orEmpty()
-        val uri = Uri.parse(NavigationUris.googleMaps(destination, origin, waypoints))
+        // Preferred: hand the full chosen path to Maps as a pass-through `via:enc:<polyline>:`
+        // waypoint. pickWaypoints (a few evenly spaced stops) is kept only as a fallback when the
+        // route has no encoded polyline.
+        val waypoints = if (encodedPolyline.isNullOrBlank()) pickWaypoints(encodedPolyline) else emptyList()
+        val uri = Uri.parse(
+            NavigationUris.googleMaps(
+                destination = destination,
+                origin = origin,
+                encodedPolyline = encodedPolyline,
+                waypoints = waypoints,
+            ),
+        )
         context.startActivity(Intent(Intent.ACTION_VIEW, uri))
     }
 
@@ -31,7 +41,7 @@ object NavigationLauncher {
         }
     }
 
-    private fun pickWaypoints(encoded: String, count: Int = 4): List<Pair<Double, Double>> {
+    private fun pickWaypoints(encoded: String?, count: Int = 4): List<Pair<Double, Double>> {
         val points = PolylineDecoder.decode(encoded)
         if (points.size < count + 2) return emptyList()
         return (1..count).map { i ->
