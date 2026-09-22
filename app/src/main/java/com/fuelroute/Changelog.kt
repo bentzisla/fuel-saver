@@ -15,6 +15,14 @@ object Changelog {
 
     val entries: List<Entry> = listOf(
         Entry(
+            versionName = "0.4.2",
+            title = "מכשירי OBD מועדפים",
+            changes = listOf(
+                "המכשיר שחובר לאחרונה מופיע בראש רשימת ההתחברות",
+                "סימון מכשירי OBD כמועדפים (כוכב) — מועדפים מוצגים לפני השאר",
+            ),
+        ),
+        Entry(
             versionName = "0.4.1",
             title = "עריכת עקומת הרכב",
             changes = listOf(
