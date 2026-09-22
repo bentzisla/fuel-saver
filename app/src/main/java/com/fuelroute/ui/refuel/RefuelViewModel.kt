@@ -83,7 +83,7 @@ class RefuelViewModel @Inject constructor(
         viewModelScope.launch {
             val vehicle = vehicleRepository.active()
             val vehicleId = vehicle.id
-            refuelRepository.add(liters, price, state.isFull, vehicleId)
+            refuelRepository.add(liters, price, state.isFull, vehicleId, vehicle.grade)
 
             var clamped = false
             if (state.isFull) {

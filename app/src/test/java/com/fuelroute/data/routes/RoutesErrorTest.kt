@@ -3,6 +3,8 @@ package com.fuelroute.data.routes
 import com.fuelroute.domain.model.Route
 import com.fuelroute.domain.model.RouteSegment
 import java.io.IOException
+import java.io.InterruptedIOException
+import java.net.SocketTimeoutException
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertNull
@@ -27,6 +29,16 @@ class RoutesErrorTest {
     @Test
     fun `maps io exceptions to no network`() {
         assertSame(RoutesError.NoNetwork, RoutesError.from(IOException("offline")))
+    }
+
+    @Test
+    fun `maps socket timeouts to timeout not no network`() {
+        assertSame(RoutesError.Timeout, RoutesError.from(SocketTimeoutException("read timed out")))
+    }
+
+    @Test
+    fun `maps interrupted io to timeout`() {
+        assertSame(RoutesError.Timeout, RoutesError.from(InterruptedIOException("call timed out")))
     }
 
     @Test

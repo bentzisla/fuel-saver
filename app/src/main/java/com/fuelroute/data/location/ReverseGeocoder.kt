@@ -1,45 +1,44 @@
 package com.fuelroute.data.location
 
-import com.fuelroute.BuildConfig
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
+import android.content.Context
+import android.location.Geocoder
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Reverse geocodes a coordinate into a human-readable address via the Geocoding
- * API. Returns null when the API is not enabled or the request fails, so callers
- * can fall back to a label.
+ * Reverse geocodes a coordinate into a human-readable address.
+ *
+ * Uses the platform [Geocoder] rather than the legacy
+ * `maps.googleapis.com/maps/api/geocode/json` web API. The app's restricted API key only enables
+ * Routes, Maps SDK for Android and Places API New, so the legacy web geocoder returns HTTP 403 and
+ * would silently yield null. The platform Geocoder is backed by Play services / the Maps SDK for
+ * Android, needs no separate key, and keeps this purely in the data layer.
+ *
+ * Returns null when the device has no geocoder backend or the lookup fails, so callers fall back to
+ * a saved label. [Geocoder.getFromLocation] performs blocking I/O, so it runs on [Dispatchers.IO].
  */
 @Singleton
 class ReverseGeocoder @Inject constructor(
-    private val client: OkHttpClient,
-    private val json: Json,
+    @ApplicationContext private val context: Context,
 ) {
 
-    suspend fun reverseGeocode(latitude: Double, longitude: Double): String? = withContext(Dispatchers.IO) {
-        val url = "https://maps.googleapis.com/maps/api/geocode/json" +
-            "?latlng=$latitude,$longitude&language=he&key=${BuildConfig.MAPS_API_KEY}"
-        val request = Request.Builder().url(url).build()
-        val response = runCatching { client.newCall(request).execute() }.getOrNull() ?: return@withContext null
-        response.use {
-            if (!it.isSuccessful) return@withContext null
-            val body = it.body?.string() ?: return@withContext null
-            val parsed = runCatching { json.decodeFromString<GeocodeResponse>(body) }.getOrNull()
-            parsed?.results?.firstOrNull()?.formattedAddress
+    suspend fun reverseGeocode(latitude: Double, longitude: Double): String? =
+        withContext(Dispatchers.IO) {
+            if (!Geocoder.isPresent()) return@withContext null
+            runCatching {
+                val geocoder = Geocoder(context, Locale.getDefault())
+                @Suppress("DEPRECATION")
+                val addresses = geocoder.getFromLocation(latitude, longitude, 1)
+                addresses?.firstOrNull()?.let { address ->
+                    address.getAddressLine(0)?.takeIf { it.isNotBlank() }
+                        ?: address.locality?.takeIf { it.isNotBlank() }
+                        ?: address.subAdminArea?.takeIf { it.isNotBlank() }
+                        ?: address.countryName?.takeIf { it.isNotBlank() }
+                }
+            }.getOrNull()
         }
-    }
-
-    @Serializable
-    private data class GeocodeResponse(val results: List<GeocodeResult> = emptyList())
-
-    @Serializable
-    private data class GeocodeResult(
-        @SerialName("formatted_address") val formattedAddress: String? = null,
-    )
 }

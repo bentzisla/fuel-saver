@@ -2,6 +2,7 @@ package com.fuelroute.data.routes
 
 import com.fuelroute.domain.model.Route
 import java.io.IOException
+import java.io.InterruptedIOException
 import kotlinx.serialization.SerializationException
 import retrofit2.HttpException
 
@@ -16,6 +17,9 @@ sealed class RoutesError : Exception() {
 
     /** No connectivity / DNS / socket failure. */
     object NoNetwork : RoutesError()
+
+    /** The connect/read/write/call timeout elapsed before the API answered. */
+    object Timeout : RoutesError()
 
     /** HTTP 429 — the Routes SKU quota was exceeded. */
     object Quota : RoutesError()
@@ -52,6 +56,7 @@ sealed class RoutesError : Exception() {
                 in 500..599 -> Unknown(t)
                 else -> Unknown(t)
             }
+            is InterruptedIOException -> Timeout
             is IOException -> NoNetwork
             is SerializationException -> Parse(t)
             else -> Unknown(t)

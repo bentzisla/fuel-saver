@@ -7,6 +7,7 @@ import com.fuelroute.data.db.RouteSearchEntity
 import com.fuelroute.data.db.SpeedBinStatsEntity
 import com.fuelroute.data.db.TripEntity
 import com.fuelroute.data.db.VehicleEntity
+import com.fuelroute.domain.fuel.FuelModelOverrides
 import kotlinx.serialization.Serializable
 
 /** Current backup payload version. Bump when a snapshot field changes incompatibly. */
@@ -31,6 +32,11 @@ data class BackupPayload(
     val learningExtras: List<LearningExtrasSnapshot> = emptyList(),
     val favorites: List<FavoriteSnapshot> = emptyList(),
     val settings: SettingsSnapshot? = null,
+    /**
+     * Runtime fuel-model calibration overrides (card 33). Null in a backup predating this field;
+     * import leaves the local overrides untouched in that case.
+     */
+    val modelOverrides: FuelModelOverrides? = null,
     val prices: List<PriceSnapshot> = emptyList(),
 )
 
@@ -49,6 +55,14 @@ data class VehicleSnapshot(
     val createdAtMs: Long,
 )
 
+/**
+ * One learned speed bin. Import merges bins by summing the numeric fields, but a bin whose values
+ * are *identical* to the local bin is skipped as an already-imported duplicate: re-importing the
+ * same backup file must not double-count learning. (This is a value-identity heuristic rather than
+ * a persisted per-export marker; a genuine second source with byte-identical accumulators would be
+ * treated as a duplicate. That is acceptable because bins are running sums, so exact equality
+ * across independent drives is vanishingly unlikely.)
+ */
 @Serializable
 data class SpeedBinSnapshot(
     val vehicleId: String,
@@ -136,10 +150,6 @@ data class SettingsSnapshot(
     val autoConnect: Boolean,
     val showOverlay: Boolean,
     val keepScreenOn: Boolean,
-    val lastDeviceAddress: String? = null,
-    val lastDeviceName: String? = null,
-    val lastAutoStartMs: Long? = null,
-    val lastObdError: String? = null,
     val autoConnectIntroSeen: Boolean,
     val retentionDays: Int,
 )

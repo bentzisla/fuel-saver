@@ -152,6 +152,29 @@ class RoutesMapperTest {
     }
 
     @Test
+    fun `unpriced route toll falls through to priced leg tolls`() {
+        val response = ComputeRoutesResponse(
+            routes = listOf(
+                RouteDto(
+                    distanceMeters = 2_000,
+                    duration = "200s",
+                    staticDuration = "200s",
+                    travelAdvisory = TravelAdvisoryDto(tollInfo = TollInfoDto(estimatedPrice = emptyList())),
+                    legs = listOf(
+                        legWithToll(distanceMeters = 1_000, units = 4L, nanos = 0),
+                        legWithToll(distanceMeters = 1_000, units = 8L, nanos = 250_000_000),
+                    ),
+                ),
+            ),
+        )
+
+        val route = RoutesMapper.toDomain(response).single()
+
+        assertFalse(route.tollUnknown)
+        assertEquals(12.25, route.tollCost!!, 1e-9)
+    }
+
+    @Test
     fun `route level intervals fall back and set ROUTE_AVERAGE`() {
         val encoded = encode(listOf(0.0 to 0.0, 0.0 to 0.01, 0.0 to 0.02))
         val response = ComputeRoutesResponse(

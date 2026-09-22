@@ -86,6 +86,7 @@
     <string name="route_graph_hide_hint">הקש לצמצום</string>
     <string name="route_graph_description">גרף מהירות לפי מרחק לאורך המסלול — מראה איפה המסלול איטי/פקוק</string>
     <string name="route_error_no_network">אין חיבור לאינטרנט</string>
+    <string name="route_error_timeout">הבקשה לשרת ארכה יותר מדי — נסו שוב</string>
     <string name="route_error_quota">חריגה ממכסת השימוש בשירות המסלולים</string>
     <string name="route_error_forbidden">המפתח אינו מורשה לשירות המסלולים</string>
     <string name="route_error_no_route">לא נמצא מסלול ליעד שצוין</string>

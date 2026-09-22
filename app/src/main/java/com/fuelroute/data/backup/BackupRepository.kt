@@ -34,6 +34,7 @@ data class ImportResult(
     val favoritesAdded: Int = 0,
     val favoritesSkipped: Int = 0,
     val settingsApplied: Boolean = false,
+    val modelOverridesApplied: Boolean = false,
     val prices: Int = 0,
 ) {
     companion object {
@@ -63,6 +64,7 @@ class DefaultBackupRepository @Inject constructor(
     private val favoriteDao: FavoriteDestinationDao,
     private val settingsRepository: SettingsRepository,
     private val fuelPriceRepository: FuelPriceRepository,
+    private val transactionRunner: TransactionRunner,
 ) : BackupRepository {
 
     private val json = Json {
@@ -92,6 +94,7 @@ class DefaultBackupRepository @Inject constructor(
             learningExtras = learningExtrasDao.getAll().map { it.toSnapshot() },
             favorites = favoriteDao.observeAll().first().map { it.toSnapshot() },
             settings = settings.toSnapshot(),
+            modelOverrides = settingsRepository.modelOverrides.first(),
             prices = prices,
         )
         return json.encodeToString(BackupPayload.serializer(), payload)
@@ -103,32 +106,36 @@ class DefaultBackupRepository @Inject constructor(
             return ImportResult.failure("backup schema ${payload.schemaVersion} is newer than supported")
         }
 
-        upsertVehicles(payload)
-        val binsMerged = mergeSpeedBins(payload)
-        val (tripsAdded, tripsSkipped) = insertTrips(payload)
-        val (refuelsAdded, refuelsSkipped) = insertRefuels(payload)
-        val (routeSearchesAdded, routeSearchesSkipped) = insertRouteSearches(payload)
-        val learningExtras = upsertLearningExtras(payload)
-        val (favoritesAdded, favoritesSkipped) = insertFavorites(payload)
-        val settingsApplied = applySettings(payload)
-        val prices = applyPrices(payload)
+        return transactionRunner.run {
+            upsertVehicles(payload)
+            val binsMerged = mergeSpeedBins(payload)
+            val (tripsAdded, tripsSkipped) = insertTrips(payload)
+            val (refuelsAdded, refuelsSkipped) = insertRefuels(payload)
+            val (routeSearchesAdded, routeSearchesSkipped) = insertRouteSearches(payload)
+            val learningExtras = upsertLearningExtras(payload)
+            val (favoritesAdded, favoritesSkipped) = insertFavorites(payload)
+            val settingsApplied = applySettings(payload)
+            val modelOverridesApplied = applyModelOverrides(payload)
+            val prices = applyPrices(payload)
 
-        return ImportResult(
-            success = true,
-            vehicles = payload.vehicles.size,
-            binsMerged = binsMerged,
-            tripsAdded = tripsAdded,
-            tripsSkipped = tripsSkipped,
-            refuelsAdded = refuelsAdded,
-            refuelsSkipped = refuelsSkipped,
-            routeSearchesAdded = routeSearchesAdded,
-            routeSearchesSkipped = routeSearchesSkipped,
-            learningExtras = learningExtras,
-            favoritesAdded = favoritesAdded,
-            favoritesSkipped = favoritesSkipped,
-            settingsApplied = settingsApplied,
-            prices = prices,
-        )
+            ImportResult(
+                success = true,
+                vehicles = payload.vehicles.size,
+                binsMerged = binsMerged,
+                tripsAdded = tripsAdded,
+                tripsSkipped = tripsSkipped,
+                refuelsAdded = refuelsAdded,
+                refuelsSkipped = refuelsSkipped,
+                routeSearchesAdded = routeSearchesAdded,
+                routeSearchesSkipped = routeSearchesSkipped,
+                learningExtras = learningExtras,
+                favoritesAdded = favoritesAdded,
+                favoritesSkipped = favoritesSkipped,
+                settingsApplied = settingsApplied,
+                modelOverridesApplied = modelOverridesApplied,
+                prices = prices,
+            )
+        }
     }
 
     /** Parses and validates before any write; returns null when [json] is not a usable payload. */
@@ -151,6 +158,9 @@ class DefaultBackupRepository @Inject constructor(
         for (incoming in payload.speedBins) {
             val key = incoming.vehicleId to incoming.binIndex
             val previous = merged[key]
+            // Value-identical bin => this backup was already imported; summing again would
+            // double-count the learned curve. See SpeedBinSnapshot's KDoc for the rationale.
+            if (previous == incoming) continue
             val combined = if (previous == null) {
                 incoming
             } else {
@@ -164,6 +174,7 @@ class DefaultBackupRepository @Inject constructor(
             merged[key] = combined
             toUpsert.add(combined)
         }
+        if (toUpsert.isEmpty()) return 0
         speedBinDao.upsertAll(toUpsert.map { it.toEntity() })
         return toUpsert.size
     }
@@ -243,12 +254,16 @@ class DefaultBackupRepository @Inject constructor(
         settingsRepository.saveAutoConnect(settings.autoConnect)
         settingsRepository.saveShowOverlay(settings.showOverlay)
         settingsRepository.saveKeepScreenOn(settings.keepScreenOn)
-        settingsRepository.saveLastDeviceAddress(settings.lastDeviceAddress)
-        settingsRepository.saveLastDeviceName(settings.lastDeviceName)
-        settingsRepository.saveLastAutoStart(settings.lastAutoStartMs)
-        settingsRepository.saveLastObdError(settings.lastObdError)
+        // Device-specific OBD/session state (last dongle, last auto-start, last error) is
+        // deliberately NOT imported: it describes the exporting device, not the user's data.
         settingsRepository.saveAutoConnectIntroSeen(settings.autoConnectIntroSeen)
         settingsRepository.saveRetentionDays(settings.retentionDays)
+        return true
+    }
+
+    private suspend fun applyModelOverrides(payload: BackupPayload): Boolean {
+        val overrides = payload.modelOverrides ?: return false
+        settingsRepository.saveModelOverrides(overrides)
         return true
     }
 
@@ -276,10 +291,6 @@ fun AppSettings.toSnapshot() = SettingsSnapshot(
     autoConnect = autoConnect,
     showOverlay = showOverlay,
     keepScreenOn = keepScreenOn,
-    lastDeviceAddress = lastDeviceAddress,
-    lastDeviceName = lastDeviceName,
-    lastAutoStartMs = lastAutoStartMs,
-    lastObdError = lastObdError,
     autoConnectIntroSeen = autoConnectIntroSeen,
     retentionDays = retentionDays,
 )
