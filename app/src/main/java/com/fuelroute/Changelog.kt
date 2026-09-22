@@ -15,6 +15,14 @@ object Changelog {
 
     val entries: List<Entry> = listOf(
         Entry(
+            versionName = "0.4.1",
+            title = "עריכת עקומת הרכב",
+            changes = listOf(
+                "עריכת עקומת צריכה ידנית: הוספה/עריכה/מחיקת נקודות מהירות מול צריכה",
+                "התחלה מעקומת ברירת מחדל, מהעקומה הידנית הנוכחית, או מעקומה ריקה",
+            ),
+        ),
+        Entry(
             versionName = "0.4.0",
             title = "חיבור OBD אמין וניווט לפי המסלול הנבחר",
             changes = listOf(
