@@ -24,7 +24,11 @@ object PredictionAccuracy {
      * (<= 0), so callers can skip those rows instead of dividing by zero.
      */
     fun errorPct(predicted: Double, actual: Double): Double? =
-        if (predicted <= 0.0) null else (actual - predicted) / predicted * 100.0
+        if (!predicted.isFinite() || !actual.isFinite() || predicted <= 0.0) {
+            null
+        } else {
+            (actual - predicted) / predicted * 100.0
+        }
 
     /**
      * Mean absolute percentage error over [outcomes], ignoring rows where [errorPct]

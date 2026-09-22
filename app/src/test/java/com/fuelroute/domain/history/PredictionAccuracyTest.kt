@@ -22,6 +22,13 @@ class PredictionAccuracyTest {
     }
 
     @Test
+    fun `errorPct guards against non-finite values`() {
+        assertNull(PredictionAccuracy.errorPct(Double.NaN, 42.0))
+        assertNull(PredictionAccuracy.errorPct(Double.POSITIVE_INFINITY, 42.0))
+        assertNull(PredictionAccuracy.errorPct(100.0, Double.NaN))
+    }
+
+    @Test
     fun `mape averages the absolute errors`() {
         val outcomes = listOf(
             DriveOutcome(predictedCost = 100.0, actualCost = 110.0),

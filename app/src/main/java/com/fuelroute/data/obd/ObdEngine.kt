@@ -8,7 +8,10 @@ import com.fuelroute.data.db.SpeedBinStatsEntity
 import com.fuelroute.data.db.TripDao
 import com.fuelroute.data.db.TripSource
 import com.fuelroute.data.history.TripLinker
+import com.fuelroute.data.learning.ColdStartRepository
 import com.fuelroute.data.price.FuelPriceRepository
+import com.fuelroute.domain.fuel.DefaultCurve
+import com.fuelroute.domain.learning.ColdStartLearner
 import com.fuelroute.domain.learning.FuelRateCalculator
 import com.fuelroute.domain.learning.SpeedBinAggregator
 import com.fuelroute.domain.learning.TripDetector
@@ -80,6 +83,7 @@ class ObdEngine @Inject constructor(
     private val tripDao: TripDao,
     private val fuelPriceRepository: FuelPriceRepository,
     private val tripLinker: TripLinker,
+    private val coldStartRepository: ColdStartRepository,
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -341,6 +345,9 @@ class ObdEngine @Inject constructor(
 
         val aggregator = SpeedBinAggregator()
         val tripDetector = TripDetector()
+        val coldStartLearner = ColdStartLearner(
+            warmCurve = DefaultCurve.forVehicle(vehicle.ratedCombinedL100, vehicle.fuelType),
+        )
         val tripRecorder = TripRecorder(tripDao)
         tripRecorder.closeLeftovers(System.currentTimeMillis())
         // Provenance for every trip this run records: the demo transport must never look real.
@@ -436,6 +443,12 @@ class ObdEngine @Inject constructor(
                 val dtSec = lastSample?.let { (now - it.timestampMs) / 1000.0 } ?: 0.0
 
                 aggregator.accumulate(bins, sample, dtSec, fuelRate, vehicleId)
+                coldStartLearner.onSample(
+                    speedKmh = sample.speedKmh,
+                    fuelRateLph = fuelRate,
+                    dtSec = dtSec,
+                    coolantTempC = sample.coolantTempC,
+                )
 
                 if (sample.engineRunning) {
                     val rate = fuelRate ?: 0.0
@@ -477,6 +490,11 @@ class ObdEngine @Inject constructor(
                         tripSeconds = 0.0
                         tripIdleSeconds = 0.0
                         tripMaxSpeed = 0.0
+                        if (coldStartLearner.hasColdSamples) {
+                            coldStartRepository.record(vehicleId, coldStartLearner.endTrip())
+                        } else {
+                            coldStartLearner.endTrip()
+                        }
                     }
                     else -> Unit
                 }
@@ -667,6 +685,13 @@ class ObdEngine @Inject constructor(
                         }
                     }
                 }.onFailure { Log.w(TAG, "close trip on stop failed", it) }
+                runCatching {
+                    if (coldStartLearner.hasColdSamples) {
+                        coldStartRepository.record(vehicleId, coldStartLearner.endTrip())
+                    } else {
+                        coldStartLearner.endTrip()
+                    }
+                }.onFailure { Log.w(TAG, "record cold start on stop failed", it) }
                 runCatching { transport.disconnect() }
                     .onFailure { Log.w(TAG, "disconnect on stop failed", it) }
                 publish(runId) {

@@ -234,6 +234,36 @@ class RoutesMapperTest {
     }
 
     @Test
+    fun `missing step static duration falls back to a distance share of the leg`() {
+        val response = ComputeRoutesResponse(
+            routes = listOf(
+                RouteDto(
+                    distanceMeters = 3_000,
+                    duration = "300s",
+                    staticDuration = "240s",
+                    legs = listOf(
+                        LegDto(
+                            distanceMeters = 3_000,
+                            duration = "300s",
+                            staticDuration = "240s",
+                            steps = listOf(
+                                StepDto(distanceMeters = 1_000),
+                                StepDto(distanceMeters = 2_000),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val route = RoutesMapper.toDomain(response).single()
+
+        // 240 s shared 1:2 by distance -> 80 s and 160 s instead of 0 s.
+        assertEquals(80.0, route.segments[0].staticDurationSeconds, 1e-9)
+        assertEquals(160.0, route.segments[1].staticDurationSeconds, 1e-9)
+    }
+
+    @Test
     fun `malformed duration throws`() {
         val response = ComputeRoutesResponse(
             routes = listOf(RouteDto(distanceMeters = 100, duration = "abc")),
