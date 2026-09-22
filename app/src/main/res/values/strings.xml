@@ -100,6 +100,7 @@
     <string name="route_detail_title">חישוב העלות</string>
     <string name="route_close">סגור</string>
     <string name="route_navigate">נווט</string>
+    <string name="nav_waze_destination_only">Waze יבחר את המסלול בעצמו — מועבר אליו היעד בלבד, ללא המסלול הנבחר.</string>
     <string name="route_departed_button">יצאתי במסלול הזה</string>
     <string name="route_departed_linked">קושר לנסיעה — יוצג בהיסטוריה</string>
     <string name="route_departed_none">לא נמצאה נסיעה לקשר (עדיין לא התחילה רישום OBD)</string>

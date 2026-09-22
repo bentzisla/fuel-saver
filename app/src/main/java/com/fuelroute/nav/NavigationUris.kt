@@ -14,9 +14,28 @@ object NavigationUris {
     private const val MAPS_BASE = "https://www.google.com/maps/dir/"
     private const val WAZE_BASE = "waze://"
 
+    /**
+     * Builds a Google Maps directions URL.
+     *
+     * When [encodedPolyline] is supplied it is handed off as a single pass-through waypoint:
+     * `waypoints=via:enc:<polyline>:`. The `via:` prefix marks it as a pass-through (no tappable
+     * stop), `enc:` marks an encoded polyline and the trailing `:` terminates it. This preserves
+     * the route we chose instead of letting Maps pick its own. A coordinate list ([waypoints]) is
+     * only a fallback for when no encoded polyline is available.
+     *
+     * `dir_action=navigate` asks Maps to start turn-by-turn navigation immediately (it degrades to
+     * a route preview when the origin is far from the current location).
+     *
+     * Tradeoff: the consumer `google.com/maps/dir/?api=1` endpoint officially documents `waypoints`
+     * as place names/addresses/coordinates. The `via:enc:<polyline>:` form is the Directions-API
+     * encoded-polyline syntax; Maps accepts it in practice and it is the only way to pass a full
+     * path, but if a given Maps build ignores it the trip falls back to the origin/destination
+     * (i.e. Maps' own route). Waze has no equivalent, which is why Waze stays destination-only.
+     */
     fun googleMaps(
         destination: NavDestination,
         origin: NavDestination? = null,
+        encodedPolyline: String? = null,
         waypoints: List<Pair<Double, Double>> = emptyList(),
     ): String {
         val params = mutableListOf<Pair<String, String>>()
@@ -28,9 +47,13 @@ object NavigationUris {
         params += "destination" to mapsEndpoint(destination)
         destination.nonBlankPlaceId()?.let { params += "destination_place_id" to it }
         params += "travelmode" to "driving"
-        if (waypoints.isNotEmpty()) {
+        val viaPolyline = encodedPolyline?.takeIf { it.isNotBlank() }
+        if (viaPolyline != null) {
+            params += "waypoints" to "via:enc:$viaPolyline:"
+        } else if (waypoints.isNotEmpty()) {
             params += "waypoints" to waypoints.joinToString("|") { (lat, lng) -> "${coord(lat)},${coord(lng)}" }
         }
+        params += "dir_action" to "navigate"
         return MAPS_BASE + "?" + encodeParams(params)
     }
 
@@ -63,8 +86,11 @@ object NavigationUris {
         params.joinToString("&") { (key, value) -> "${enc(key)}=${enc(value)}" }
 
     /**
-     * RFC 3986 query-value encoder that additionally leaves `,` unescaped (coordinates and
-     * waypoint separators) and never emits `+` for spaces.
+     * Query-value encoder that keeps every printable ASCII character raw except the ones that
+     * would break or alter the query string (`%`, `#`, `&`, `+`, `=`, `"`, `<`, `>`), spaces and
+     * non-ASCII bytes (percent-encoded UTF-8). This is what lets the documented
+     * `waypoints=via:enc:<polyline>:` form survive verbatim, since encoded polylines use the
+     * printable range `?`..`~` which includes `:`, `|`, `~`, `@` and backtick.
      */
     private fun enc(value: String): String {
         val hex = "0123456789ABCDEF"
@@ -72,10 +98,8 @@ object NavigationUris {
         for (b in value.toByteArray(Charsets.UTF_8)) {
             val v = b.toInt() and 0xFF
             val c = v.toChar()
-            val keep = v < 128 && (
-                c in 'A'..'Z' || c in 'a'..'z' || c in '0'..'9' ||
-                    c == '-' || c == '_' || c == '.' || c == '~' || c == ','
-                )
+            val keep = v in 0x21..0x7E &&
+                c != '%' && c != '#' && c != '&' && c != '+' && c != '=' && c != '"' && c != '<' && c != '>'
             if (keep) {
                 sb.append(c)
             } else {
