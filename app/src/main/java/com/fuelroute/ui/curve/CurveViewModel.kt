@@ -9,6 +9,8 @@ import com.fuelroute.domain.fuel.CurveBasis
 import com.fuelroute.domain.fuel.CurveBlender
 import com.fuelroute.domain.fuel.CurveDataQuality
 import com.fuelroute.domain.fuel.DefaultCurve
+import com.fuelroute.domain.fuel.ManualCurveResult
+import com.fuelroute.domain.fuel.ManualCurveValidator
 import com.fuelroute.domain.model.SpeedPoint
 import com.fuelroute.domain.model.binIndexToSpeedKmh
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -85,6 +87,23 @@ class CurveViewModel @Inject constructor(
         viewModelScope.launch {
             val vehicle = vehicleRepository.active()
             vehicleRepository.upsert(vehicle.copy(manualCurve = null))
+            _state.value = buildState()
+        }
+    }
+
+    /**
+     * Persists a user-entered manual curve. An empty list clears the manual curve (stores null);
+     * an input that normalizes to fewer than two points is rejected without touching storage.
+     */
+    fun saveManualCurve(points: List<SpeedPoint>) {
+        viewModelScope.launch {
+            val curve = when (val result = ManualCurveValidator.validate(points)) {
+                is ManualCurveResult.Valid -> result.points
+                ManualCurveResult.Cleared -> null
+                is ManualCurveResult.Invalid -> return@launch
+            }
+            val vehicle = vehicleRepository.active()
+            vehicleRepository.upsert(vehicle.copy(manualCurve = curve))
             _state.value = buildState()
         }
     }
