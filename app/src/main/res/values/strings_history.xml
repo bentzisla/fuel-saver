@@ -12,4 +12,42 @@
     <string name="history_delete_message">האם למחוק את הנסיעה מההיסטוריה? הפעולה אינה ניתנת לביטול.</string>
     <string name="history_delete_confirm">מחק</string>
     <string name="history_delete_cancel">ביטול</string>
+
+    <!-- Manual post-drive cost entry (no OBD) -->
+    <string name="history_manual_action">הזן עלות בפועל</string>
+    <string name="history_manual_title">עלות בפועל</string>
+    <string name="history_manual_mode_direct">עלות ישירה (₪)</string>
+    <string name="history_manual_mode_consumption">מרחק + צריכה</string>
+    <string name="history_manual_cost_label">עלות (₪)</string>
+    <string name="history_manual_distance_label">מרחק (ק״מ)</string>
+    <string name="history_manual_consumption_label">צריכה (ל׳/100 ק״מ)</string>
+    <string name="history_manual_preview">צפוי: %1$s ל׳ • %2$s ₪</string>
+    <string name="history_manual_price">מחיר נוכחי: %1$s ₪/ל׳</string>
+    <string name="history_manual_invalid">נא להזין ערך חיובי</string>
+    <string name="history_manual_save">שמור</string>
+    <string name="history_manual_cancel">ביטול</string>
+    <string name="history_manual_badge">עלות שהוזנה ידנית</string>
+
+    <!-- Bulk delete -->
+    <string name="history_select">בחר</string>
+    <string name="history_select_done">סיום</string>
+    <string name="history_selected_count">נבחרו %1$d</string>
+    <string name="history_bulk_delete_action">מחק את הנבחרים</string>
+    <string name="history_bulk_delete_title">מחיקת נסיעות נבחרות</string>
+    <string name="history_bulk_delete_message">האם למחוק %1$d נסיעות? הפעולה אינה ניתנת לביטול.</string>
+
+    <!-- Merge / split -->
+    <string name="history_merge_split_action">מיזוג/פיצול</string>
+    <string name="history_merge_title">מיזוג נסיעות</string>
+    <string name="history_merge_hint">בחר נסיעות סמוכות למזוג</string>
+    <string name="history_merge_action">מזג</string>
+    <string name="history_split_title">פיצול נסיעה</string>
+    <string name="history_split_point">נקודת פיצול: %1$s</string>
+    <string name="history_split_action">פצל</string>
+    <string name="history_merge_split_close">סגור</string>
+    <string name="history_merge_confirm_title">מיזוג נסיעות</string>
+    <string name="history_merge_confirm_message">הפעולה תמחק את הנסיעות המקוריות ותיצור נסיעה אחת. להמשיך?</string>
+    <string name="history_split_confirm_title">פיצול נסיעה</string>
+    <string name="history_split_confirm_message">הפעולה תמחק את הנסיעה המקורית ותיצור שתי נסיעות. להמשיך?</string>
+    <string name="history_confirm">אישור</string>
 </resources>

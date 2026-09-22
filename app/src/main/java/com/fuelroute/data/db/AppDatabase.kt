@@ -15,7 +15,7 @@ import androidx.room.RoomDatabase
         FavoriteDestinationEntity::class,
         FavoriteObdDeviceEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
