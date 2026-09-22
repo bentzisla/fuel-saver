@@ -29,8 +29,8 @@ android {
         applicationId = "com.fuelroute"
         minSdk = 26
         targetSdk = 36
-        versionCode = 402
-        versionName = "0.4.2"
+        versionCode = 403
+        versionName = "0.4.3"
 
         buildConfigField("String", "MAPS_API_KEY", "\"$mapsApiKey\"")
         buildConfigField("String", "BUILD_TIME", "\"${System.currentTimeMillis()}\"")

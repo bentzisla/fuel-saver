@@ -15,6 +15,15 @@ object Changelog {
 
     val entries: List<Entry> = listOf(
         Entry(
+            versionName = "0.4.3",
+            title = "Android Auto",
+            changes = listOf(
+                "תיקון זיהוי אפליקציית Android Auto ושיפור אימות מארח (release)",
+                "אבחון עצמי מפורט בעת התחברות למערכת הרכב",
+                "הבהרה: ברכב אמיתי נדרשת התקנה דרך חנות מהימנה; לבדיקה מקומית השתמשו ב־DHU עם גרסת debug",
+            ),
+        ),
+        Entry(
             versionName = "0.4.2",
             title = "מכשירי OBD מועדפים",
             changes = listOf(
