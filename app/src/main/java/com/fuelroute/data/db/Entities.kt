@@ -76,6 +76,12 @@ data class TripEntity(
     val pricePerLiterAtTrip: Double = 0.0,
     val linkedAtMs: Long? = null,
     val source: String = TripSource.REAL,
+    // Manual post-drive entry recorded without OBD. When any of these is present the user's
+    // numbers win over the OBD measurement in History (a computed view, not a stored overwrite).
+    val manualCost: Double? = null,
+    val manualDistanceKm: Double? = null,
+    val manualLitersPer100Km: Double? = null,
+    val manualEnteredAtMs: Long? = null,
 )
 
 @Entity(tableName = "refuel")

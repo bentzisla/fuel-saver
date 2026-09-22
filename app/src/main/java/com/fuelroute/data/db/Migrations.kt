@@ -83,4 +83,14 @@ object Migrations {
             )
         }
     }
+
+    // v7 -> v8: manual post-drive cost entry on a trip (nullable, so existing rows are untouched).
+    val MIGRATION_7_8 = object : Migration(7, 8) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE trip ADD COLUMN manualCost REAL")
+            db.execSQL("ALTER TABLE trip ADD COLUMN manualDistanceKm REAL")
+            db.execSQL("ALTER TABLE trip ADD COLUMN manualLitersPer100Km REAL")
+            db.execSQL("ALTER TABLE trip ADD COLUMN manualEnteredAtMs INTEGER")
+        }
+    }
 }

@@ -9,6 +9,7 @@ import io.mockk.coEvery
 import io.mockk.coJustRun
 import io.mockk.coVerify
 import io.mockk.mockk
+import io.mockk.slot
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -130,6 +131,152 @@ class DriveHistoryRepositoryTest {
         coVerify(exactly = 0) { tripDao.deleteById(any()) }
         coVerify(exactly = 0) { tripDao.unlinkTripsForSearch(any()) }
         coVerify(exactly = 0) { routeSearchDao.deleteById(any()) }
+    }
+
+    @Test
+    fun `recent lets a manual entry win over the OBD measurement`() = runTest {
+        coEvery { routeSearchDao.recent(any()) } returns emptyList()
+        coEvery { tripDao.recentClosedForVehicle("v1", any()) } returns listOf(
+            trip(id = 10, vehicleId = "v1", routeSearchId = null, ts = 1_000, actualCost = 5.0, fuel = 0.7)
+                .copy(
+                    distanceKm = 10.0,
+                    pricePerLiterAtTrip = 7.0,
+                    manualCost = 42.0,
+                    manualDistanceKm = 20.0,
+                    manualLitersPer100Km = 6.0,
+                ),
+        )
+
+        val entry = repository.recent("v1").entries.single()
+
+        assertTrue(entry.hasManualEntry)
+        assertEquals(42.0, entry.actualCost!!, 1e-9)
+        assertEquals(20.0, entry.distanceKm!!, 1e-9)
+        // 20 km * 6 L/100km = 1.2 L, not the OBD 0.7 L.
+        assertEquals(1.2, entry.actualLiters!!, 1e-9)
+    }
+
+    @Test
+    fun `setManualCost forwards the values to the DAO`() = runTest {
+        coJustRun { tripDao.updateManualCost(any(), any(), any(), any(), any()) }
+
+        repository.setManualCost(
+            tripId = 10,
+            cost = 42.0,
+            distanceKm = 20.0,
+            litersPer100Km = 6.0,
+            enteredAtMs = 999,
+        )
+
+        coVerify(exactly = 1) { tripDao.updateManualCost(10, 42.0, 20.0, 6.0, 999) }
+    }
+
+    @Test
+    fun `deleteMany removes trips and unlinks undriven searches`() = runTest {
+        coJustRun { tripDao.deleteByIds(any()) }
+        coJustRun { tripDao.unlinkTripsForSearch(any()) }
+        coJustRun { routeSearchDao.deleteById(any()) }
+
+        repository.deleteMany(
+            listOf(
+                historyEntry(searchId = 1, tripId = 10),
+                historyEntry(searchId = null, tripId = 7),
+                historyEntry(searchId = 5, tripId = null),
+            ),
+        )
+
+        coVerify(exactly = 1) { tripDao.deleteByIds(listOf(10L, 7L)) }
+        coVerify(exactly = 1) { tripDao.unlinkTripsForSearch(5) }
+        coVerify(exactly = 1) { routeSearchDao.deleteById(5) }
+    }
+
+    @Test
+    fun `mergeTrips sums the totals and replaces the originals`() = runTest {
+        coEvery { tripDao.findById(1) } returns trip(
+            id = 1,
+            vehicleId = "v1",
+            routeSearchId = null,
+            ts = 1_000,
+            actualCost = 7.0,
+            fuel = 1.0,
+        ).copy(distanceKm = 10.0, idleSeconds = 10.0, maxSpeedKmh = 60.0, pricePerLiterAtTrip = 7.0)
+        coEvery { tripDao.findById(2) } returns trip(
+            id = 2,
+            vehicleId = "v1",
+            routeSearchId = null,
+            ts = 3_000,
+            actualCost = 14.0,
+            fuel = 2.0,
+        ).copy(distanceKm = 20.0, idleSeconds = 20.0, maxSpeedKmh = 90.0, pricePerLiterAtTrip = 7.0)
+        val inserted = slot<List<TripEntity>>()
+        coEvery { tripDao.replaceTrips(any(), capture(inserted)) } returns listOf(99L)
+
+        val newId = repository.mergeTrips(listOf(1, 2))
+
+        assertEquals(99L, newId)
+        val merged = inserted.captured.single()
+        assertEquals(1_000L, merged.startedAtMs)
+        assertEquals(603_000L, merged.endedAtMs)
+        assertEquals(30.0, merged.distanceKm, 1e-9)
+        assertEquals(3.0, merged.fuelL, 1e-9)
+        assertEquals(30.0, merged.idleSeconds, 1e-9)
+        // 3 L * 7 ₪/L.
+        assertEquals(21.0, merged.actualCost, 1e-9)
+        assertEquals(0, merged.isOpen)
+        assertEquals(90.0, merged.maxSpeedKmh, 1e-9)
+        coVerify(exactly = 1) { tripDao.replaceTrips(listOf(1L, 2L), any()) }
+    }
+
+    @Test
+    fun `mergeTrips rejects trips of different vehicles`() = runTest {
+        coEvery { tripDao.findById(1) } returns trip(1, "v1", null, 1_000)
+        coEvery { tripDao.findById(2) } returns trip(2, "v2", null, 2_000)
+
+        assertNull(repository.mergeTrips(listOf(1, 2)))
+        coVerify(exactly = 0) { tripDao.replaceTrips(any(), any()) }
+    }
+
+    @Test
+    fun `splitTrip apportions the original and replaces it with two parts`() = runTest {
+        coEvery { tripDao.findById(5) } returns trip(
+            id = 5,
+            vehicleId = "v1",
+            routeSearchId = 3,
+            ts = 0,
+            actualCost = 14.0,
+            fuel = 2.0,
+        ).copy(
+            endedAtMs = 10_000,
+            distanceKm = 20.0,
+            idleSeconds = 100.0,
+            pricePerLiterAtTrip = 7.0,
+        )
+        val inserted = slot<List<TripEntity>>()
+        coEvery { tripDao.replaceTrips(listOf(5L), capture(inserted)) } returns listOf(101L, 102L)
+
+        val (firstId, secondId) = repository.splitTrip(5, 3_000)!!
+
+        assertEquals(101L, firstId)
+        assertEquals(102L, secondId)
+        val parts = inserted.captured
+        assertEquals(0L, parts[0].startedAtMs)
+        assertEquals(3_000L, parts[0].endedAtMs)
+        assertEquals(6.0, parts[0].distanceKm, 1e-9)
+        assertEquals(0.6 * 7.0, parts[0].actualCost, 1e-9)
+        assertEquals(3, parts[0].routeSearchId)
+        assertEquals(3_000L, parts[1].startedAtMs)
+        assertEquals(10_000L, parts[1].endedAtMs)
+        assertEquals(14.0, parts[1].distanceKm, 1e-9)
+        assertNull(parts[1].routeSearchId)
+        coVerify(exactly = 1) { tripDao.replaceTrips(listOf(5L), any()) }
+    }
+
+    @Test
+    fun `splitTrip rejects a split point outside the drive`() = runTest {
+        coEvery { tripDao.findById(5) } returns trip(5, "v1", null, 0)
+
+        assertNull(repository.splitTrip(5, 0))
+        coVerify(exactly = 0) { tripDao.replaceTrips(any(), any()) }
     }
 
     private fun historyEntry(searchId: Long?, tripId: Long?) = DriveHistoryEntry(

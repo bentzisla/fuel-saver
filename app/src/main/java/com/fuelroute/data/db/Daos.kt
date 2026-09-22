@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
@@ -155,6 +156,37 @@ interface TripDao {
     /** Deletes one trip; a search it was linked to simply reverts to an undriven search. */
     @Query("DELETE FROM trip WHERE id = :id")
     suspend fun deleteById(id: Long)
+
+    @Query("SELECT * FROM trip WHERE id = :id")
+    suspend fun findById(id: Long): TripEntity?
+
+    /** Bulk delete used by the History multi-select action. */
+    @Query("DELETE FROM trip WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<Long>)
+
+    /** Persists a manual post-drive entry (nullable fields clear a previous entry). */
+    @Query(
+        "UPDATE trip SET manualCost = :cost, manualDistanceKm = :distanceKm, " +
+            "manualLitersPer100Km = :litersPer100Km, manualEnteredAtMs = :enteredAtMs " +
+            "WHERE id = :tripId"
+    )
+    suspend fun updateManualCost(
+        tripId: Long,
+        cost: Double?,
+        distanceKm: Double?,
+        litersPer100Km: Double?,
+        enteredAtMs: Long,
+    )
+
+    /**
+     * Deletes [deleteIds] then inserts [trips] atomically. Used by merge/split so a crash can
+     * never leave the originals deleted but the replacement missing (or vice versa).
+     */
+    @Transaction
+    suspend fun replaceTrips(deleteIds: List<Long>, trips: List<TripEntity>): List<Long> {
+        if (deleteIds.isNotEmpty()) deleteByIds(deleteIds)
+        return trips.map { insert(it) }
+    }
 
     @Query("SELECT * FROM trip WHERE isOpen = 0 ORDER BY startedAtMs DESC LIMIT :limit")
     suspend fun recentClosed(limit: Int): List<TripEntity>
