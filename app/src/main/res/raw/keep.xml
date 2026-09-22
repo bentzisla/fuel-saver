@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The release host validator in com.fuelroute.car.FuelRouteCarAppService references
+    androidx.car.app's private @array/hosts_allowlist_sample at runtime. Resource shrinking would
+    otherwise drop a resource that is only referenced from code. Shrinking is not enabled today;
+    this keeps the allow-list working if it ever is.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@array/hosts_allowlist_sample" />

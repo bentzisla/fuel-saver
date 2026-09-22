@@ -571,6 +571,13 @@ private fun AndroidAutoHelpCard() {
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            // The 2026 trusted-source gate: a sideloaded APK can be filtered by Android Auto even
+            // with "Unknown sources" on, so the checklist above is not always sufficient.
+            Text(
+                text = stringResource(R.string.settings_android_auto_trusted_store),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
+            )
         }
     }
 }
