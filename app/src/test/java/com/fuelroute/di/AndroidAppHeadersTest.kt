@@ -8,6 +8,7 @@ import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class AndroidAppHeadersTest {
@@ -15,11 +16,29 @@ class AndroidAppHeadersTest {
     @Test
     fun `adds the android package and cert headers`() {
         val request = AndroidAppHeaders
-            .apply(Request.Builder().url("https://routes.googleapis.com/directions/v2:computeRoutes"))
+            .apply(
+                Request.Builder().url("https://routes.googleapis.com/directions/v2:computeRoutes"),
+                packageName = "com.fuelroute",
+                certSha1 = "AA:BB:CC",
+            )
             .build()
 
         assertEquals("com.fuelroute", request.header("X-Android-Package"))
-        assertEquals(AndroidAppHeaders.DEBUG_CERT_SHA1, request.header("X-Android-Cert"))
+        assertEquals("AA:BB:CC", request.header("X-Android-Cert"))
+    }
+
+    @Test
+    fun `omits the cert header when the certificate is unavailable`() {
+        val request = AndroidAppHeaders
+            .apply(
+                Request.Builder().url("https://routes.googleapis.com/directions/v2:computeRoutes"),
+                packageName = "com.fuelroute",
+                certSha1 = null,
+            )
+            .build()
+
+        assertEquals("com.fuelroute", request.header("X-Android-Package"))
+        assertNull(request.header("X-Android-Cert"))
     }
 
     @Test
@@ -39,9 +58,9 @@ class AndroidAppHeadersTest {
                 .build()
         }
 
-        AndroidAppHeadersInterceptor().intercept(chain)
+        AndroidAppHeadersInterceptor(packageName = "com.fuelroute", certSha1 = "AA:BB:CC").intercept(chain)
 
         assertEquals("com.fuelroute", forwarded.captured.header("X-Android-Package"))
-        assertEquals(AndroidAppHeaders.DEBUG_CERT_SHA1, forwarded.captured.header("X-Android-Cert"))
+        assertEquals("AA:BB:CC", forwarded.captured.header("X-Android-Cert"))
     }
 }

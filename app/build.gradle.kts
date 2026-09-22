@@ -49,6 +49,12 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Sign debug with the same release key so debug<->release installs are
+            // ordinary data-preserving updates (Android rejects in-place updates
+            // across different signing identities).
+            signingConfigs.findByName("release")?.let { signingConfig = it }
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(

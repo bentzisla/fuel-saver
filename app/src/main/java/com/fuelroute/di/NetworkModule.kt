@@ -1,7 +1,15 @@
 package com.fuelroute.di
 
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import com.fuelroute.data.places.PlacesService
 import com.fuelroute.data.routes.RoutesService
+import dagger.Module
+import dagger.Provides
+import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
+import dagger.hilt.components.SingletonComponent
 import kotlinx.serialization.json.Json
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
@@ -10,32 +18,35 @@ import okhttp3.Request
 import okhttp3.Response
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
+import java.security.MessageDigest
 import javax.inject.Singleton
-import dagger.Module
-import dagger.Provides
-import dagger.hilt.InstallIn
-import dagger.hilt.components.SingletonComponent
 
 /**
  * Adds the Android app identity headers required for an Android-restricted API key to be
  * accepted by Google's web services (Routes, Places). Without them the key yields HTTP 403.
+ *
+ * The signing certificate is resolved from the installed APK at runtime so the header always
+ * matches whichever key actually signed the build — both debug and release reuse the release
+ * keystore, so a hardcoded debug SHA-1 would be wrong.
  */
-class AndroidAppHeadersInterceptor : Interceptor {
+class AndroidAppHeadersInterceptor(
+    private val packageName: String,
+    private val certSha1: String?,
+) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
-        val request = AndroidAppHeaders.apply(chain.request().newBuilder()).build()
+        val request = AndroidAppHeaders.apply(chain.request().newBuilder(), packageName, certSha1).build()
         return chain.proceed(request)
     }
 }
 
 object AndroidAppHeaders {
-    const val PACKAGE_NAME = "com.fuelroute"
-
-    /** Debug keystore SHA-1 (`.\gradlew.bat signingReport`). */
-    const val DEBUG_CERT_SHA1 = "E2:AB:20:64:E9:A8:2F:93:10:3D:77:16:5B:C3:F9:07:0D:E2:2E:60"
-
-    fun apply(builder: Request.Builder): Request.Builder = builder
-        .header("X-Android-Package", PACKAGE_NAME)
-        .header("X-Android-Cert", DEBUG_CERT_SHA1)
+    fun apply(builder: Request.Builder, packageName: String, certSha1: String?): Request.Builder {
+        builder.header("X-Android-Package", packageName)
+        if (!certSha1.isNullOrBlank()) {
+            builder.header("X-Android-Cert", certSha1)
+        }
+        return builder
+    }
 }
 
 @Module
@@ -48,9 +59,15 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideOkHttpClient(): OkHttpClient = OkHttpClient.Builder()
-        .addInterceptor(AndroidAppHeadersInterceptor())
-        .build()
+    fun provideOkHttpClient(@ApplicationContext context: Context): OkHttpClient =
+        OkHttpClient.Builder()
+            .addInterceptor(
+                AndroidAppHeadersInterceptor(
+                    packageName = context.packageName,
+                    certSha1 = signingCertSha1(context),
+                ),
+            )
+            .build()
 
     @Provides
     @Singleton
@@ -70,4 +87,30 @@ object NetworkModule {
             .client(client)
             .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
             .build()
+}
+
+/**
+ * SHA-1 (colon-separated uppercase hex) of the APK's current signing certificate, or null when
+ * it cannot be resolved. Returns null rather than guessing so a restricted key fails loudly
+ * instead of sending a wrong certificate hash.
+ */
+private fun signingCertSha1(context: Context): String? = try {
+    val pm = context.packageManager
+    val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+    } else {
+        @Suppress("DEPRECATION")
+        pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNATURES)
+    }
+    val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        info.signingInfo?.apkContentsSigners
+    } else {
+        @Suppress("DEPRECATION")
+        info.signatures
+    }
+    val cert = signatures?.firstOrNull()?.toByteArray() ?: return null
+    MessageDigest.getInstance("SHA-1").digest(cert)
+        .joinToString(":") { byte -> "%02X".format(byte.toInt() and 0xFF) }
+} catch (_: Throwable) {
+    null
 }
