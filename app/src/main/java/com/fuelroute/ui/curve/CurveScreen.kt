@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,18 +12,26 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -41,6 +50,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -48,6 +58,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fuelroute.R
 import com.fuelroute.domain.fuel.CurveDataQuality
+import com.fuelroute.domain.fuel.ManualCurveResult
+import com.fuelroute.domain.fuel.ManualCurveValidator
 import com.fuelroute.domain.model.SpeedPoint
 import java.util.Locale
 import kotlin.math.abs
@@ -94,6 +106,7 @@ fun CurveScreen(
 @Composable
 private fun ActionsCard(state: CurveUiState, viewModel: CurveViewModel) {
     var pending by remember { mutableStateOf<PendingCurveAction?>(null) }
+    var editingManual by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -105,6 +118,12 @@ private fun ActionsCard(state: CurveUiState, viewModel: CurveViewModel) {
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(stringResource(R.string.curve_adopt))
+        }
+        Button(
+            onClick = { editingManual = true },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(stringResource(R.string.curve_edit_manual))
         }
         OutlinedButton(
             onClick = { pending = PendingCurveAction.ResetLearning },
@@ -120,6 +139,18 @@ private fun ActionsCard(state: CurveUiState, viewModel: CurveViewModel) {
         ) {
             Text(stringResource(R.string.curve_clear_manual))
         }
+    }
+
+    if (editingManual) {
+        ManualCurveEditorDialog(
+            defaultPoints = state.defaultPoints,
+            manualPoints = state.manualPoints,
+            onSave = { points ->
+                viewModel.saveManualCurve(points)
+                editingManual = false
+            },
+            onDismiss = { editingManual = false },
+        )
     }
 
     when (pending) {
@@ -182,6 +213,234 @@ private fun ConfirmDestructiveDialog(
             }
         },
     )
+}
+
+/** One editable speed/consumption row in the manual-curve editor. */
+private data class CurveEditRow(
+    val id: Long,
+    val speed: String,
+    val consumption: String,
+)
+
+/** Per-row validation state used to highlight bad rows. */
+private data class CurveRowState(val blank: Boolean, val valid: Boolean)
+
+/**
+ * Dialog for entering a manual consumption curve. Rows can be added/removed and seeded from
+ * the current default curve, the current manual curve, or an empty list. Empty save clears
+ * the manual curve; otherwise at least two valid points are required.
+ */
+@Composable
+private fun ManualCurveEditorDialog(
+    defaultPoints: List<SpeedPoint>,
+    manualPoints: List<SpeedPoint>,
+    onSave: (List<SpeedPoint>) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val initialRows = remember(manualPoints, defaultPoints) {
+        val source = manualPoints.ifEmpty { defaultPoints }
+        val mapped = source.mapIndexed { index, point ->
+            CurveEditRow(
+                id = index.toLong(),
+                speed = format(point.speedKmh, 0),
+                consumption = format(point.litersPer100Km, 1),
+            )
+        }
+        if (mapped.isEmpty()) listOf(CurveEditRow(0L, "", "")) else mapped
+    }
+    var rows by remember(initialRows) { mutableStateOf(initialRows) }
+
+    val nextId = (rows.maxOfOrNull { it.id } ?: -1L) + 1L
+
+    fun seedFrom(source: List<SpeedPoint>) {
+        rows = if (source.isEmpty()) {
+            listOf(CurveEditRow(nextId, "", ""))
+        } else {
+            source.mapIndexed { index, point ->
+                CurveEditRow(
+                    id = nextId + index,
+                    speed = format(point.speedKmh, 0),
+                    consumption = format(point.litersPer100Km, 1),
+                )
+            }
+        }
+    }
+
+    val rowStates = rows.map { row ->
+        val blank = row.speed.isBlank() && row.consumption.isBlank()
+        val speed = row.speed.trim().toDoubleOrNull()
+        val consumption = row.consumption.trim().toDoubleOrNull()
+        val valid = !blank &&
+            speed != null && speed.isFinite() &&
+            speed > ManualCurveValidator.MIN_SPEED_KMH &&
+            speed <= ManualCurveValidator.MAX_SPEED_KMH &&
+            consumption != null && consumption.isFinite() && consumption > 0.0
+        CurveRowState(blank = blank, valid = valid)
+    }
+    val invalidCount = rowStates.count { !it.blank && !it.valid }
+
+    val candidatePoints = rows.mapNotNull { row ->
+        val speed = row.speed.trim().toDoubleOrNull() ?: return@mapNotNull null
+        val consumption = row.consumption.trim().toDoubleOrNull() ?: return@mapNotNull null
+        SpeedPoint(speed, consumption)
+    }
+    val validated = if (invalidCount == 0) {
+        ManualCurveValidator.validate(candidatePoints)
+    } else {
+        null
+    }
+    val canSave = invalidCount == 0 &&
+        (validated is ManualCurveResult.Valid || validated is ManualCurveResult.Cleared)
+
+    val errorText = when {
+        invalidCount > 0 -> stringResource(R.string.curve_editor_error_row)
+        validated is ManualCurveResult.Invalid -> stringResource(R.string.curve_editor_error_too_few)
+        else -> null
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.curve_editor_title)) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.curve_editor_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = stringResource(R.string.curve_editor_units_hint),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    TextButton(onClick = { seedFrom(emptyList()) }) {
+                        Text(
+                            text = stringResource(R.string.curve_editor_preset_empty),
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                    TextButton(onClick = { seedFrom(defaultPoints) }) {
+                        Text(
+                            text = stringResource(R.string.curve_editor_preset_default),
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                    TextButton(onClick = { seedFrom(manualPoints) }) {
+                        Text(
+                            text = stringResource(R.string.curve_editor_preset_manual),
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                }
+
+                rows.forEachIndexed { index, row ->
+                    CurveEditRowItem(
+                        row = row,
+                        isError = !rowStates[index].blank && !rowStates[index].valid,
+                        onSpeedChange = { value ->
+                            rows = rows.toMutableList().also { it[index] = row.copy(speed = value) }
+                        },
+                        onConsumptionChange = { value ->
+                            rows = rows.toMutableList().also { it[index] = row.copy(consumption = value) }
+                        },
+                        onRemove = { rows = rows.filterIndexed { i, _ -> i != index } },
+                    )
+                }
+
+                TextButton(onClick = { rows = rows + CurveEditRow(nextId, "", "") }) {
+                    Icon(Icons.Filled.Add, contentDescription = null)
+                    Text(text = stringResource(R.string.curve_editor_add))
+                }
+
+                errorText?.let { message ->
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                if (validated is ManualCurveResult.Cleared) {
+                    Text(
+                        text = stringResource(R.string.curve_editor_clear_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = canSave,
+                onClick = {
+                    when (validated) {
+                        is ManualCurveResult.Valid -> onSave(validated.points)
+                        ManualCurveResult.Cleared -> onSave(emptyList())
+                        else -> Unit
+                    }
+                },
+            ) {
+                Text(stringResource(R.string.curve_editor_save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.curve_editor_cancel))
+            }
+        },
+    )
+}
+
+@Composable
+private fun CurveEditRowItem(
+    row: CurveEditRow,
+    isError: Boolean,
+    onSpeedChange: (String) -> Unit,
+    onConsumptionChange: (String) -> Unit,
+    onRemove: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        OutlinedTextField(
+            value = row.speed,
+            onValueChange = onSpeedChange,
+            label = { Text(stringResource(R.string.curve_editor_speed_label)) },
+            isError = isError,
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            modifier = Modifier.weight(1f),
+        )
+        OutlinedTextField(
+            value = row.consumption,
+            onValueChange = onConsumptionChange,
+            label = { Text(stringResource(R.string.curve_editor_consumption_label)) },
+            isError = isError,
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(onClick = onRemove) {
+            Icon(
+                imageVector = Icons.Filled.Delete,
+                contentDescription = stringResource(R.string.curve_editor_remove),
+            )
+        }
+    }
 }
 
 @Composable
