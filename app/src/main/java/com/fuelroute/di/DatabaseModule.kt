@@ -2,6 +2,8 @@ package com.fuelroute.di
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.withTransaction
+import com.fuelroute.data.backup.TransactionRunner
 import com.fuelroute.data.db.AppDatabase
 import com.fuelroute.data.db.FavoriteDestinationDao
 import com.fuelroute.data.db.FavoriteObdDeviceDao
@@ -38,6 +40,10 @@ object DatabaseModule {
             .build()
 
     @Provides
+    @Singleton
+    fun provideTransactionRunner(db: AppDatabase): TransactionRunner = RoomTransactionRunner(db)
+
+    @Provides
     fun provideObdSampleDao(db: AppDatabase): ObdSampleDao = db.obdSampleDao()
 
     @Provides
@@ -65,4 +71,9 @@ object DatabaseModule {
     @Provides
     fun provideFavoriteObdDeviceDao(db: AppDatabase): FavoriteObdDeviceDao =
         db.favoriteObdDeviceDao()
+}
+
+/** Production [TransactionRunner] backed by Room's `withTransaction`. */
+class RoomTransactionRunner(private val db: AppDatabase) : TransactionRunner {
+    override suspend fun <R> run(block: suspend () -> R): R = db.withTransaction { block() }
 }

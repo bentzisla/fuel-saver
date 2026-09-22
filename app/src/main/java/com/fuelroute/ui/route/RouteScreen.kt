@@ -593,6 +593,7 @@ private fun RouteErrorCard(error: RoutesError) {
 @StringRes
 private fun RoutesError.messageRes(): Int = when (this) {
     RoutesError.NoNetwork -> R.string.route_error_no_network
+    RoutesError.Timeout -> R.string.route_error_timeout
     RoutesError.Quota -> R.string.route_error_quota
     RoutesError.Forbidden -> R.string.route_error_forbidden
     RoutesError.NoRoute -> R.string.route_error_no_route
@@ -605,6 +606,7 @@ private fun RoutesError.messageRes(): Int = when (this) {
 @StringRes
 private fun RoutesError.actionRes(): Int? = when (this) {
     RoutesError.NoNetwork -> R.string.route_error_action_retry
+    RoutesError.Timeout -> R.string.route_error_action_retry
     RoutesError.Quota -> R.string.route_error_action_wait
     RoutesError.Forbidden -> R.string.route_error_action_check_key
     RoutesError.NoRoute -> R.string.route_error_action_change_time

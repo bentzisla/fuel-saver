@@ -93,14 +93,21 @@ object RoutesMapper {
         // total; when Google only fills the per-leg advisories, sum the leg estimates.
         // Absence everywhere means "no toll", while present-but-unpriced means tolls exist but
         // the amount is unknown.
+        //
+        // A route-level tollInfo with an empty price must NOT shadow priced leg tolls: Google can
+        // return the route-level advisory unpriced while still pricing each leg. Only call the
+        // toll unknown when neither the route nor any leg carries a price.
         val routeTollInfo = dto.travelAdvisory?.tollInfo
         val legTollInfos = dto.legs.mapNotNull { it.travelAdvisory?.tollInfo }
+        val routeTollPrice = routeTollInfo?.firstPrice()
+        val legTollPrice = legTollInfos
+            .mapNotNull { it.firstPrice() }
+            .takeIf { it.isNotEmpty() }
+            ?.sum()
         val toll: Double? = when {
-            routeTollInfo != null -> routeTollInfo.firstPrice()
-            legTollInfos.isNotEmpty() -> legTollInfos
-                .mapNotNull { it.firstPrice() }
-                .takeIf { it.isNotEmpty() }
-                ?.sum()
+            routeTollPrice != null -> routeTollPrice
+            legTollPrice != null -> legTollPrice
+            routeTollInfo != null || legTollInfos.isNotEmpty() -> null
             else -> 0.0
         }
 

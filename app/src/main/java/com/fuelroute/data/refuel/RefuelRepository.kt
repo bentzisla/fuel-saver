@@ -22,7 +22,12 @@ data class FullRefuelInterval(
 
 interface RefuelRepository {
     suspend fun recent(vehicleId: String, limit: Int): List<Refuel>
-    suspend fun add(liters: Double, totalPrice: Double, isFull: Boolean, vehicleId: String)
+
+    /**
+     * Records one refuel. [pricePerLiter] is derived from [totalPrice] / [liters]; [grade] is the
+     * active vehicle's fuel grade at the time of the fill.
+     */
+    suspend fun add(liters: Double, totalPrice: Double, isFull: Boolean, vehicleId: String, grade: String)
     suspend fun totalFullLiters(vehicleId: String): Double
     suspend fun totalObdFuel(vehicleId: String): Double
 
@@ -40,7 +45,13 @@ class DefaultRefuelRepository @Inject constructor(
     override suspend fun recent(vehicleId: String, limit: Int): List<Refuel> =
         refuelDao.recentForVehicle(vehicleId, limit).map { it.toDomain() }
 
-    override suspend fun add(liters: Double, totalPrice: Double, isFull: Boolean, vehicleId: String) {
+    override suspend fun add(
+        liters: Double,
+        totalPrice: Double,
+        isFull: Boolean,
+        vehicleId: String,
+        grade: String,
+    ) {
         refuelDao.insert(
             RefuelEntity(
                 vehicleId = vehicleId,
@@ -48,6 +59,8 @@ class DefaultRefuelRepository @Inject constructor(
                 liters = liters,
                 totalPrice = totalPrice,
                 isFull = isFull,
+                pricePerLiter = if (liters > 0.0) totalPrice / liters else 0.0,
+                grade = grade,
             ),
         )
     }
