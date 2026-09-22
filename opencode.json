@@ -3,5 +3,12 @@
   "agent": {
     "general": { "model": "openrouter/deepseek/deepseek-v4.1-flash" },
     "explore": { "model": "openrouter/deepseek/deepseek-v4.1-flash" }
-  }
+  },
+  "permissions": [
+    { "action": "external_directory", "resource": "C:/dev/fuel*", "effect": "allow" },
+    { "action": "read", "resource": "C:/dev/fuel*", "effect": "allow" },
+    { "action": "edit", "resource": "C:/dev/fuel*", "effect": "allow" },
+    { "action": "glob", "resource": "C:/dev/fuel*", "effect": "allow" },
+    { "action": "grep", "resource": "C:/dev/fuel*", "effect": "allow" }
+  ]
 }
