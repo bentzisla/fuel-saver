@@ -1,13 +1,16 @@
 package com.fuelroute.ui.history
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -17,20 +20,21 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -41,8 +45,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -54,31 +61,158 @@ import com.fuelroute.domain.history.ManualCostCalculator
 import com.fuelroute.domain.history.ManualCostInput
 import com.fuelroute.domain.history.PredictionAccuracy
 import com.fuelroute.domain.history.SplitAnchor
-import kotlinx.coroutines.delay
-import java.text.DateFormat
-import java.util.Date
-import java.util.Locale
+import com.fuelroute.ui.components.ConfirmDialog
+import com.fuelroute.ui.components.DASH
+import com.fuelroute.ui.components.Dimens
+import com.fuelroute.ui.components.EmptyState
+import com.fuelroute.ui.components.FuelTopBar
+import com.fuelroute.ui.components.HeroValue
+import com.fuelroute.ui.components.KeyValueRow
+import com.fuelroute.ui.components.ListRow
+import com.fuelroute.ui.components.PillTone
+import com.fuelroute.ui.components.SectionCard
+import com.fuelroute.ui.components.SectionTitle
+import com.fuelroute.ui.components.StatusPill
+import com.fuelroute.ui.components.fmt
+import com.fuelroute.ui.components.formatDateTime
+import com.fuelroute.ui.components.money
+import com.fuelroute.ui.components.signed
+import com.fuelroute.ui.theme.FuelTheme
 import kotlin.math.abs
 
+/**
+ * Search/drive history: one summary (money saved, forecast accuracy) and a calm list of rides.
+ * Each row shows only what the ride cost and its state; the full predicted-vs-actual breakdown
+ * and every action (manual cost, link, merge/split, delete) live in the ride's detail sheet.
+ */
 @Composable
 fun HistoryScreen(
     modifier: Modifier = Modifier,
+    onBack: () -> Unit = {},
     viewModel: HistoryViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val snackbar = remember { SnackbarHostState() }
 
     state.linkFeedback?.let { feedback ->
         LaunchedEffect(feedback) {
-            delay(FEEDBACK_VISIBLE_MS)
+            snackbar.showSnackbar(
+                context.getString(
+                    when (feedback) {
+                        LinkFeedback.LINKED -> R.string.history_link_linked
+                        LinkFeedback.NONE_FOUND -> R.string.history_link_none
+                    },
+                ),
+            )
             viewModel.clearLinkFeedback()
         }
     }
-
     state.mergeSplitFeedback?.let { feedback ->
         LaunchedEffect(feedback) {
-            delay(FEEDBACK_VISIBLE_MS)
+            snackbar.showSnackbar(
+                context.getString(
+                    when (feedback) {
+                        MergeSplitFeedback.MERGED -> R.string.history_merge_split_merged
+                        MergeSplitFeedback.SPLIT -> R.string.history_merge_split_split
+                        MergeSplitFeedback.FAILED -> R.string.history_merge_split_failed
+                    },
+                ),
+            )
             viewModel.clearMergeSplitFeedback()
         }
+    }
+
+    HistoryDialogs(state = state, viewModel = viewModel)
+
+    Box(modifier = modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            FuelTopBar(
+                title = stringResource(R.string.history_title),
+                onBack = onBack,
+                actions = {
+                    if (state.entries.isNotEmpty()) {
+                        TextButton(onClick = viewModel::toggleSelectionMode) {
+                            Text(
+                                stringResource(
+                                    if (state.selectionMode) R.string.history_select_done else R.string.history_select,
+                                ),
+                            )
+                        }
+                    }
+                },
+            )
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = Dimens.l, end = Dimens.l, bottom = Dimens.xl, top = Dimens.s),
+                verticalArrangement = Arrangement.spacedBy(Dimens.m),
+            ) {
+                if (state.selectionMode) {
+                    item(key = "selection") {
+                        SelectionBar(
+                            count = state.selectedIds.size,
+                            onDelete = viewModel::requestBulkDelete,
+                        )
+                    }
+                } else if (state.entries.isNotEmpty()) {
+                    item(key = "summary") { SummaryCard(state) }
+                }
+
+                when {
+                    state.isLoading -> item(key = "loading") {
+                        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
+                    }
+
+                    state.entries.isEmpty() -> item(key = "empty") {
+                        EmptyState(
+                            title = stringResource(R.string.history_empty),
+                            body = stringResource(R.string.history_empty_hint),
+                        )
+                    }
+
+                    else -> items(state.entries, key = { it.selectionId ?: it.timestampMs }) { entry ->
+                        val selected = entry.selectionId?.let { it in state.selectedIds } ?: false
+                        HistoryRow(
+                            entry = entry,
+                            selectionMode = state.selectionMode,
+                            selected = selected,
+                            onClick = {
+                                if (state.selectionMode) viewModel.toggleSelection(entry) else viewModel.openDetail(entry)
+                            },
+                        )
+                    }
+                }
+            }
+        }
+        SnackbarHost(
+            hostState = snackbar,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(Dimens.l),
+        )
+    }
+}
+
+/** All modal UI of the screen, driven by the ViewModel's state flags. */
+@Composable
+private fun HistoryDialogs(state: HistoryUiState, viewModel: HistoryViewModel) {
+    state.selectedEntry?.let { entry ->
+        RideDetailSheet(
+            entry = entry,
+            onDismiss = viewModel::dismissDetail,
+            onManualCost = { viewModel.openManualCost(entry) },
+            onLink = {
+                viewModel.dismissDetail()
+                viewModel.openManualLink(entry)
+            },
+            onMergeSplit = { viewModel.openMergeSplit(entry) },
+            onDelete = {
+                viewModel.dismissDetail()
+                viewModel.requestDelete(entry)
+            },
+        )
     }
 
     if (state.linkTargetTripId != null) {
@@ -91,15 +225,11 @@ fun HistoryScreen(
         )
     }
 
-    state.selectedEntry?.let { entry ->
-        RideDetailDialog(
-            entry = entry,
-            onDismiss = viewModel::dismissDetail,
-        )
-    }
-
     if (state.pendingDelete != null) {
-        DeleteRideDialog(
+        ConfirmDialog(
+            title = stringResource(R.string.history_delete_title),
+            message = stringResource(R.string.history_delete_message),
+            confirmLabel = stringResource(R.string.history_delete_confirm),
             onConfirm = viewModel::confirmDelete,
             onDismiss = viewModel::cancelDelete,
         )
@@ -114,9 +244,10 @@ fun HistoryScreen(
     }
 
     if (state.pendingBulkDelete) {
-        ConfirmActionDialog(
+        ConfirmDialog(
             title = stringResource(R.string.history_bulk_delete_title),
             message = stringResource(R.string.history_bulk_delete_message, state.selectedIds.size),
+            confirmLabel = stringResource(R.string.history_delete_confirm),
             onConfirm = viewModel::confirmBulkDelete,
             onDismiss = viewModel::cancelBulkDelete,
         )
@@ -127,168 +258,78 @@ fun HistoryScreen(
             entry = entry,
             candidates = mergeCandidates(state.entries, entry),
             onMerge = viewModel::requestMerge,
-            onSplit = { splitAtMs -> viewModel.requestSplit(entry.tripId!!, splitAtMs) },
+            onSplit = { splitAtMs -> entry.tripId?.let { viewModel.requestSplit(it, splitAtMs) } },
             onDismiss = viewModel::dismissMergeSplit,
         )
     }
 
     if (state.pendingMerge != null) {
-        ConfirmActionDialog(
+        ConfirmDialog(
             title = stringResource(R.string.history_merge_confirm_title),
             message = stringResource(R.string.history_merge_confirm_message),
+            confirmLabel = stringResource(R.string.history_merge_action),
             onConfirm = viewModel::confirmMerge,
             onDismiss = viewModel::cancelMerge,
         )
     }
 
     if (state.pendingSplit != null) {
-        ConfirmActionDialog(
+        ConfirmDialog(
             title = stringResource(R.string.history_split_confirm_title),
             message = stringResource(R.string.history_split_confirm_message),
+            confirmLabel = stringResource(R.string.history_split_action),
             onConfirm = viewModel::confirmSplit,
             onDismiss = viewModel::cancelSplit,
         )
     }
+}
 
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            Column {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = stringResource(R.string.history_title),
-                        style = MaterialTheme.typography.headlineSmall,
-                    )
-                    TextButton(onClick = viewModel::toggleSelectionMode) {
-                        Text(
-                            stringResource(
-                                if (state.selectionMode) {
-                                    R.string.history_select_done
-                                } else {
-                                    R.string.history_select
-                                },
-                            ),
-                        )
-                    }
-                }
-                if (state.selectionMode) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = stringResource(
-                                R.string.history_selected_count,
-                                state.selectedIds.size,
-                            ),
-                            style = MaterialTheme.typography.titleSmall,
-                        )
-                        TextButton(
-                            onClick = viewModel::requestBulkDelete,
-                            enabled = state.selectedIds.isNotEmpty(),
-                        ) {
-                            Text(stringResource(R.string.history_bulk_delete_action))
-                        }
-                    }
-                }
+/** The one hero of the screen: how much the recommendations saved, and how accurate they were. */
+@Composable
+private fun SummaryCard(state: HistoryUiState) {
+    val totalSaved = state.entries.filter { it.hasActual }.sumOf { it.savedAmount }
+    SectionCard {
+        Row(verticalAlignment = Alignment.Bottom) {
+            HeroValue(
+                value = money(totalSaved),
+                label = stringResource(R.string.history_saved_label),
+                color = if (totalSaved > 0.0) FuelTheme.colors.positive else MaterialTheme.colorScheme.onSurface,
+                valueStyle = MaterialTheme.typography.displaySmall,
+                modifier = Modifier.weight(1f),
+            )
+            Column(horizontalAlignment = Alignment.End) {
                 state.accuracyPct?.let { accuracy ->
                     Text(
-                        text = stringResource(R.string.history_accuracy, format(accuracy, 1)),
+                        text = stringResource(R.string.history_accuracy, fmt(accuracy, 1)),
                         style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(top = 4.dp),
                     )
                 }
-                val totalSaved = state.entries.filter { it.hasActual }.sumOf { it.savedAmount }
-                if (totalSaved > 0.0) {
-                    Text(
-                        text = stringResource(R.string.history_saved_total, format(totalSaved, 2)),
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                }
-            }
-        }
-
-        state.linkFeedback?.let { feedback ->
-            item {
                 Text(
-                    text = stringResource(
-                        when (feedback) {
-                            LinkFeedback.LINKED -> R.string.history_link_linked
-                            LinkFeedback.NONE_FOUND -> R.string.history_link_none
-                        },
-                    ),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-        }
-
-        state.mergeSplitFeedback?.let { feedback ->
-            item {
-                Text(
-                    text = stringResource(
-                        when (feedback) {
-                            MergeSplitFeedback.MERGED -> R.string.history_merge_split_merged
-                            MergeSplitFeedback.SPLIT -> R.string.history_merge_split_split
-                            MergeSplitFeedback.FAILED -> R.string.history_merge_split_failed
-                        },
-                    ),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = if (feedback == MergeSplitFeedback.FAILED) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.primary
-                    },
-                )
-            }
-        }
-
-        if (state.isLoading) {
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                ) {
-                    CircularProgressIndicator()
-                }
-            }
-        } else if (state.entries.isEmpty()) {
-            item {
-                Text(
-                    text = stringResource(R.string.history_empty),
+                    text = stringResource(R.string.history_rides_count, state.entries.size),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-        } else {
-            items(state.entries) { entry ->
-                HistoryRideCard(
-                    entry = entry,
-                    selectionMode = state.selectionMode,
-                    selected = entry.selectionId?.let { it in state.selectedIds } ?: false,
-                    onClick = {
-                        if (state.selectionMode) {
-                            viewModel.toggleSelection(entry)
-                        } else {
-                            viewModel.openDetail(entry)
-                        }
-                    },
-                    onToggleSelect = { viewModel.toggleSelection(entry) },
-                    onLink = { viewModel.openManualLink(entry) },
-                    onDelete = { viewModel.requestDelete(entry) },
-                    onManualCost = { viewModel.openManualCost(entry) },
-                    onMergeSplit = { viewModel.openMergeSplit(entry) },
+        }
+    }
+}
+
+@Composable
+private fun SelectionBar(count: Int, onDelete: () -> Unit) {
+    SectionCard(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentPadding = Dimens.s) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = stringResource(R.string.history_selected_count, count),
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = Dimens.s),
+            )
+            TextButton(onClick = onDelete, enabled = count > 0) {
+                Icon(Icons.Filled.Delete, contentDescription = null)
+                Text(
+                    text = stringResource(R.string.history_bulk_delete_action),
+                    modifier = Modifier.padding(start = Dimens.xs),
                 )
             }
         }
@@ -296,190 +337,218 @@ fun HistoryScreen(
 }
 
 /**
- * One combined "ride": the recommended route (predicted ₪/L/min) and the measured OBD
- * outcome (actual ₪/L/min) with a delta and a state label.
+ * One ride, readable at a glance: where, when, what it cost (actual, else predicted) and at
+ * most three state pills. Tap for the breakdown and actions.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun HistoryRideCard(
+private fun HistoryRow(
     entry: DriveHistoryEntry,
     selectionMode: Boolean,
     selected: Boolean,
     onClick: () -> Unit,
-    onToggleSelect: () -> Unit,
-    onLink: () -> Unit,
-    onDelete: () -> Unit,
-    onManualCost: () -> Unit,
-    onMergeSplit: () -> Unit,
 ) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        colors = if (selected) {
-            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+    val actual = entry.actualCost?.takeIf { entry.hasActual }
+    val predicted = entry.predictedCost
+    SectionCard(
+        onClick = onClick,
+        containerColor = if (selected) {
+            MaterialTheme.colorScheme.secondaryContainer
         } else {
-            CardDefaults.cardColors()
+            MaterialTheme.colorScheme.surfaceContainerLow
         },
     ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (selectionMode) {
-                    Checkbox(
-                        checked = selected,
-                        onCheckedChange = { onToggleSelect() },
-                    )
-                }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Dimens.m)) {
+            if (selectionMode) {
+                Checkbox(checked = selected, onCheckedChange = null)
+            }
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = routeTitle(entry).ifBlank { stringResource(R.string.history_unlinked_drive) },
                     style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = formatDate(entry.timestampMs),
-                    style = MaterialTheme.typography.labelSmall,
+                    text = listOfNotNull(
+                        formatDateTime(entry.timestampMs),
+                        entry.distanceKm?.let { "${fmt(it, 1)} ${stringResource(R.string.route_units_km)}" },
+                    ).joinToString(" · "),
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                // Own click handler so the delete tap never also opens the detail dialog.
-                if (!selectionMode) {
-                    IconButton(onClick = onDelete) {
-                        Icon(
-                            imageVector = Icons.Filled.Delete,
-                            contentDescription = stringResource(R.string.history_delete_title),
-                            tint = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                }
             }
-
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                RideStateLabel(entry.rideState)
-                if (entry.isDemo) {
-                    DemoBadge()
-                }
-            }
-
-            if (entry.hasManualEntry) {
+            Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    text = stringResource(R.string.history_manual_badge),
+                    text = (actual ?: predicted)?.let { money(it) } ?: DASH,
+                    style = MaterialTheme.typography.titleLarge,
+                )
+                Text(
+                    text = stringResource(
+                        if (actual != null) R.string.history_actual_label else R.string.history_predicted_label,
+                    ),
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(Dimens.xs), verticalArrangement = Arrangement.spacedBy(Dimens.xs)) {
+            RideStatePill(entry.rideState)
+            if (entry.isDemo) StatusPill(stringResource(R.string.history_demo_badge), tone = PillTone.Caution)
+            if (entry.hasManualEntry) StatusPill(stringResource(R.string.history_manual_short), tone = PillTone.Accent)
+            if (predicted != null && actual != null && predicted > 0.0) {
+                PredictionAccuracy.errorPct(predicted, actual)?.let { pct ->
+                    StatusPill(
+                        text = stringResource(R.string.history_delta_pill, signed(pct)),
+                        tone = if (abs(pct) <= 10.0) PillTone.Positive else PillTone.Caution,
+                    )
+                }
+            }
             if (entry.hasActual && entry.savedAmount > 0.0) {
-                Text(
-                    text = stringResource(
-                        R.string.history_saving_vs_fastest,
-                        format(entry.savedAmount, 2),
-                    ),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
+                StatusPill(
+                    text = stringResource(R.string.history_saved_pill, fmt(entry.savedAmount, 2)),
+                    tone = PillTone.Positive,
                 )
             }
+        }
+    }
+}
 
-            val predicted = entry.predictedCost
-            val actual = entry.actualCost
-            if (predicted != null) {
+@Composable
+private fun RideStatePill(state: RideState) {
+    when (state) {
+        RideState.LINKED -> StatusPill(stringResource(R.string.history_ride_state_linked), tone = PillTone.Positive)
+        RideState.WAITING_OBD -> StatusPill(stringResource(R.string.history_ride_state_waiting))
+        RideState.NO_PREDICTION -> StatusPill(stringResource(R.string.history_ride_state_no_prediction))
+    }
+}
+
+/**
+ * Full predicted-vs-actual breakdown for one ride, plus every action that applies to it. Replaces
+ * the per-card buttons/delete icon of the old list.
+ */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun RideDetailSheet(
+    entry: DriveHistoryEntry,
+    onDismiss: () -> Unit,
+    onManualCost: () -> Unit,
+    onLink: () -> Unit,
+    onMergeSplit: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val predicted = entry.predictedCost
+    val actual = entry.actualCost?.takeIf { entry.hasActual }
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(
+            modifier = Modifier
+                .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
+                .padding(start = Dimens.l, end = Dimens.l, bottom = Dimens.xl),
+            verticalArrangement = Arrangement.spacedBy(Dimens.m),
+        ) {
+            Column {
                 Text(
-                    text = stringResource(
-                        R.string.history_ride_predicted,
-                        format(predicted, 2),
-                        entry.predictedLiters?.let { format(it, 1) } ?: DASH,
-                        entry.predictedMinutes?.let { format(it, 0) } ?: DASH,
-                    ),
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = routeTitle(entry).ifBlank { stringResource(R.string.history_detail_unlinked) },
+                    style = MaterialTheme.typography.titleLarge,
                 )
-            }
-            if (entry.hasActual && actual != null) {
                 Text(
-                    text = stringResource(
-                        R.string.history_ride_actual,
-                        format(actual, 2),
-                        entry.actualLiters?.let { format(it, 1) } ?: DASH,
-                        entry.actualMinutes?.let { format(it, 0) } ?: DASH,
-                    ),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            } else if (predicted != null) {
-                Text(
-                    text = stringResource(R.string.history_ride_actual_waiting),
+                    text = formatDateTime(entry.timestampMs),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(Dimens.xs)) {
+                RideStatePill(entry.rideState)
+                if (entry.isDemo) StatusPill(stringResource(R.string.history_demo_badge), tone = PillTone.Caution)
+                if (entry.hasManualEntry) StatusPill(stringResource(R.string.history_manual_badge), tone = PillTone.Accent)
+            }
 
+            SectionTitle(stringResource(R.string.history_detail_title))
+            KeyValueRow(
+                label = stringResource(R.string.history_predicted_label),
+                value = predicted?.let {
+                    stringResource(
+                        R.string.history_value_triplet,
+                        fmt(it, 2),
+                        entry.predictedLiters?.let { l -> fmt(l, 1) } ?: DASH,
+                        entry.predictedMinutes?.let { m -> fmt(m, 0) } ?: DASH,
+                    )
+                } ?: stringResource(R.string.history_ride_state_no_prediction),
+            )
+            KeyValueRow(
+                label = stringResource(R.string.history_actual_label),
+                value = actual?.let {
+                    stringResource(
+                        R.string.history_value_triplet,
+                        fmt(it, 2),
+                        entry.actualLiters?.let { l -> fmt(l, 1) } ?: DASH,
+                        entry.actualMinutes?.let { m -> fmt(m, 0) } ?: DASH,
+                    )
+                } ?: stringResource(R.string.history_ride_state_waiting),
+            )
             if (predicted != null && actual != null && predicted > 0.0) {
                 val delta = actual - predicted
                 val pct = PredictionAccuracy.errorPct(predicted, actual)
-                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
-                Text(
-                    text = stringResource(
-                        R.string.history_delta,
-                        signed(delta),
-                        pct?.let { signed(it) } ?: DASH,
-                    ),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = if (delta > 0.0) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.primary
+                KeyValueRow(
+                    label = stringResource(R.string.history_delta_label),
+                    value = stringResource(R.string.history_delta, signed(delta), pct?.let { signed(it) } ?: DASH),
+                    emphasize = true,
+                    valueColor = if (delta > 0.0) MaterialTheme.colorScheme.error else FuelTheme.colors.positive,
+                )
+            }
+            if (entry.hasActual && entry.savedAmount > 0.0) {
+                KeyValueRow(
+                    label = stringResource(R.string.history_saving_label),
+                    value = money(entry.savedAmount),
+                    valueColor = FuelTheme.colors.positive,
+                )
+            }
+            entry.distanceKm?.let {
+                KeyValueRow(
+                    label = stringResource(R.string.route_distance_label),
+                    value = "${fmt(it, 1)} ${stringResource(R.string.route_units_km)}",
+                )
+            }
+            entry.pricePerLiterAtSearch?.let {
+                KeyValueRow(label = stringResource(R.string.history_price_search_label), value = money(it))
+            }
+            entry.pricePerLiterAtTrip?.let {
+                KeyValueRow(label = stringResource(R.string.history_price_trip_label), value = money(it))
+            }
+
+            SectionTitle(stringResource(R.string.history_actions_title))
+            Column {
+                if (entry.canEnterManualCost) {
+                    ListRow(
+                        title = stringResource(R.string.history_manual_action),
+                        leading = { Icon(painterResource(R.drawable.ic_gas_station), contentDescription = null) },
+                        onClick = onManualCost,
+                    )
+                }
+                if (entry.canLinkManually) {
+                    ListRow(
+                        title = stringResource(R.string.history_link_ride),
+                        leading = { Icon(painterResource(R.drawable.ic_navigation), contentDescription = null) },
+                        onClick = onLink,
+                    )
+                }
+                if (entry.tripId != null) {
+                    ListRow(
+                        title = stringResource(R.string.history_merge_split_action),
+                        leading = { Icon(painterResource(R.drawable.ic_tune), contentDescription = null) },
+                        onClick = onMergeSplit,
+                    )
+                }
+                ListRow(
+                    title = stringResource(R.string.history_delete_title),
+                    titleColor = MaterialTheme.colorScheme.error,
+                    leading = {
+                        Icon(Icons.Filled.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                     },
+                    onClick = onDelete,
                 )
-            }
-
-            entry.distanceKm?.let { distance ->
-                Text(
-                    text = stringResource(R.string.history_km, format(distance, 1)),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            if (entry.isUndrivenSearch && entry.tripId == null) {
-                Text(
-                    text = stringResource(R.string.history_type_search),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    text = stringResource(R.string.history_not_driven),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            if (!selectionMode && (entry.canEnterManualCost || entry.tripId != null)) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(top = 4.dp),
-                ) {
-                    if (entry.canEnterManualCost) {
-                        OutlinedButton(onClick = onManualCost) {
-                            Text(stringResource(R.string.history_manual_action))
-                        }
-                    }
-                    if (entry.tripId != null) {
-                        OutlinedButton(onClick = onMergeSplit) {
-                            Text(stringResource(R.string.history_merge_split_action))
-                        }
-                    }
-                }
-            }
-
-            if (entry.canLinkManually) {
-                OutlinedButton(
-                    onClick = onLink,
-                    modifier = Modifier.padding(top = 4.dp),
-                ) {
-                    Text(stringResource(R.string.history_link_ride))
-                }
             }
         }
     }
@@ -526,14 +595,9 @@ private fun ManualCostDialog(
                 modifier = Modifier
                     .heightIn(max = 400.dp)
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(Dimens.s),
             ) {
-                Text(
-                    text = stringResource(R.string.history_manual_price, format(pricePerLiter, 2)),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(Dimens.s)) {
                     FilterChip(
                         selected = !consumptionMode,
                         onClick = { consumptionMode = false },
@@ -562,14 +626,19 @@ private fun ManualCostDialog(
                         onValueChange = { consumptionText = it },
                         label = stringResource(R.string.history_manual_consumption_label),
                     )
+                    Text(
+                        text = stringResource(R.string.history_manual_price, fmt(pricePerLiter, 2)),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     estimate?.let { preview ->
                         Text(
                             text = stringResource(
                                 R.string.history_manual_preview,
-                                format(preview.liters, 2),
-                                format(preview.cost, 2),
+                                fmt(preview.liters, 2),
+                                fmt(preview.cost, 2),
                             ),
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.titleSmall,
                             color = MaterialTheme.colorScheme.primary,
                         )
                     }
@@ -577,24 +646,19 @@ private fun ManualCostDialog(
                 if (hasInput && !canSave) {
                     Text(
                         text = stringResource(R.string.history_manual_invalid),
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
             }
         },
         confirmButton = {
-            TextButton(
-                onClick = { (directInput ?: consumptionInput)?.let(onSave) },
-                enabled = canSave,
-            ) {
-                Text(stringResource(R.string.history_manual_save))
+            TextButton(onClick = { (directInput ?: consumptionInput)?.let(onSave) }, enabled = canSave) {
+                Text(stringResource(R.string.common_save))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.history_manual_cancel))
-            }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
         },
     )
 }
@@ -611,6 +675,7 @@ private fun DecimalField(
         label = { Text(label) },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        modifier = Modifier.fillMaxWidth(),
     )
 }
 
@@ -644,16 +709,20 @@ private fun MergeSplitDialog(
                 modifier = Modifier
                     .heightIn(max = 420.dp)
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(Dimens.s),
             ) {
                 Text(
+                    text = stringResource(R.string.history_merge_title),
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(
                     text = stringResource(R.string.history_merge_hint),
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (candidates.isEmpty()) {
                     Text(
-                        text = stringResource(R.string.history_link_dialog_empty),
+                        text = stringResource(R.string.history_merge_none),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -664,19 +733,15 @@ private fun MergeSplitDialog(
                             Checkbox(
                                 checked = candidateId in selected,
                                 onCheckedChange = { checked ->
-                                    if (checked) selected.add(candidateId)
-                                    else selected.remove(candidateId)
+                                    if (checked) selected.add(candidateId) else selected.remove(candidateId)
                                 },
                             )
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = formatDate(candidate.timestampMs),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                )
+                                Text(text = formatDateTime(candidate.timestampMs), style = MaterialTheme.typography.bodyMedium)
                                 candidate.distanceKm?.let { distance ->
                                     Text(
-                                        text = stringResource(R.string.history_km, format(distance, 1)),
-                                        style = MaterialTheme.typography.labelSmall,
+                                        text = "${fmt(distance, 1)} ${stringResource(R.string.route_units_km)}",
+                                        style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
@@ -684,27 +749,18 @@ private fun MergeSplitDialog(
                         }
                     }
                 }
-                TextButton(
-                    onClick = { onMerge(selected.toList()) },
-                    enabled = selected.size >= 2,
-                ) {
+                TextButton(onClick = { onMerge(selected.toList()) }, enabled = selected.size >= 2) {
                     Text(stringResource(R.string.history_merge_action))
                 }
 
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                HorizontalDivider(modifier = Modifier.padding(vertical = Dimens.xs))
 
                 // The split anchor needs the real trip window; an undriven search has none.
                 if (canSplit && splitAtMs != null && splitStartedAtMs != null && splitEndedAtMs != null) {
+                    Text(text = stringResource(R.string.history_split_title), style = MaterialTheme.typography.titleSmall)
                     Text(
-                        text = stringResource(R.string.history_split_title),
-                        style = MaterialTheme.typography.titleSmall,
-                    )
-                    Text(
-                        text = stringResource(
-                            R.string.history_split_point,
-                            formatDate(splitAtMs),
-                        ),
-                        style = MaterialTheme.typography.labelMedium,
+                        text = stringResource(R.string.history_split_point, formatDateTime(splitAtMs)),
+                        style = MaterialTheme.typography.bodyMedium,
                     )
                     Slider(
                         value = splitFraction,
@@ -725,229 +781,12 @@ private fun MergeSplitDialog(
         },
         confirmButton = {},
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.history_merge_split_close))
-            }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_close)) }
         },
     )
 }
 
-/** Generic destructive-action confirmation used by bulk delete, merge and split. */
-@Composable
-private fun ConfirmActionDialog(
-    title: String,
-    message: String,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = { Text(message) },
-        confirmButton = {
-            TextButton(onClick = onConfirm) {
-                Text(stringResource(R.string.history_confirm))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.history_delete_cancel))
-            }
-        },
-    )
-}
-
-/** Marks a simulated "הדגמה" ride so it is never mistaken for a real one. */
-@Composable
-private fun DemoBadge() {
-    Text(
-        text = stringResource(R.string.history_demo_badge),
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.error,
-    )
-}
-
-@Composable
-private fun RideStateLabel(state: RideState) {
-    val (textRes, color) = when (state) {
-        RideState.LINKED ->
-            R.string.history_ride_state_linked to MaterialTheme.colorScheme.primary
-        RideState.WAITING_OBD ->
-            R.string.history_ride_state_waiting to MaterialTheme.colorScheme.onSurfaceVariant
-        RideState.NO_PREDICTION ->
-            R.string.history_ride_state_no_prediction to MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    Text(
-        text = stringResource(textRes),
-        style = MaterialTheme.typography.labelMedium,
-        color = color,
-    )
-}
-
-/**
- * Full predicted-vs-actual breakdown for one ride, opened by tapping a history card.
- * Delete lives in a later card, so this dialog is read-only.
- */
-@Composable
-private fun RideDetailDialog(entry: DriveHistoryEntry, onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.history_detail_title)) },
-        text = {
-            Column(
-                modifier = Modifier
-                    .heightIn(max = 400.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Text(
-                    text = routeTitle(entry).ifBlank {
-                        stringResource(R.string.history_detail_unlinked)
-                    },
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Text(
-                    text = formatDate(entry.timestampMs),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    RideStateLabel(entry.rideState)
-                    if (entry.isDemo) {
-                        DemoBadge()
-                    }
-                }
-
-                if (entry.hasManualEntry) {
-                    Text(
-                        text = stringResource(R.string.history_manual_badge),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-
-                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
-
-                val predicted = entry.predictedCost
-                val actual = entry.actualCost
-
-                if (predicted != null) {
-                    Text(
-                        text = stringResource(
-                            R.string.history_ride_predicted,
-                            format(predicted, 2),
-                            entry.predictedLiters?.let { format(it, 1) } ?: DASH,
-                            entry.predictedMinutes?.let { format(it, 0) } ?: DASH,
-                        ),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                } else {
-                    Text(
-                        text = stringResource(R.string.history_ride_state_no_prediction),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-
-                if (entry.hasActual && actual != null) {
-                    Text(
-                        text = stringResource(
-                            R.string.history_ride_actual,
-                            format(actual, 2),
-                            entry.actualLiters?.let { format(it, 1) } ?: DASH,
-                            entry.actualMinutes?.let { format(it, 0) } ?: DASH,
-                        ),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                } else if (predicted != null) {
-                    Text(
-                        text = stringResource(R.string.history_ride_actual_waiting),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-
-                if (predicted != null && actual != null && predicted > 0.0) {
-                    val delta = actual - predicted
-                    val pct = PredictionAccuracy.errorPct(predicted, actual)
-                    Text(
-                        text = stringResource(
-                            R.string.history_delta,
-                            signed(delta),
-                            pct?.let { signed(it) } ?: DASH,
-                        ),
-                        style = MaterialTheme.typography.titleSmall,
-                        color = if (delta > 0.0) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.primary
-                        },
-                    )
-                }
-
-                entry.distanceKm?.let { distance ->
-                    Text(
-                        text = stringResource(R.string.history_km, format(distance, 1)),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-
-                entry.pricePerLiterAtSearch?.let { price ->
-                    Text(
-                        text = stringResource(
-                            R.string.history_detail_price_search,
-                            format(price, 2),
-                        ),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                entry.pricePerLiterAtTrip?.let { price ->
-                    Text(
-                        text = stringResource(
-                            R.string.history_detail_price_trip,
-                            format(price, 2),
-                        ),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.history_detail_close))
-            }
-        },
-    )
-}
-
-/** Confirmation shown before a History entry (and its underlying row) is deleted. */
-@Composable
-private fun DeleteRideDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.history_delete_title)) },
-        text = { Text(stringResource(R.string.history_delete_message)) },
-        confirmButton = {
-            TextButton(onClick = onConfirm) {
-                Text(stringResource(R.string.history_delete_confirm))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.history_delete_cancel))
-            }
-        },
-    )
-}
-
-/** Picker shown by "קשר נסיעה" so the user can pair an unlinked drive with a search. */
+/** Picker shown by "קשר לחיפוש" so the user can pair an unlinked drive with a search. */
 @Composable
 private fun LinkRideDialog(
     candidates: List<LinkableSearch>,
@@ -960,7 +799,7 @@ private fun LinkRideDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.history_link_dialog_title)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(Dimens.xs)) {
                 TextButton(onClick = onNearest) {
                     Text(stringResource(R.string.history_link_nearest))
                 }
@@ -977,22 +816,11 @@ private fun LinkRideDialog(
                             .verticalScroll(rememberScrollState()),
                     ) {
                         candidates.forEach { candidate ->
-                            TextButton(
+                            ListRow(
+                                title = candidateTitle(candidate),
+                                subtitle = formatDateTime(candidate.timestampMs),
                                 onClick = { onPick(candidate.id) },
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Column(modifier = Modifier.fillMaxWidth()) {
-                                    Text(
-                                        text = candidateTitle(candidate),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                    )
-                                    Text(
-                                        text = formatDate(candidate.timestampMs),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
+                            )
                         }
                     }
                 }
@@ -1000,9 +828,7 @@ private fun LinkRideDialog(
         },
         confirmButton = {},
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.history_link_cancel))
-            }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
         },
     )
 }
@@ -1038,15 +864,4 @@ private fun routeTitle(entry: DriveHistoryEntry): String = when {
 private fun candidateTitle(candidate: LinkableSearch): String =
     "${candidate.originLabel} → ${candidate.destinationLabel}"
 
-private fun formatDate(epochMs: Long): String =
-    DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(epochMs))
-
-private fun format(value: Double, decimals: Int): String =
-    String.format(Locale.US, "%.${decimals}f", value)
-
-private fun signed(value: Double): String =
-    String.format(Locale.US, "%+.1f", value)
-
-private const val DASH = "—"
-private const val FEEDBACK_VISIBLE_MS = 3_000L
 private const val MERGE_WINDOW_MS = 6L * 60 * 60 * 1000

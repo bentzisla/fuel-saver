@@ -4,46 +4,46 @@ import android.Manifest
 import android.os.Build
 import android.view.WindowManager
 import android.widget.Toast
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Star as StarOutline
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -56,22 +56,46 @@ import com.fuelroute.data.price.FuelPriceRepository
 import com.fuelroute.data.settings.AppSettings
 import com.fuelroute.domain.fuel.ModelConstants
 import com.fuelroute.domain.fuel.RangeEstimator
-import com.fuelroute.domain.model.Trip
 import com.fuelroute.domain.model.VehicleProfile
+import com.fuelroute.domain.obd.ObdConnectionPolicy
 import com.fuelroute.domain.obd.ObdDevice
+import com.fuelroute.ui.components.ConfirmDialog
+import com.fuelroute.ui.components.DASH
+import com.fuelroute.ui.components.Dimens
+import com.fuelroute.ui.components.EmptyState
+import com.fuelroute.ui.components.ExpandableSection
+import com.fuelroute.ui.components.FuelTopBar
+import com.fuelroute.ui.components.KeyValueRow
+import com.fuelroute.ui.components.ListRow
+import com.fuelroute.ui.components.PrimaryButton
+import com.fuelroute.ui.components.SecondaryButton
+import com.fuelroute.ui.components.SectionCard
+import com.fuelroute.ui.components.SectionTitle
+import com.fuelroute.ui.components.StatTile
+import com.fuelroute.ui.components.StatusDot
+import com.fuelroute.ui.components.fmt
+import com.fuelroute.ui.components.formatDateTime
+import com.fuelroute.ui.components.money
 import com.fuelroute.ui.permission.PermissionGate
 import com.fuelroute.ui.permission.findActivity
+import com.fuelroute.ui.theme.FuelTheme
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
-import java.text.DateFormat
-import java.util.Date
-import java.util.Locale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
 
-@OptIn(ExperimentalLayoutApi::class)
+/**
+ * "Drive" tab: connection first, then the glanceable live numbers, then everything else folded.
+ *
+ *  1. Connection card — status dot + one line of state, and exactly one primary action for that
+ *     state (connect to the last dongle / cancel / disconnect / retry).
+ *  2. Live dashboard (when connected) — two big tiles (live consumption, trip cost) and three
+ *     small ones (speed, distance, time).
+ *  3. Collapsed sections: engine & fuel, learning progress, diagnostics & advanced (reset).
+ *  4. Recent trips (5 shown, expandable).
+ */
 @Composable
 fun StatsScreen(
     modifier: Modifier = Modifier,
@@ -85,16 +109,15 @@ fun StatsScreen(
     val vehicles by viewModel.vehicles.collectAsStateWithLifecycle()
     val activeVehicle by viewModel.activeVehicle.collectAsStateWithLifecycle()
     val vinEvent by viewModel.vinEvent.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
-    val settings by viewModel.settings.collectAsStateWithLifecycle()
-
-    // "אפס" wipes the live engine state/learning view; confirm before doing it.
     var showResetConfirm by remember { mutableStateOf(false) }
+    var showAllTrips by rememberSaveable { mutableStateOf(false) }
 
     // Fuel price used for the live trip cost (₪). Read directly through a minimal Hilt entry
-    // point (same pattern as `CarDiagnosticsEntryPoint`) instead of widening `StatsViewModel`.
+    // point instead of widening `StatsViewModel` (which the OBD work stream owns).
     val priceRepository = remember(context) {
         EntryPointAccessors.fromApplication(
             context.applicationContext,
@@ -109,40 +132,25 @@ fun StatsScreen(
     LaunchedEffect(vinEvent) {
         val name = vinEvent ?: return@LaunchedEffect
         val label = name.ifBlank { context.getString(R.string.vehicle_untitled) }
-        Toast.makeText(
-            context,
-            context.getString(R.string.stats_vin_detected, label),
-            Toast.LENGTH_LONG,
-        ).show()
+        Toast.makeText(context, context.getString(R.string.stats_vin_detected, label), Toast.LENGTH_LONG).show()
         viewModel.consumeVinEvent()
     }
 
     // BLUETOOTH_CONNECT is required to list/connect bonded adapters; SCAN and
     // POST_NOTIFICATIONS are requested together but never gate the feature.
     val requiredPermissions = remember {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            listOf(Manifest.permission.BLUETOOTH_CONNECT)
-        } else {
-            emptyList()
-        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) listOf(Manifest.permission.BLUETOOTH_CONNECT) else emptyList()
     }
     val optionalPermissions = remember {
         buildList {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) add(Manifest.permission.BLUETOOTH_SCAN)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                add(Manifest.permission.POST_NOTIFICATIONS)
-            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
-    val onPermissionsGranted: () -> Unit = remember(viewModel) {
-        {
-            viewModel.refreshDevices()
-            // Do NOT call autoConnect() here: PermissionGate invokes onGranted on every
-            // (re)composition while already granted, which would re-arm the connection and
-            // fight a manual disconnect. Zero-touch auto-connect is handled by the ACL
-            // receiver; here we only refresh the bonded-device list.
-        }
-    }
+    // Do NOT auto-connect here: PermissionGate invokes onGranted on every (re)composition while
+    // granted, which would re-arm the connection and fight a manual disconnect. Zero-touch
+    // auto-connect is handled by the ACL receiver; here we only refresh the bonded-device list.
+    val onPermissionsGranted: () -> Unit = remember(viewModel) { { viewModel.refreshDevices() } }
 
     // While the live dashboard is connected, optionally hold the screen on.
     DisposableEffect(activity, settings.keepScreenOn, state.status) {
@@ -155,239 +163,544 @@ fun StatsScreen(
         onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }
 
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            Text(
-                text = stringResource(R.string.stats_title),
-                style = MaterialTheme.typography.headlineSmall,
+    val devicePicker: @Composable (Boolean) -> Unit = { initiallyOpen ->
+        PermissionGate(
+            permissions = requiredPermissions,
+            optionalPermissions = optionalPermissions,
+            rationale = stringResource(R.string.permission_obd_rationale),
+            permanentlyDeniedMessage = stringResource(R.string.permission_obd_permanently_denied),
+            onGranted = onPermissionsGranted,
+        ) {
+            DevicePicker(
+                devices = devices,
+                initiallyOpen = initiallyOpen,
+                onConnect = viewModel::connect,
+                onToggleFavorite = viewModel::toggleFavorite,
+                onDemo = viewModel::connectDemo,
+                onRefresh = viewModel::refreshDevices,
             )
         }
+    }
 
-        if (vehicles.size > 1) {
-            item {
-                VehicleSwitcher(
-                    vehicles = vehicles,
-                    activeId = activeVehicle?.id,
-                    onSelect = viewModel::selectVehicle,
+    Column(modifier = modifier.fillMaxSize()) {
+        FuelTopBar(
+            title = stringResource(R.string.stats_title),
+            actions = {
+                if (vehicles.size > 1) {
+                    VehicleMenu(vehicles = vehicles, active = activeVehicle, onSelect = viewModel::selectVehicle)
+                }
+                IconButton(onClick = onOpenCurve) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_show_chart),
+                        contentDescription = stringResource(R.string.curve_open),
+                    )
+                }
+            },
+        )
+
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = Dimens.l, end = Dimens.l, bottom = Dimens.xl, top = Dimens.s),
+            verticalArrangement = Arrangement.spacedBy(Dimens.m),
+        ) {
+            item(key = "connection") {
+                ConnectionCard(
+                    state = state,
+                    connectingName = connectingName,
+                    settings = settings,
+                    devices = devices,
+                    onConnectLast = { devices.firstOrNull()?.let(viewModel::connect) },
+                    onRetry = viewModel::retry,
+                    onDisconnect = viewModel::disconnect,
+                    devicePicker = devicePicker,
                 )
             }
-        }
 
-        item {
-            OutlinedButton(onClick = onOpenCurve, modifier = Modifier.fillMaxWidth()) {
-                Text(stringResource(R.string.curve_open))
+            if (state.status == ObdStatus.Connected) {
+                item(key = "live") { LiveDashboard(state = state, pricePerLiter = fuelPricePerLiter) }
+                item(key = "engine") { EngineSection(state = state, vehicle = activeVehicle) }
+                item(key = "learned") { LearnedSection(state = state) }
             }
-        }
 
-        item { AutoLoggingStatusCard(settings) }
-
-        item { ConnectionStatusCard(state = state, connectingName = connectingName) }
-
-        when (state.status) {
-            ObdStatus.Disconnected -> {
-                // A failed attempt leaves status Disconnected (the service stops itself)
-                // but keeps `lastError`; surface the retry/reset actions prominently then.
-                if (state.lastError != null) {
-                    item {
-                        Button(onClick = viewModel::retry, modifier = Modifier.fillMaxWidth()) {
-                            Text(stringResource(R.string.stats_retry))
-                        }
-                    }
-                    item {
-                        OutlinedButton(onClick = { showResetConfirm = true }, modifier = Modifier.fillMaxWidth()) {
-                            Text(stringResource(R.string.stats_reset))
-                        }
-                    }
-                }
-                item {
-                    PermissionGate(
-                        permissions = requiredPermissions,
-                        optionalPermissions = optionalPermissions,
-                        rationale = stringResource(R.string.permission_obd_rationale),
-                        permanentlyDeniedMessage = stringResource(R.string.permission_obd_permanently_denied),
-                        onGranted = onPermissionsGranted,
-                    ) {
-                        ConnectionCard(devices = devices, viewModel = viewModel)
-                    }
-                }
-            }
-            ObdStatus.Connecting -> {
-                item {
-                    ConnectingProgress(state = state, connectingName = connectingName)
-                }
-                item {
-                    OutlinedButton(onClick = viewModel::disconnect, modifier = Modifier.fillMaxWidth()) {
-                        Text(stringResource(R.string.stats_disconnect))
-                    }
-                }
-            }
-            ObdStatus.Connected -> {
-                // Glanceable hierarchy: speed → instant consumption → trip totals →
-                // secondary engine chips → range → learned data → collapsed diagnostics.
-                item { SpeedGauge(state) }
-                item { InstantConsumptionRow(state) }
-                item { TripSummaryCard(state, pricePerLiter = fuelPricePerLiter) }
-                item { SecondaryChips(state) }
-                item { RangeEstimateCard(state, activeVehicle) }
-                item { LearnedCard(state) }
-                item { DiagnosticsCard(state) }
-                item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(
-                            onClick = viewModel::disconnect,
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text(stringResource(R.string.stats_disconnect))
-                        }
-                        OutlinedButton(
-                            onClick = { showResetConfirm = true },
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text(stringResource(R.string.stats_reset))
-                        }
-                    }
-                }
-            }
-            ObdStatus.Error -> {
-                item {
-                    Button(onClick = viewModel::retry, modifier = Modifier.fillMaxWidth()) {
-                        Text(stringResource(R.string.stats_retry))
-                    }
-                }
-                item {
-                    OutlinedButton(onClick = { showResetConfirm = true }, modifier = Modifier.fillMaxWidth()) {
-                        Text(stringResource(R.string.stats_reset))
-                    }
-                }
-                if (state.lastError != null || state.lastRawReply != null) {
-                    item { DiagnosticsCard(state, initiallyExpanded = true) }
-                }
-                item {
-                    PermissionGate(
-                        permissions = requiredPermissions,
-                        optionalPermissions = optionalPermissions,
-                        rationale = stringResource(R.string.permission_obd_rationale),
-                        permanentlyDeniedMessage = stringResource(R.string.permission_obd_permanently_denied),
-                        onGranted = onPermissionsGranted,
-                    ) {
-                        ConnectionCard(devices = devices, viewModel = viewModel)
-                    }
-                }
-            }
-        }
-
-        item {
-            Text(
-                text = stringResource(R.string.stats_trips),
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(top = 8.dp),
-            )
-        }
-
-        if (trips.isEmpty()) {
-            item {
-                Text(
-                    text = stringResource(R.string.stats_no_trips),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+            item(key = "diagnostics") {
+                DiagnosticsSection(
+                    state = state,
+                    settings = settings,
+                    initiallyExpanded = state.status == ObdStatus.Error,
+                    onReset = { showResetConfirm = true },
                 )
             }
-        } else {
-            items(trips.size) { index ->
-                TripRow(trips[index].trip, trips[index].predictedL100)
+
+            item(key = "trips-title") { SectionTitle(stringResource(R.string.stats_trips)) }
+            if (trips.isEmpty()) {
+                item(key = "trips-empty") { EmptyState(title = stringResource(R.string.stats_no_trips)) }
+            } else {
+                val visible = if (showAllTrips) trips else trips.take(TRIPS_PREVIEW)
+                items(visible, key = { it.trip.id }) { display ->
+                    TripRow(display)
+                }
+                if (trips.size > TRIPS_PREVIEW) {
+                    item(key = "trips-more") {
+                        TextButton(onClick = { showAllTrips = !showAllTrips }, modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                if (showAllTrips) {
+                                    stringResource(R.string.stats_show_less)
+                                } else {
+                                    stringResource(R.string.stats_show_all, trips.size)
+                                },
+                            )
+                        }
+                    }
+                }
             }
         }
     }
 
     if (showResetConfirm) {
-        AlertDialog(
-            onDismissRequest = { showResetConfirm = false },
-            title = { Text(stringResource(R.string.stats_reset_confirm_title)) },
-            text = { Text(stringResource(R.string.stats_reset_confirm_message)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showResetConfirm = false
-                        viewModel.reset()
-                    },
-                ) {
-                    Text(
-                        text = stringResource(R.string.stats_reset_confirm),
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
+        ConfirmDialog(
+            title = stringResource(R.string.stats_reset_confirm_title),
+            message = stringResource(R.string.stats_reset_confirm_message),
+            confirmLabel = stringResource(R.string.stats_reset_confirm),
+            onConfirm = {
+                showResetConfirm = false
+                viewModel.reset()
             },
-            dismissButton = {
-                TextButton(onClick = { showResetConfirm = false }) {
-                    Text(stringResource(R.string.stats_cancel))
-                }
-            },
+            onDismiss = { showResetConfirm = false },
         )
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// Connection
+// ---------------------------------------------------------------------------------------------
+
 /**
- * Always-present status line: explains the current connection state (and, on failure, the
- * reason from `LiveObdState.lastError`) instead of leaving the user guessing.
+ * Always the first thing on the screen: where the connection stands and the single action that
+ * moves it forward. Errors show a human reason; raw codes live in diagnostics.
  */
 @Composable
-private fun ConnectionStatusCard(
+private fun ConnectionCard(
     state: LiveObdState,
     connectingName: String?,
+    settings: AppSettings,
+    devices: List<ObdDevice>,
+    onConnectLast: () -> Unit,
+    onRetry: () -> Unit,
+    onDisconnect: () -> Unit,
+    devicePicker: @Composable (Boolean) -> Unit,
 ) {
-    val hasError = state.lastError != null
-    val title = when (state.status) {
-        ObdStatus.Connecting -> connectingName?.let {
-            stringResource(R.string.stats_status_connecting_to, it)
-        } ?: stringResource(R.string.stats_status_connecting)
+    val failed = state.status == ObdStatus.Error ||
+        (state.status == ObdStatus.Disconnected && state.lastError != null)
+    SectionCard {
+        when {
+            state.status == ObdStatus.Connecting -> {
+                ConnectingStatus(state = state, connectingName = connectingName)
+                SecondaryButton(text = stringResource(R.string.common_cancel), onClick = onDisconnect)
+            }
 
-        ObdStatus.Connected -> state.deviceName?.let {
-            stringResource(R.string.stats_status_connected, it)
-        } ?: stringResource(R.string.stats_status_connected_plain)
-
-        ObdStatus.Error -> stringResource(R.string.stats_error)
-
-        ObdStatus.Disconnected -> if (hasError) {
-            stringResource(R.string.stats_error)
-        } else {
-            stringResource(R.string.stats_status_disconnected)
-        }
-    }
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                color = if (hasError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-            )
-            if (hasError) {
-                Text(
-                    text = obdErrorText(state.lastError),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
+            state.status == ObdStatus.Connected -> {
+                StatusLine(
+                    dotColor = FuelTheme.colors.positive,
+                    title = state.deviceName?.let { stringResource(R.string.stats_status_connected, it) }
+                        ?: stringResource(R.string.stats_status_connected_plain),
+                    subtitle = null,
+                    trailing = {
+                        TextButton(onClick = onDisconnect) { Text(stringResource(R.string.stats_disconnect)) }
+                    },
                 )
             }
-            if (state.status == ObdStatus.Connected) {
-                state.vin?.takeIf { it.isNotBlank() }?.let {
-                    Text(
-                        text = stringResource(R.string.stats_status_vin, it),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+
+            failed -> {
+                StatusLine(
+                    dotColor = MaterialTheme.colorScheme.error,
+                    title = stringResource(R.string.stats_error),
+                    subtitle = obdErrorText(state.lastError),
+                )
+                PrimaryButton(text = stringResource(R.string.stats_retry), onClick = onRetry)
+                devicePicker(false)
+            }
+
+            else -> {
+                StatusLine(
+                    dotColor = FuelTheme.colors.neutral,
+                    title = stringResource(R.string.stats_status_disconnected),
+                    subtitle = stringResource(
+                        if (settings.autoConnect) R.string.stats_auto_on_hint else R.string.stats_auto_off_hint,
+                    ),
+                )
+                devices.firstOrNull()?.let { last ->
+                    PrimaryButton(
+                        text = stringResource(R.string.stats_connect_to, last.name),
+                        onClick = onConnectLast,
+                        icon = painterResource(R.drawable.ic_bluetooth),
                     )
                 }
-                if (state.supportedPids.isNotEmpty()) {
-                    Text(
-                        text = stringResource(R.string.stats_status_pids, state.supportedPids.size),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                devicePicker(devices.isEmpty())
             }
         }
+    }
+}
+
+@Composable
+private fun StatusLine(
+    dotColor: Color,
+    title: String,
+    subtitle: String?,
+    trailing: (@Composable () -> Unit)? = null,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Dimens.m)) {
+        StatusDot(color = dotColor)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = title, style = MaterialTheme.typography.titleMedium)
+            subtitle?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        trailing?.invoke()
+    }
+}
+
+/** Stage + elapsed seconds while connecting; a hint that a powered-off dongle fails fast. */
+@Composable
+private fun ConnectingStatus(state: LiveObdState, connectingName: String?) {
+    val sinceMs = state.connectingSinceMs
+    var elapsedSec by remember(sinceMs) { mutableLongStateOf(0L) }
+    LaunchedEffect(sinceMs) {
+        if (sinceMs == null) {
+            elapsedSec = 0L
+            return@LaunchedEffect
+        }
+        while (true) {
+            elapsedSec = ((System.currentTimeMillis() - sinceMs) / 1000L).coerceAtLeast(0L)
+            delay(1_000L)
+        }
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Dimens.m)) {
+        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 3.dp)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = connectingName?.let { stringResource(R.string.stats_connecting_to, it) }
+                    ?: stringResource(R.string.stats_connecting),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = connectStageText(state.connectionStage) + " · " +
+                    stringResource(R.string.stats_connect_elapsed, elapsedSec),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+    Text(
+        text = stringResource(R.string.stats_connect_hint),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+/**
+ * Bonded adapters (last used first, then favorites) — tap a row to connect, star to pin it.
+ * Folded behind one "other dongle" button when a primary connect action is already shown.
+ */
+@Composable
+private fun DevicePicker(
+    devices: List<ObdDevice>,
+    initiallyOpen: Boolean,
+    onConnect: (ObdDevice) -> Unit,
+    onToggleFavorite: (ObdDevice) -> Unit,
+    onDemo: () -> Unit,
+    onRefresh: () -> Unit,
+) {
+    // Re-evaluated when the list goes from empty to populated (bonded devices load async).
+    var open by rememberSaveable(initiallyOpen) { mutableStateOf(initiallyOpen) }
+    if (!open) {
+        Row(horizontalArrangement = Arrangement.spacedBy(Dimens.s)) {
+            TextButton(onClick = { open = true }) { Text(stringResource(R.string.stats_other_devices)) }
+            TextButton(onClick = onDemo) { Text(stringResource(R.string.stats_demo_button)) }
+        }
+        return
+    }
+    Column {
+        if (devices.isEmpty()) {
+            Text(
+                text = stringResource(R.string.stats_no_devices),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        devices.forEachIndexed { index, device ->
+            if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            ListRow(
+                title = device.name,
+                subtitle = if (device.isLastUsed) {
+                    stringResource(R.string.stats_obd_last_used) + " · " + device.address
+                } else {
+                    device.address
+                },
+                leading = { Icon(painterResource(R.drawable.ic_bluetooth), contentDescription = null) },
+                trailing = {
+                    IconButton(onClick = { onToggleFavorite(device) }) {
+                        Icon(
+                            imageVector = if (device.isFavorite) Icons.Filled.Star else Icons.Outlined.StarOutline,
+                            contentDescription = stringResource(
+                                if (device.isFavorite) R.string.stats_obd_favorite_remove else R.string.stats_obd_favorite_add,
+                            ),
+                            tint = if (device.isFavorite) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    }
+                },
+                onClick = { onConnect(device) },
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(Dimens.s)) {
+            TextButton(onClick = onRefresh) { Text(stringResource(R.string.stats_refresh)) }
+            TextButton(onClick = onDemo) { Text(stringResource(R.string.stats_demo_button)) }
+        }
+    }
+}
+
+@Composable
+private fun VehicleMenu(
+    vehicles: List<VehicleProfile>,
+    active: VehicleProfile?,
+    onSelect: (String) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        TextButton(onClick = { open = true }) {
+            Text(
+                text = active?.name?.ifBlank { null } ?: stringResource(R.string.vehicle_untitled),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Icon(Icons.Filled.ArrowDropDown, contentDescription = stringResource(R.string.stats_vehicle_switch))
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            vehicles.forEach { vehicle ->
+                DropdownMenuItem(
+                    text = { Text(vehicle.name.ifBlank { stringResource(R.string.vehicle_untitled) }) },
+                    onClick = {
+                        open = false
+                        onSelect(vehicle.id)
+                    },
+                    leadingIcon = if (vehicle.id == active?.id) {
+                        { Icon(Icons.Filled.Star, contentDescription = null) }
+                    } else {
+                        null
+                    },
+                )
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Live
+// ---------------------------------------------------------------------------------------------
+
+/** The glanceable part: two big tiles and a row of three small ones. */
+@Composable
+private fun LiveDashboard(state: LiveObdState, pricePerLiter: Double) {
+    Column(verticalArrangement = Arrangement.spacedBy(Dimens.s)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(Dimens.s)) {
+            LiveConsumptionTile(state = state, modifier = Modifier.weight(1f))
+            StatTile(
+                label = stringResource(R.string.stats_trip_cost),
+                value = money(state.tripFuelL * pricePerLiter),
+                unit = stringResource(R.string.stats_trip_fuel_value, fmt(state.tripFuelL, 2)),
+                large = true,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(Dimens.s)) {
+            StatTile(
+                label = stringResource(R.string.stats_speed),
+                value = state.speedKmh?.let { fmt(it, 0) } ?: DASH,
+                unit = stringResource(R.string.route_units_kmh),
+                modifier = Modifier.weight(1f),
+            )
+            StatTile(
+                label = stringResource(R.string.stats_trip_distance),
+                value = fmt(state.tripDistanceKm, 1),
+                unit = stringResource(R.string.route_units_km),
+                modifier = Modifier.weight(1f),
+            )
+            StatTile(
+                label = stringResource(R.string.stats_trip_time),
+                value = fmt(state.tripSeconds / 60.0, 0),
+                unit = stringResource(R.string.route_units_min),
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun EngineSection(state: LiveObdState, vehicle: VehicleProfile?) {
+    val rangeKm = RangeEstimator.remainingRangeKm(
+        tankCapacityL = vehicle?.tankCapacityL,
+        levelPct = state.fuelLevelPct,
+        litersPer100Km = state.instantL100,
+    )
+    ExpandableSection(
+        title = stringResource(R.string.stats_engine_title),
+        subtitle = rangeKm?.let { stringResource(R.string.stats_remaining_range, fmt(it, 0)) },
+    ) {
+        KeyValueRow(
+            label = stringResource(R.string.stats_fuel_rate),
+            value = state.fuelRateLph?.let { "${fmt(it, 1)} ${stringResource(R.string.stats_units_lph)}" } ?: DASH,
+        )
+        KeyValueRow(label = stringResource(R.string.stats_rpm), value = state.rpm?.let { fmt(it, 0) } ?: DASH)
+        KeyValueRow(
+            label = stringResource(R.string.stats_coolant),
+            value = state.coolantTempC?.let { "${fmt(it, 0)}°" } ?: DASH,
+        )
+        KeyValueRow(
+            label = stringResource(R.string.stats_battery),
+            value = state.batteryVoltage?.let { "${fmt(it, 1)} V" } ?: DASH,
+        )
+        KeyValueRow(
+            label = stringResource(R.string.stats_fuel_level),
+            value = state.fuelLevelPct?.let { "${fmt(it, 0)}%" } ?: DASH,
+        )
+        rangeKm?.let {
+            KeyValueRow(
+                label = stringResource(R.string.stats_range_label),
+                value = "${fmt(it, 0)} ${stringResource(R.string.route_units_km)}",
+            )
+            Text(
+                text = stringResource(
+                    R.string.stats_remaining_range_hint,
+                    fmt(state.fuelLevelPct ?: 0.0, 0),
+                    fmt(state.instantL100 ?: 0.0, 1),
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun LearnedSection(state: LiveObdState) {
+    ExpandableSection(
+        title = stringResource(R.string.stats_learned),
+        subtitle = "${fmt(state.totalDistanceKm, 1)} ${stringResource(R.string.route_units_km)}",
+    ) {
+        KeyValueRow(
+            label = stringResource(R.string.stats_learned_distance),
+            value = "${fmt(state.totalDistanceKm, 1)} ${stringResource(R.string.route_units_km)}",
+        )
+        KeyValueRow(label = stringResource(R.string.stats_learned_bins), value = "${state.bins.size}")
+        KeyValueRow(label = stringResource(R.string.stats_samples), value = "${state.sampleCount}")
+    }
+}
+
+/**
+ * Everything a normal driver never needs but a debugging session does: raw codes, VIN, PIDs,
+ * sample rate, the auto-logging record — plus the "reset" action, kept away from the main flow.
+ */
+@Composable
+private fun DiagnosticsSection(
+    state: LiveObdState,
+    settings: AppSettings,
+    initiallyExpanded: Boolean,
+    onReset: () -> Unit,
+) {
+    ExpandableSection(
+        title = stringResource(R.string.stats_debug_title),
+        initiallyExpanded = initiallyExpanded,
+    ) {
+        state.lastError?.let {
+            KeyValueRow(
+                label = stringResource(R.string.stats_last_error),
+                value = it,
+                valueColor = MaterialTheme.colorScheme.error,
+            )
+        }
+        state.lastRawReply?.let {
+            KeyValueRow(label = stringResource(R.string.stats_raw_reply), value = it)
+        }
+        KeyValueRow(
+            label = stringResource(R.string.stats_sample_rate),
+            value = "${fmt(state.sampleRateHz, 1)} Hz",
+        )
+        state.vin?.takeIf { it.isNotBlank() }?.let {
+            KeyValueRow(label = stringResource(R.string.stats_vin), value = it)
+        }
+        if (state.supportedPids.isNotEmpty()) {
+            KeyValueRow(label = stringResource(R.string.stats_pids_label), value = "${state.supportedPids.size}")
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        Text(text = stringResource(R.string.settings_auto_logging_title), style = MaterialTheme.typography.titleSmall)
+        KeyValueRow(
+            label = stringResource(R.string.stats_auto_state_label),
+            value = stringResource(if (settings.autoConnect) R.string.settings_on else R.string.settings_off),
+        )
+        KeyValueRow(
+            label = stringResource(R.string.stats_auto_device_label),
+            value = settings.lastDeviceName?.takeIf { it.isNotBlank() }
+                ?: settings.lastDeviceAddress
+                ?: stringResource(R.string.settings_auto_logging_no_device),
+        )
+        KeyValueRow(
+            label = stringResource(R.string.stats_auto_last_start_label),
+            value = settings.lastAutoStartMs?.let { formatDateTime(it) }
+                ?: stringResource(R.string.settings_auto_logging_never),
+        )
+        settings.lastObdError?.let {
+            Text(
+                text = stringResource(R.string.settings_auto_logging_last_error, it),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        Text(
+            text = stringResource(R.string.stats_reset_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        SecondaryButton(text = stringResource(R.string.stats_reset), onClick = onReset)
+    }
+}
+
+@Composable
+private fun TripRow(display: TripDisplay) {
+    val trip = display.trip
+    val l100 = trip.litersPer100Km
+    val details = buildString {
+        append("${fmt(trip.distanceKm, 1)} ${stringResource(R.string.route_units_km)}")
+        append(" · ${Math.round(trip.durationSeconds / 60.0)} ${stringResource(R.string.route_units_min)}")
+        if (display.predictedL100 != null && l100 != null) {
+            append(" · ")
+            append(stringResource(R.string.stats_prediction, fmt(display.predictedL100, 1)))
+        }
+    }
+    SectionCard(contentPadding = Dimens.s) {
+        ListRow(
+            title = formatDateTime(trip.startedAtMs),
+            subtitle = details,
+            modifier = Modifier.padding(horizontal = Dimens.s),
+            trailing = {
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(text = l100?.let { fmt(it, 1) } ?: DASH, style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        text = stringResource(R.string.stats_units_l100),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+        )
     }
 }
 
@@ -408,62 +721,11 @@ private fun obdErrorText(code: String?): String = when {
     code == "RECONNECT" -> stringResource(R.string.stats_error_reconnect)
     code == "RECONNECT FAILED" -> stringResource(R.string.stats_error_reconnect_failed)
     code == "INIT TIMEOUT" -> stringResource(R.string.stats_error_init_timeout)
+    code == ObdConnectionPolicy.ERROR_INIT_WRITE_FAILED -> stringResource(R.string.stats_error_init_write_failed)
+    code == ObdConnectionPolicy.ERROR_INIT_EOF -> stringResource(R.string.stats_error_init_eof)
+    code == ObdConnectionPolicy.ERROR_INIT_READ_ERROR -> stringResource(R.string.stats_error_init_read_error)
+    code == ObdConnectionPolicy.ERROR_INIT_LINK_CLOSED -> stringResource(R.string.stats_error_init_link_closed)
     else -> code
-}
-
-/**
- * Connect-progress block shown under [ObdStatus.Connecting]: which pipeline stage is running,
- * how long the attempt has taken, and a hint that a powered-off dongle fails fast. The elapsed
- * counter ticks once a second from [LiveObdState.connectingSinceMs].
- */
-@Composable
-private fun ConnectingProgress(
-    state: LiveObdState,
-    connectingName: String?,
-) {
-    val sinceMs = state.connectingSinceMs
-    var elapsedSec by remember(sinceMs) { mutableStateOf(0L) }
-    LaunchedEffect(sinceMs) {
-        if (sinceMs == null) {
-            elapsedSec = 0L
-            return@LaunchedEffect
-        }
-        while (true) {
-            elapsedSec = ((System.currentTimeMillis() - sinceMs) / 1000L).coerceAtLeast(0L)
-            delay(1_000L)
-        }
-    }
-
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            CircularProgressIndicator()
-            Column {
-                Text(
-                    text = connectingName?.let { stringResource(R.string.stats_connecting_to, it) }
-                        ?: stringResource(R.string.stats_connecting),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Text(
-                    text = connectStageText(state.connectionStage),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        Text(
-            text = stringResource(R.string.stats_connect_elapsed, elapsedSec),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            text = stringResource(R.string.stats_connect_hint),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
 }
 
 /** Hebrew label for the current connect stage (falls back to the generic "מתחבר"). */
@@ -477,516 +739,11 @@ private fun connectStageText(stage: ObdConnectStage?): String = when (stage) {
     null -> stringResource(R.string.stats_connecting)
 }
 
-@Composable
-private fun ConnectionCard(
-    devices: List<ObdDevice>,
-    viewModel: StatsViewModel,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    text = stringResource(R.string.stats_connect_header),
-                    style = MaterialTheme.typography.titleMedium,
-                )
+private const val TRIPS_PREVIEW = 5
 
-                if (devices.isEmpty()) {
-                    Text(
-                        text = stringResource(R.string.stats_no_devices),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    devices.forEach { device ->
-                        DeviceRow(
-                            device = device,
-                            onClick = { viewModel.connect(device) },
-                            onToggleFavorite = { viewModel.toggleFavorite(device) },
-                        )
-                    }
-                }
-
-                Button(onClick = viewModel::connectDemo, modifier = Modifier.fillMaxWidth()) {
-                    Text(stringResource(R.string.stats_demo_button))
-                }
-
-                TextButton(onClick = viewModel::refreshDevices) {
-                    Text(stringResource(R.string.stats_refresh))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun DeviceRow(
-    device: ObdDevice,
-    onClick: () -> Unit,
-    onToggleFavorite: () -> Unit,
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-    ) {
-        Row(
-            modifier = Modifier.padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = device.name,
-                    style = MaterialTheme.typography.titleSmall,
-                )
-                Text(
-                    text = device.address,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (device.isLastUsed) {
-                    Text(
-                        text = stringResource(R.string.stats_obd_last_used),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            }
-            IconButton(onClick = onToggleFavorite) {
-                Icon(
-                    imageVector = if (device.isFavorite) Icons.Filled.Star else Icons.Outlined.StarOutline,
-                    contentDescription = stringResource(
-                        if (device.isFavorite) {
-                            R.string.stats_obd_favorite_remove
-                        } else {
-                            R.string.stats_obd_favorite_add
-                        },
-                    ),
-                    tint = if (device.isFavorite) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun VehicleSwitcher(
-    vehicles: List<VehicleProfile>,
-    activeId: String?,
-    onSelect: (String) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(
-            text = stringResource(R.string.stats_vehicle_switch),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            vehicles.forEach { vehicle ->
-                FilterChip(
-                    selected = vehicle.id == activeId,
-                    onClick = { onSelect(vehicle.id) },
-                    label = {
-                        Text(vehicle.name.ifBlank { stringResource(R.string.vehicle_untitled) })
-                    },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun RangeEstimateCard(state: LiveObdState, vehicle: VehicleProfile?) {
-    val rangeKm = RangeEstimator.remainingRangeKm(
-        tankCapacityL = vehicle?.tankCapacityL,
-        levelPct = state.fuelLevelPct,
-        litersPer100Km = state.instantL100,
-    ) ?: return
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                text = stringResource(R.string.stats_remaining_range, format(rangeKm, 0)),
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Text(
-                text = stringResource(
-                    R.string.stats_remaining_range_hint,
-                    format(state.fuelLevelPct ?: 0.0, 0),
-                    format(state.instantL100 ?: 0.0, 1),
-                ),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-@Composable
-private fun SpeedGauge(state: LiveObdState) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                text = stringResource(R.string.stats_speed),
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = "${Math.round(state.speedKmh ?: 0.0)}",
-                style = MaterialTheme.typography.displayLarge,
-            )
-            Text(
-                text = stringResource(R.string.route_units_kmh),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-/** Instant consumption, side by side: L/100km and L/h — the two numbers drivers act on. */
-@Composable
-private fun InstantConsumptionRow(state: LiveObdState) {
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        MetricTile(
-            label = stringResource(R.string.stats_inst_l100),
-            value = state.instantL100?.let { format(it, 1) } ?: "-",
-            unit = stringResource(R.string.stats_units_l100),
-            modifier = Modifier.weight(1f),
-        )
-        MetricTile(
-            label = stringResource(R.string.stats_fuel_rate),
-            value = state.fuelRateLph?.let { format(it, 1) } ?: "-",
-            unit = stringResource(R.string.stats_units_lph),
-            modifier = Modifier.weight(1f),
-        )
-    }
-}
-
-/**
- * Secondary, glanceable engine readouts. A [FlowRow] keeps them wrapping cleanly instead of
- * squeezing into one row, so large system fonts never clip a value.
- */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun SecondaryChips(state: LiveObdState) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(
-            text = stringResource(R.string.stats_engine_title),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            MetricChip(
-                label = stringResource(R.string.stats_rpm),
-                value = state.rpm?.let { "${Math.round(it)}" } ?: "-",
-            )
-            MetricChip(
-                label = stringResource(R.string.stats_coolant),
-                value = state.coolantTempC?.let { "${Math.round(it)}°" } ?: "-",
-            )
-            MetricChip(
-                label = stringResource(R.string.stats_battery),
-                value = state.batteryVoltage?.let { "${format(it, 1)} V" } ?: "-",
-            )
-            MetricChip(
-                label = stringResource(R.string.stats_fuel_level),
-                value = state.fuelLevelPct?.let { "${format(it, 0)}%" } ?: "-",
-            )
-        }
-    }
-}
-
-@Composable
-private fun MetricChip(label: String, value: String) {
-    Surface(
-        shape = RoundedCornerShape(50),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(text = value, style = MaterialTheme.typography.titleSmall)
-        }
-    }
-}
-
-@Composable
-private fun MetricTile(
-    label: String,
-    value: String,
-    unit: String,
-    modifier: Modifier = Modifier,
-) {
-    Card(modifier = modifier) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = value,
-                style = MaterialTheme.typography.headlineMedium,
-            )
-            if (unit.isNotBlank()) {
-                Text(
-                    text = unit,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-}
-
-/**
- * Card-03 diagnostics (sample rate, battery voltage, VIN, raw reply) tucked into a collapsed
- * "אבחון" section so they never crowd the driving view. Expanded by default on an error so the
- * failure detail is still one tap away (already open).
- */
-@Composable
-private fun DiagnosticsCard(state: LiveObdState, initiallyExpanded: Boolean = false) {
-    var expanded by remember { mutableStateOf(initiallyExpanded) }
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(vertical = 4.dp)) {
-            TextButton(
-                onClick = { expanded = !expanded },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(
-                    text = stringResource(R.string.stats_debug_title) +
-                        if (expanded) " ▾" else " ▸",
-                    modifier = Modifier.weight(1f),
-                    textAlign = TextAlign.Start,
-                    style = MaterialTheme.typography.titleSmall,
-                )
-            }
-            if (expanded) {
-                Column(
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    state.lastError?.let {
-                        Text(
-                            text = stringResource(R.string.stats_last_error) + ": " + it,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                    state.lastRawReply?.let {
-                        Text(
-                            text = stringResource(R.string.stats_raw_reply) + ": " + it,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Text(
-                        text = stringResource(R.string.stats_sample_rate) + ": " + format(state.sampleRateHz, 1) + " Hz",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    state.batteryVoltage?.let {
-                        Text(
-                            text = stringResource(R.string.stats_battery) + ": " + format(it, 1) + " V",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    state.vin?.let {
-                        Text(
-                            text = stringResource(R.string.stats_vin) + ": " + it,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun TripSummaryCard(state: LiveObdState, pricePerLiter: Double) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                text = stringResource(R.string.stats_trip),
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                    text = stringResource(R.string.stats_trip_cost),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    text = "₪ ${format(state.tripFuelL * pricePerLiter, 2)}",
-                    style = MaterialTheme.typography.headlineMedium,
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                InfoColumn(
-                    label = stringResource(R.string.stats_trip_distance),
-                    value = "${format(state.tripDistanceKm, 1)} ${stringResource(R.string.route_units_km)}",
-                )
-                InfoColumn(
-                    label = stringResource(R.string.stats_trip_fuel),
-                    value = "${format(state.tripFuelL, 2)} L",
-                )
-                InfoColumn(
-                    label = stringResource(R.string.stats_trip_time),
-                    value = "${format(state.tripSeconds / 60.0, 1)} ${stringResource(R.string.route_units_min)}",
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun LearnedCard(state: LiveObdState) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                text = stringResource(R.string.stats_learned),
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                InfoColumn(
-                    label = stringResource(R.string.stats_learned_distance),
-                    value = "${format(state.totalDistanceKm, 1)} ${stringResource(R.string.route_units_km)}",
-                )
-                InfoColumn(
-                    label = stringResource(R.string.stats_learned_bins),
-                    value = "${state.bins.size}",
-                )
-                InfoColumn(
-                    label = stringResource(R.string.stats_samples),
-                    value = "${state.sampleCount}",
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun InfoColumn(label: String, value: String) {
-    Column {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(text = value, style = MaterialTheme.typography.bodyMedium)
-    }
-}
-
-@Composable
-private fun TripRow(trip: Trip, predictedL100: Double?) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                text = formatDate(trip.startedAtMs),
-                style = MaterialTheme.typography.titleSmall,
-            )
-            val l100 = trip.litersPer100Km?.let { format(it, 1) } ?: "-"
-            Text(
-                text = "${format(trip.distanceKm, 1)} ${stringResource(R.string.route_units_km)} • " +
-                    "$l100 ${stringResource(R.string.stats_units_l100)} • " +
-                    "${Math.round(trip.durationSeconds / 60.0)} ${stringResource(R.string.route_units_min)}",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            if (predictedL100 != null && trip.litersPer100Km != null) {
-                Text(
-                    text = stringResource(R.string.stats_prediction, format(predictedL100, 1)),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun AutoLoggingStatusCard(settings: AppSettings) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                text = stringResource(R.string.settings_auto_logging_title),
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Text(
-                text = stringResource(
-                    R.string.settings_auto_logging_state,
-                    stringResource(
-                        if (settings.autoConnect) R.string.settings_on else R.string.settings_off,
-                    ),
-                ),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Text(
-                text = stringResource(
-                    R.string.settings_auto_logging_device,
-                    settings.lastDeviceName?.takeIf { it.isNotBlank() }
-                        ?: settings.lastDeviceAddress
-                        ?: stringResource(R.string.settings_auto_logging_no_device),
-                ),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = stringResource(
-                    R.string.settings_auto_logging_last_start,
-                    settings.lastAutoStartMs?.let { formatDateTime(it) }
-                        ?: stringResource(R.string.settings_auto_logging_never),
-                ),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            settings.lastObdError?.let {
-                Text(
-                    text = stringResource(R.string.settings_auto_logging_last_error, it),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-        }
-    }
-}
-
-/** Hilt access to the fuel-price store for the live trip cost (card 22). */
+/** Hilt access to the fuel-price store for the live trip cost. */
 @EntryPoint
 @InstallIn(SingletonComponent::class)
 interface StatsPriceEntryPoint {
     fun fuelPriceRepository(): FuelPriceRepository
 }
-
-private fun formatDate(epochMs: Long): String =
-    DateFormat.getDateInstance(DateFormat.SHORT).format(Date(epochMs))
-
-private fun formatDateTime(epochMs: Long): String =
-    DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(epochMs))
-
-private fun format(value: Double, decimals: Int): String =
-    String.format(Locale.US, "%.${decimals}f", value)
