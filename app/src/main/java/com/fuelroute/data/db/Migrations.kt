@@ -93,4 +93,36 @@ object Migrations {
             db.execSQL("ALTER TABLE trip ADD COLUMN manualEnteredAtMs INTEGER")
         }
     }
+
+    // v8 -> v9: indices on the hot lookup columns (sample retention, per-vehicle history, open-trip
+    // recovery, route-search linking). Non-destructive: only CREATE INDEX, matching the @Index
+    // declarations on the entities so Room's schema validation passes.
+    val MIGRATION_8_9 = object : Migration(8, 9) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_obd_sample_timestampMs` " +
+                    "ON `obd_sample` (`timestampMs`)",
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_route_search_timestampMs` " +
+                    "ON `route_search` (`timestampMs`)",
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_route_search_departureTimeMs` " +
+                    "ON `route_search` (`departureTimeMs`)",
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_trip_vehicleId` ON `trip` (`vehicleId`)",
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_trip_routeSearchId` ON `trip` (`routeSearchId`)",
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_trip_isOpen` ON `trip` (`isOpen`)",
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_refuel_vehicleId` ON `refuel` (`vehicleId`)",
+            )
+        }
+    }
 }

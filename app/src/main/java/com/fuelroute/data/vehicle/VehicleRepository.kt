@@ -116,7 +116,7 @@ class DefaultVehicleRepository @Inject constructor(
     override suspend fun delete(id: String) {
         ensureBootstrapped()
         if (vehicleDao.count() <= 1) return
-        vehicleDao.deleteById(id)
+        vehicleDao.deleteWithChildren(id)
         if (activeId() == id) {
             vehicleDao.getAll().first().firstOrNull()?.let { setActiveId(it.id) }
         }
