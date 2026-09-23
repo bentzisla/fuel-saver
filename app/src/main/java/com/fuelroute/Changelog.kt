@@ -15,6 +15,15 @@ object Changelog {
 
     val entries: List<Entry> = listOf(
         Entry(
+            versionName = "0.6.3",
+            title = "ביצועים ופרטיות",
+            changes = listOf(
+                "הוספת אינדקסים למסד הנתונים לשיפור ביצועים (שדרוג סכמה 8→9)",
+                "מחיקת רכב מוחקת כעת גם את כל הנתונים הקשורים אליו",
+                "הנתונים הרגישים (נסיעות, VIN, כתובות) אינם מגובים עוד לענן",
+            ),
+        ),
+        Entry(
             versionName = "0.6.2",
             title = "ממשק והתחלה ראשונה",
             changes = listOf(
