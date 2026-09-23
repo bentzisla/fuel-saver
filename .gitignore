@@ -22,5 +22,5 @@ captures/
 .DS_Store
 Thumbs.db
 
-# Claude Code agent worktrees
+# Local worktrees
 .claude/worktrees/
