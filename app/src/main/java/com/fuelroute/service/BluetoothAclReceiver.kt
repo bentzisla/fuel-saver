@@ -11,6 +11,9 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
 import androidx.core.content.ContextCompat
+import com.fuelroute.data.obd.BluetoothClassicTransport
+import com.fuelroute.data.obd.ObdEngine
+import com.fuelroute.data.obd.ObdStatus
 import com.fuelroute.data.settings.SettingsRepository
 import com.fuelroute.domain.obd.AutoConnectDebounce
 import com.fuelroute.domain.obd.BondedObdDevice
@@ -44,6 +47,9 @@ class BluetoothAclReceiver : BroadcastReceiver() {
 
     @Inject
     lateinit var settingsRepository: SettingsRepository
+
+    @Inject
+    lateinit var engine: ObdEngine
 
     @SuppressLint("MissingPermission")
     override fun onReceive(context: Context, intent: Intent) {
@@ -106,6 +112,18 @@ class BluetoothAclReceiver : BroadcastReceiver() {
         val device = intent.bluetoothDeviceExtra() ?: return
         val address = device.address ?: return
         markDisconnected(address)
+
+        // For an SPP-only dongle the ACL link exists only while one of OUR sockets is open, so
+        // every failed connect variant, init-retry reopen or reconnect makes it flap. Stopping
+        // the service on those flaps killed our own connect mid-way (and armed the start
+        // debounce against the retry). While the engine is connecting it handles a genuinely
+        // vanished dongle itself (the connect fails and the service stops).
+        val connecting = BluetoothClassicTransport.isConnectInFlight(address) ||
+            engine.live.value.status == ObdStatus.Connecting
+        if (ObdConnectionPolicy.shouldIgnoreAclDisconnect(connecting)) {
+            Log.i(TAG, "ACL_DISCONNECTED for $address ignored: our own connect/init is in progress")
+            return
+        }
 
         val pendingResult = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {

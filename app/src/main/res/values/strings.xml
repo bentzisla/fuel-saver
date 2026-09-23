@@ -522,4 +522,9 @@
     <string name="vehicle_retry">נסה שוב</string>
     <string name="calibration_error_load">טעינת הכיול נכשלה</string>
     <string name="calibration_retry">נסה שוב</string>
+    <!-- obd-link: specific ELM init failure causes (codes INIT WRITE FAILED / INIT EOF / INIT READ ERROR / INIT LINK CLOSED) -->
+    <string name="stats_error_init_write_failed">החיבור לדונגל נפתח אך השליחה נכשלה — נתקו וחברו שוב</string>
+    <string name="stats_error_init_eof">הדונגל סגר את החיבור בזמן האתחול</string>
+    <string name="stats_error_init_read_error">שגיאת קריאה מהדונגל בזמן האתחול</string>
+    <string name="stats_error_init_link_closed">החיבור לדונגל נסגר בזמן האתחול</string>
 </resources>

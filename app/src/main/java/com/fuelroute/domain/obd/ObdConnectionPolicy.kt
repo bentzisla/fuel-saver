@@ -15,25 +15,108 @@ object ObdConnectionPolicy {
     /** Hard upper bound on a single Bluetooth connect attempt. */
     const val CONNECT_TIMEOUT_MS = 15_000L
 
-    /**
-     * Short read timeout applied to each non-reset ELM initialization command. A powered-off or
-     * silent dongle never answers, so aborting an init read after this window surfaces a specific
-     * error in well under a second instead of dragging through every command at the full socket
-     * read-timeout (1.5 s each). The run-loop reads keep their normal timeout.
-     */
-    const val INIT_READ_TIMEOUT_MS = 600L
+    // --- Per-command deadlines ---------------------------------------------------------------
+    //
+    // Every ELM exchange has a hard deadline enforced by the transport (see `ElmLink`): when it
+    // expires the link is CLOSED, because closing the socket is the only reliable way to
+    // unblock a thread parked in `BluetoothSocket.read()`. A timed-out command therefore always
+    // means "the adapter stopped answering; reconnect", never "try the next command". The
+    // windows are deliberately generous: a healthy ELM327 always ends a reply with the `>`
+    // prompt within its own bus timeout (ATST), so only a hung/silent adapter can hit them.
 
     /**
-     * `ATZ` resets the whole adapter and takes noticeably longer than the other init commands
-     * (a real ELM327 answers in ~1 s, clones can be slower), so it gets its own window instead
-     * of being aborted by the short [INIT_READ_TIMEOUT_MS].
+     * Deadline for a non-reset ELM initialization command (`ATE0`, `ATSP0`, …). A real adapter
+     * answers in tens of ms; Bluetooth latency spikes on clones can reach several hundred ms,
+     * which the previous 600 ms window mistook for a dead dongle.
      */
-    const val ATZ_READ_TIMEOUT_MS = 3_000L
+    const val INIT_READ_TIMEOUT_MS = 2_000L
 
-    /** Per-command init read window: [ATZ_READ_TIMEOUT_MS] for `ATZ`, else [INIT_READ_TIMEOUT_MS]. */
+    /**
+     * `ATZ`/`ATWS` reset the whole adapter and take noticeably longer than the other init
+     * commands (a real ELM327 answers in ~1 s, clones can be slower), so they get their own
+     * window instead of being aborted by the short [INIT_READ_TIMEOUT_MS].
+     */
+    const val ATZ_READ_TIMEOUT_MS = 5_000L
+
+    /** Default deadline for a run-loop poll / PID negotiation / VIN read. */
+    const val COMMAND_TIMEOUT_MS = 10_000L
+
+    /**
+     * Deadline for the first data request after `ATSP0`. Automatic protocol search walks every
+     * bus (slow ISO 9141 / KWP 5-baud inits take seconds each), so this is far longer than a
+     * normal poll.
+     */
+    const val PROTOCOL_SEARCH_TIMEOUT_MS = 20_000L
+
+    /** Deadline for the sacrificial line-clear command sent right after the socket opens. */
+    const val LINE_CLEAR_TIMEOUT_MS = 2_000L
+
+    /** Quiet time after the line-clear reply so late/stale bytes arrive and get drained. */
+    const val LINE_CLEAR_SETTLE_MS = 200L
+
+    /** Pause between a rejected `ATZ` banner and the next reset attempt. */
+    const val RESET_RETRY_PAUSE_MS = 300L
+
+    /** Best-effort `ATPC` sent before closing the socket on a clean stop. */
+    const val CLOSE_PROTOCOL_TIMEOUT_MS = 800L
+
+    /** Per-command init read window: [ATZ_READ_TIMEOUT_MS] for resets, else [INIT_READ_TIMEOUT_MS]. */
     fun initReadTimeoutMs(command: String): Long =
-        if (command.trim().equals("ATZ", ignoreCase = true)) ATZ_READ_TIMEOUT_MS
-        else INIT_READ_TIMEOUT_MS
+        if (isResetCommand(command)) ATZ_READ_TIMEOUT_MS else INIT_READ_TIMEOUT_MS
+
+    /** `ATZ` (full reset) and `ATWS` (warm start) both reboot the ELM firmware. */
+    fun isResetCommand(command: String): Boolean {
+        val c = command.trim().uppercase()
+        return c == "ATZ" || c == "ATWS"
+    }
+
+    // --- Protocol settle (after ATSP0) -------------------------------------------------------
+
+    /** Total data requests tried while waiting for the automatic protocol search to lock. */
+    const val PROTOCOL_SETTLE_ATTEMPTS = 3
+
+    /** Pause after `ATPC` before retrying a failed protocol search. */
+    const val PROTOCOL_RETRY_PAUSE_MS = 500L
+
+    /**
+     * True when a failed protocol search should be retried (after `ATPC`). Only bus-level
+     * failures (`UNABLE TO CONNECT`, `BUS INIT: ...ERROR`, `CAN ERROR`, `STOPPED`, a bare
+     * `SEARCHING...`) are worth retrying; `NO DATA` means the bus is up but the ECU is quiet,
+     * and no reply at all means the link was closed by the deadline.
+     *
+     * @param attempt 1-based number of the request that just failed.
+     */
+    fun shouldRetryProtocolSearch(outcome: ElmProtocol.SearchOutcome, attempt: Int): Boolean =
+        outcome == ElmProtocol.SearchOutcome.BUS_ERROR && attempt < PROTOCOL_SETTLE_ATTEMPTS
+
+    // --- RFCOMM hygiene ----------------------------------------------------------------------
+
+    /**
+     * Minimum quiet time between closing an RFCOMM socket to a dongle and opening the next one.
+     * Cheap ELM327 clones accept exactly one RFCOMM connection and need about a second to
+     * release the channel; connecting sooner is refused (or silently accepted and never
+     * answered), which looks like "only a power-cycle fixes it".
+     */
+    const val RFCOMM_RELEASE_MS = 1_000L
+
+    /** How long to wait before the next socket connect, given the previous close time. */
+    fun rfcommReleaseWaitMs(lastCloseAtMs: Long?, nowMs: Long): Long {
+        if (lastCloseAtMs == null) return 0L
+        val elapsed = nowMs - lastCloseAtMs
+        if (elapsed < 0) return RFCOMM_RELEASE_MS
+        return (RFCOMM_RELEASE_MS - elapsed).coerceAtLeast(0L)
+    }
+
+    // --- Engine stop -------------------------------------------------------------------------
+
+    /** Time the run loop gets to notice `stopRequested` and exit by itself (sends `ATPC`). */
+    const val STOP_GRACE_MS = 1_500L
+
+    /** Time a cancelled run loop gets to finish its cleanup before the transport is forced shut. */
+    const val STOP_CANCEL_JOIN_MS = 2_000L
+
+    /** Final wait after force-closing the transport; beyond it the stuck job is abandoned. */
+    const val STOP_FORCE_JOIN_MS = 3_000L
 
     /**
      * A freshly started logging service never stops itself during this window, so the engine
@@ -98,6 +181,15 @@ object ObdConnectionPolicy {
      */
     fun shouldRetryReconnect(attempt: Int, deviceConnected: Boolean): Boolean =
         attempt < MAX_RECONNECT_ATTEMPTS && deviceConnected
+
+    /**
+     * Engine reconnect gate: like [shouldRetryReconnect], but the FIRST attempt is always made.
+     * An SPP-only ELM327 has an ACL link only while one of our sockets is open, so right after
+     * the engine (or the read watchdog) closed the socket the ACL is usually down already —
+     * that says nothing about whether the dongle is still there. One attempt is not hammering.
+     */
+    fun shouldAttemptReconnect(attempt: Int, deviceConnected: Boolean): Boolean =
+        attempt == 0 || shouldRetryReconnect(attempt, deviceConnected)
 
     /** Exponential backoff 2, 4, 8, 16, 32 s then a 60 s plateau (attempt >= 5). */
     fun backoffDelayMs(attempt: Int): Long {
@@ -207,6 +299,13 @@ object ObdConnectionPolicy {
      */
     fun shouldSuppressAutoConnect(manualDisconnect: Boolean): Boolean = manualDisconnect
 
+    /**
+     * True when an `ACL_DISCONNECTED` for the target dongle must NOT stop logging because our
+     * own connect/init is in progress. SPP-only ELM327 dongles have an ACL link only while one
+     * of our sockets is open, so each failed socket variant / init reopen makes it flap.
+     */
+    fun shouldIgnoreAclDisconnect(connectInProgress: Boolean): Boolean = connectInProgress
+
     // --- Mid-session auto-reconnect --------------------------------------------------------
 
     /**
@@ -248,4 +347,38 @@ object ObdConnectionPolicy {
 
     /** An ELM init command produced no reply within [INIT_READ_TIMEOUT_MS]. */
     const val ERROR_INIT_TIMEOUT = "INIT TIMEOUT"
+
+    /** Writing an init command failed: the socket connected but the link is already dead. */
+    const val ERROR_INIT_WRITE_FAILED = "INIT WRITE FAILED"
+
+    /** The dongle closed the RFCOMM channel (EOF) during init: typically a stale/half-open link. */
+    const val ERROR_INIT_EOF = "INIT EOF"
+
+    /** The read failed with an IO error during init. */
+    const val ERROR_INIT_READ_ERROR = "INIT READ ERROR"
+
+    /** The link was already closed when an init command was due. */
+    const val ERROR_INIT_LINK_CLOSED = "INIT LINK CLOSED"
+
+    /**
+     * Machine error code for an init command that produced no reply, by cause. `null` (a
+     * transport that cannot tell) keeps the legacy [ERROR_INIT_TIMEOUT].
+     */
+    fun initErrorCode(failure: ElmLinkFailure?): String = when (failure) {
+        null, ElmLinkFailure.TIMEOUT -> ERROR_INIT_TIMEOUT
+        ElmLinkFailure.WRITE_FAILED -> ERROR_INIT_WRITE_FAILED
+        ElmLinkFailure.EOF -> ERROR_INIT_EOF
+        ElmLinkFailure.READ_ERROR -> ERROR_INIT_READ_ERROR
+        ElmLinkFailure.LINK_CLOSED -> ERROR_INIT_LINK_CLOSED
+    }
+
+    /**
+     * How many times a connect+init session is attempted before its failure is surfaced. The
+     * second attempt starts from a fully closed socket after [RFCOMM_RELEASE_MS], which is what
+     * a manual unplug/replug used to achieve for single-link clones.
+     */
+    const val SESSION_OPEN_ATTEMPTS = 2
+
+    /** True when a failed connect+init should be retried once more ([attempt] is 1-based). */
+    fun shouldRetrySessionOpen(attempt: Int): Boolean = attempt < SESSION_OPEN_ATTEMPTS
 }
