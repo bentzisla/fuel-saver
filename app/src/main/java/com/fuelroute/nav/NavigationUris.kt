@@ -15,22 +15,14 @@ object NavigationUris {
     private const val WAZE_BASE = "waze://"
 
     /**
-     * Builds a Google Maps directions URL.
+     * Builds a Google Maps directions URL using the documented `google.com/maps/dir/?api=1`
+     * parameters: `origin`, `destination`, optional coordinate `waypoints`, and
+     * `dir_action=navigate` to ask for turn-by-turn navigation (degrading to a preview when the
+     * origin is far from the current location).
      *
-     * When [encodedPolyline] is supplied it is handed off as a single pass-through waypoint:
-     * `waypoints=via:enc:<polyline>:`. The `via:` prefix marks it as a pass-through (no tappable
-     * stop), `enc:` marks an encoded polyline and the trailing `:` terminates it. This preserves
-     * the route we chose instead of letting Maps pick its own. A coordinate list ([waypoints]) is
-     * only a fallback for when no encoded polyline is available.
-     *
-     * `dir_action=navigate` asks Maps to start turn-by-turn navigation immediately (it degrades to
-     * a route preview when the origin is far from the current location).
-     *
-     * Tradeoff: the consumer `google.com/maps/dir/?api=1` endpoint officially documents `waypoints`
-     * as place names/addresses/coordinates. The `via:enc:<polyline>:` form is the Directions-API
-     * encoded-polyline syntax; Maps accepts it in practice and it is the only way to pass a full
-     * path, but if a given Maps build ignores it the trip falls back to the origin/destination
-     * (i.e. Maps' own route). Waze has no equivalent, which is why Waze stays destination-only.
+     * [encodedPolyline] is accepted for API compatibility but is IGNORED here: the
+     * `via:enc:<polyline>:` pass-through form is Directions-API (not `api=1`) syntax and is
+     * unreliable on consumer Maps, so callers pass explicit coordinate [waypoints] instead.
      */
     fun googleMaps(
         destination: NavDestination,
@@ -47,10 +39,7 @@ object NavigationUris {
         params += "destination" to mapsEndpoint(destination)
         destination.nonBlankPlaceId()?.let { params += "destination_place_id" to it }
         params += "travelmode" to "driving"
-        val viaPolyline = encodedPolyline?.takeIf { it.isNotBlank() }
-        if (viaPolyline != null) {
-            params += "waypoints" to "via:enc:$viaPolyline:"
-        } else if (waypoints.isNotEmpty()) {
+        if (waypoints.isNotEmpty()) {
             params += "waypoints" to waypoints.joinToString("|") { (lat, lng) -> "${coord(lat)},${coord(lng)}" }
         }
         params += "dir_action" to "navigate"

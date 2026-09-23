@@ -80,6 +80,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -708,18 +709,20 @@ private fun RecentDestinations(
                     onClick = { onSelect(place) },
                     label = { Text(place.label) },
                     trailingIcon = {
-                        // Real button (role + 48dp target) instead of an 18dp nested clickable
-                        // icon: TalkBack now reaches "שמור במועדפים" as its own action.
-                        IconButton(
-                            onClick = { onToggleFavorite(place) },
-                            modifier = Modifier.minimumInteractiveComponentSize(),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.StarOutline,
-                                contentDescription = stringResource(R.string.route_favorite_add),
-                                modifier = Modifier.size(FilterChipDefaults.IconSize),
-                            )
-                        }
+                        // A plain, compact trailing icon inside the chip. A full IconButton (48dp)
+                        // here balloons the chip into an oversized "bubble", so keep it at the
+                        // chip's icon size and make the star its own semantic action via
+                        // contentDescription + clickable.
+                        Icon(
+                            imageVector = Icons.Outlined.StarOutline,
+                            contentDescription = stringResource(R.string.route_favorite_add),
+                            modifier = Modifier
+                                .size(FilterChipDefaults.IconSize)
+                                .clickable(
+                                    role = Role.Button,
+                                    onClickLabel = stringResource(R.string.route_favorite_add),
+                                ) { onToggleFavorite(place) },
+                        )
                     },
                 )
             }
@@ -773,16 +776,16 @@ private fun FavoriteDestinations(
                             )
                         },
                         trailingIcon = {
-                            IconButton(
-                                onClick = { onEdit(favorite) },
-                                modifier = Modifier.minimumInteractiveComponentSize(),
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.MoreVert,
-                                    contentDescription = stringResource(R.string.route_favorite_edit),
-                                    modifier = Modifier.size(FilterChipDefaults.IconSize),
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.Filled.MoreVert,
+                                contentDescription = stringResource(R.string.route_favorite_edit),
+                                modifier = Modifier
+                                    .size(FilterChipDefaults.IconSize)
+                                    .clickable(
+                                        role = Role.Button,
+                                        onClickLabel = stringResource(R.string.route_favorite_edit),
+                                    ) { onEdit(favorite) },
+                            )
                         },
                     )
                 }

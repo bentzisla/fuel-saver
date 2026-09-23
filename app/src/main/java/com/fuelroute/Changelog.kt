@@ -15,6 +15,15 @@ object Changelog {
 
     val entries: List<Entry> = listOf(
         Entry(
+            versionName = "0.6.4",
+            title = "תיקון ניווט ותצוגה + שמירה על נתונים",
+            changes = listOf(
+                "תוקנה מסירת היעד לאפליקציית הניווט (Google Maps נפתח ישירות לניווט)",
+                "תוקנה תצוגת כתובות היסטוריה/מועדפים שהוצגו בגודל מוזר",
+                "הגנה מפני אובדן נתונים: שדרוג מסד הנתונים כבר לא מוחק נתונים בשתיקה",
+            ),
+        ),
+        Entry(
             versionName = "0.6.3",
             title = "ביצועים ופרטיות",
             changes = listOf(

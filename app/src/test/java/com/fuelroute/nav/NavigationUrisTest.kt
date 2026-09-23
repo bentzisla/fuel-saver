@@ -117,18 +117,21 @@ class NavigationUrisTest {
     }
 
     @Test
-    fun `google maps passes the full polyline as a pass-through waypoint and requests navigation`() {
+    fun `google maps does not emit an unsupported via-enc waypoint and requests navigation`() {
         val dest = NavDestination(label = "יצחק שדה, הרצליה", placeId = "ChIJ_place")
         val polyline = "_p~iF~ps|U_ulLnnqC_mqNvxq`@"
         val url = NavigationUris.googleMaps(dest, encodedPolyline = polyline)
         assertTrue(url.contains("dir_action=navigate"))
-        // Documented Directions-API pass-through syntax: via: = no stop, enc:...: = encoded polyline.
-        assertTrue(url.contains("waypoints=via:enc:$polyline:"))
         assertTrue(url.contains("travelmode=driving"))
+        // The `via:enc:` Directions-API syntax is NOT emitted on the consumer api=1 URL — it is
+        // unreliable and can drop the destination. Only documented coordinate waypoints are used.
+        assertFalse(url.contains("via:enc:"))
+        assertFalse(url.contains("enc:"))
+        assertTrue(url.contains("destination=יצחק שדה, הרצליה") || url.contains("destination_place_id=ChIJ_place"))
     }
 
     @Test
-    fun `waypoints are omitted cleanly when there is no polyline`() {
+    fun `waypoints are omitted cleanly when none are provided`() {
         val dest = NavDestination(label = "יצחק שדה, הרצליה", placeId = "ChIJ_place")
         val url = NavigationUris.googleMaps(dest)
         assertFalse(url.contains("waypoints"))
