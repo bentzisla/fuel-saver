@@ -38,6 +38,21 @@ object DatabaseModule {
                 Migrations.MIGRATION_7_8,
                 Migrations.MIGRATION_8_9,
             )
+            // DATA-SAFETY GUARD: destructive migration is intentionally NOT enabled.
+            //
+            //   Room's `fallbackToDestructiveMigration()` recreates the database from scratch,
+            //   silently deleting every trip, refuel, learned curve and setting when the
+            //   on-device DB version does not resolve to a registered migration. That is how a
+            //   previous release wiped a user's data.
+            //
+            //   With no destructive fallback, a version mismatch instead throws a loud
+            //   `IllegalStateException` on open — the app force-closes rather than silently
+            //   destroying data, and the mismatch can be diagnosed and fixed (or recovered from
+            //   backup) without loss. Every supported version (4..9) is covered by the
+            //   non-destructive chain above, so this only triggers on an unsupported/hand-edited
+            //   database, which must NEVER be silently thrown away.
+            //
+            //   Do NOT add fallbackToDestructiveMigration() here.
             .build()
 
     @Provides

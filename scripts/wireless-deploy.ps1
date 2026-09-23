@@ -21,6 +21,29 @@ if (-not (Get-Command adb -ErrorAction SilentlyContinue)) {
 
 Push-Location $root
 try {
+    # Resolve a single target serial BEFORE building so the pre-install backup pulls from the
+    # same device we later install to.
+    $serials = @()
+    foreach ($line in (& $adb devices)) {
+        if ($line -match '^(\S.*?)\s+device\s*$') { $serials += $Matches[1] }
+    }
+    $serial = $serials | Select-Object -First 1
+
+    # ==== DATABASE BACKUP (data-loss safety net) ====
+    # Before any install, snapshot the app's Room database off-device so a botched schema
+    # migration can be recovered. Skipped when the app is not installed yet.
+    if ($serial) {
+        $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+        $backupDir = Join-Path $root ".\build\db-backups"
+        New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
+        Write-Host "==> Backing up app database before install ..."
+        & $adb -s "$serial" exec-out "run-as com.fuelroute cat databases/fuelroute.db" |
+            Set-Content -AsByteStream -Path (Join-Path $backupDir "fuelroute-$stamp.db") -ErrorAction SilentlyContinue
+        & $adb -s "$serial" exec-out "run-as com.fuelroute cat databases/fuelroute.db-wal" |
+            Set-Content -AsByteStream -Path (Join-Path $backupDir "fuelroute-$stamp.db-wal") -ErrorAction SilentlyContinue
+        Write-Host "   saved to $backupDir (fuelroute-$stamp.db(.wal))"
+    }
+
     Write-Host "==> Building + installing (installDebug) ..."
     & .\gradlew.bat installDebug --console=plain
     if ($LASTEXITCODE -ne 0) { throw "installDebug failed (exit $LASTEXITCODE)" }
@@ -32,8 +55,6 @@ try {
 
     $serials = @()
     foreach ($line in (& $adb devices)) {
-        # A device line is "<serial><whitespace>device". The serial may itself contain a
-        # space (re-paired transports), so capture everything before the final state word.
         if ($line -match '^(\S.*?)\s+device\s*$') { $serials += $Matches[1] }
     }
     if ($serials.Count -eq 0) {
