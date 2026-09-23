@@ -225,10 +225,19 @@ class BackupRepositoryTest {
             },
             speedBinDao = mockk<SpeedBinDao>(relaxed = true).also { dao ->
                 coEvery { dao.getAll() } answers { bins.toList() }
-                coEvery { dao.upsertAll(any()) } coAnswers {
-                    (args[0] as List<SpeedBinStatsEntity>).forEach { bin ->
-                        bins.removeAll { it.vehicleId == bin.vehicleId && it.binIndex == bin.binIndex }
-                        bins.add(bin)
+                // Additive semantics, like the real transactional DAO method.
+                coEvery { dao.addDeltas(any()) } coAnswers {
+                    (args[0] as List<SpeedBinStatsEntity>).forEach { delta ->
+                        val existing = bins.firstOrNull { it.vehicleId == delta.vehicleId && it.binIndex == delta.binIndex }
+                        bins.remove(existing)
+                        bins.add(
+                            existing?.copy(
+                                distanceKm = existing.distanceKm + delta.distanceKm,
+                                fuelL = existing.fuelL + delta.fuelL,
+                                seconds = existing.seconds + delta.seconds,
+                                samples = existing.samples + delta.samples,
+                            ) ?: delta,
+                        )
                     }
                 }
             },

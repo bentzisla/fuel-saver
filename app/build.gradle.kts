@@ -29,8 +29,8 @@ android {
         applicationId = "com.fuelroute"
         minSdk = 26
         targetSdk = 36
-        versionCode = 604
-        versionName = "0.6.4"
+        versionCode = 700
+        versionName = "0.7.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

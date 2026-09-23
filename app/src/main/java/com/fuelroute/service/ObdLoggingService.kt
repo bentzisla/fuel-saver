@@ -26,6 +26,7 @@ import com.fuelroute.data.settings.AppSettings
 import com.fuelroute.data.settings.SettingsRepository
 import com.fuelroute.data.vehicle.VehicleRepository
 import com.fuelroute.domain.model.VehicleProfile
+import com.fuelroute.domain.obd.ConsumptionReadout
 import com.fuelroute.domain.obd.ObdConnectionPolicy
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
@@ -248,7 +249,7 @@ class ObdLoggingService : Service() {
                                 .let { startActivity(it) }
                         })
                     }
-                    overlay.updateConsumption(state.instantL100)
+                    overlay.updateConsumption(ConsumptionReadout.of(state.instantL100, state.fuelRateLph))
                     overlay.updateSpeed(state.speedKmh)
                 }
             }
@@ -344,7 +345,11 @@ class ObdLoggingService : Service() {
         reconnectJob = null
         activeTransport = null
         activeVehicle = null
-        engine.stop()
+        // Never block the main thread on the engine: a run stuck on a silent adapter used to
+        // freeze onDestroy here (runBlocking + join) until ANR. The stop runs on the engine's
+        // own application-lifetime scope, bounded in time, and still flushes samples/bins/trip
+        // and sends ATPC + closes the socket. A later start() is never cancelled by it.
+        engine.requestStop()
         overlay.hide()
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
@@ -371,8 +376,9 @@ class ObdLoggingService : Service() {
     private fun notificationKey(state: LiveObdState?, stale: Boolean): String {
         val status = state?.status?.name ?: "null"
         val speed = state?.speedKmh?.let { Math.round(it).toString() } ?: "-"
-        val l100 = state?.instantL100?.let { String.format(Locale.US, "%.1f", it) } ?: "-"
-        return "$status|$speed|$l100|$stale"
+        val readout = state?.let { ConsumptionReadout.of(it.instantL100, it.fuelRateLph) }
+        val consumption = readout?.let { String.format(Locale.US, "%.1f%s", it.value, if (it.perHour) "h" else "") } ?: "-"
+        return "$status|$speed|$consumption|$stale"
     }
 
     private fun buildNotification(state: LiveObdState?, stale: Boolean): Notification {
@@ -394,8 +400,11 @@ class ObdLoggingService : Service() {
             state?.status == ObdStatus.Connecting -> getString(R.string.notification_connecting)
             state?.status == ObdStatus.Disconnected -> getString(R.string.notification_waiting)
             state?.speedKmh != null -> {
-                val l100 = state.instantL100?.let { String.format(Locale.US, "%.1f", it) } ?: "-"
-                getString(R.string.notification_live, Math.round(state.speedKmh), l100)
+                // L/100 km while moving, L/h when crawling/idle (never fuel/speed per sample).
+                val readout = ConsumptionReadout.of(state.instantL100, state.fuelRateLph)
+                val value = readout?.let { String.format(Locale.US, "%.1f", it.value) } ?: "-"
+                val template = if (readout?.perHour == true) R.string.notification_live_lph else R.string.notification_live
+                getString(template, Math.round(state.speedKmh), value)
             }
             else -> getString(R.string.notification_text)
         }

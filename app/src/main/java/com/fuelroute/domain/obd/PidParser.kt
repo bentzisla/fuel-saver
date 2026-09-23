@@ -42,23 +42,102 @@ object PidParser {
     }
 
     /**
-     * Returns the data bytes of a Mode 01 response for [pid], or null when the
-     * response is an error / does not contain the requested PID.
+     * Markers that invalidate the *whole* reply: the adapter tells us the frame it just printed
+     * was corrupt (`<DATA ERROR`, `<RX ERROR`), truncated (`STOPPED`, `BUFFER FULL`) or that the
+     * bus itself failed. Any hex that happens to precede them cannot be trusted.
      */
-    fun parseMode01Bytes(raw: String, pid: Int): List<Int>? {
-        val cleaned = clean(raw)
+    private val CORRUPT_REPLY_MARKERS = listOf(
+        "STOPPED",
+        "DATA ERROR",
+        "RX ERROR",
+        "BUFFER FULL",
+        "CAN ERROR",
+        "BUS ERROR",
+        "BUS BUSY",
+        "FB ERROR",
+    )
+    private val ELM_ERROR_CODE = Regex("ERR\\d{2}")
 
-        // Valid data wins over "noise" markers (echo, SEARCHING...). Extract every 2-hex
-        // pair regardless of spacing (spaces-on "41 0D 3C" OR spaces-off "410D3C"), then
-        // scan for the `41 <PID>` pair so a response like "SEARCHING...\r41 0D 3C\r>" still
-        // parses, while a response that is only "SEARCHING..." (or "NO DATA") has no
-        // payload and maps to null below.
-        val tokens = HEX_BYTE.findAll(cleaned).map { it.value.toInt(16) }.toList()
+    /** `0:` / `1:` ... prefix of a CAN ISO-TP multi-frame line (ATH0, ATCAF1). */
+    private val ISO_TP_INDEX = Regex("^([0-9A-F]):\\s*(.*)$")
 
-        for (i in 0 until tokens.size - 1) {
-            if (tokens[i] == 0x41 && tokens[i + 1] == (pid and 0xFF)) {
-                return tokens.drop(i + 2)
+    /** Status text an adapter may print on the same line in front of real data. */
+    private val NOISE_PREFIX = Regex("^(SEARCHING\\.*|BUS INIT:?\\s*(\\.\\.\\.)?\\s*(OK)?)\\s*")
+    private val SPACED_HEX = Regex("^[0-9A-F]{2}( [0-9A-F]{2})*$")
+    private val PACKED_HEX = Regex("^([0-9A-F]{2})+$")
+
+    /**
+     * Splits a raw ELM reply into complete OBD messages (each a list of bytes), in the order
+     * the adapter printed them. Each response line is one message (one per answering ECU);
+     * CAN ISO-TP continuation lines (`0:`, `1:`, ...) are joined into a single message.
+     * Lines that are not pure hex (echo is kept — it is filtered by the service byte later —
+     * but `SEARCHING...`, `NO DATA`, `?`, truncated odd-length hex, byte-count headers like
+     * `00A`, ...) are dropped. Returns an empty list when the reply carries a corruption
+     * marker (see [CORRUPT_REPLY_MARKERS]).
+     */
+    fun messages(raw: String): List<List<Int>> {
+        val upper = raw.uppercase()
+        if (CORRUPT_REPLY_MARKERS.any { upper.contains(it) } || ELM_ERROR_CODE.containsMatchIn(upper)) {
+            return emptyList()
+        }
+        val result = mutableListOf<MutableList<Int>>()
+        var isoTpOpen: MutableList<Int>? = null
+        for (rawLine in upper.split('\r', '\n', '>')) {
+            var line = rawLine.trim()
+            if (line.isEmpty()) continue
+
+            var frameIndex: Int? = null
+            ISO_TP_INDEX.find(line)?.let { match ->
+                frameIndex = match.groupValues[1].toInt(16)
+                line = match.groupValues[2].trim()
             }
+            line = line.replace(NOISE_PREFIX, "").trim()
+            val bytes = hexBytes(line) ?: continue
+
+            when (frameIndex) {
+                null -> {
+                    isoTpOpen = null
+                    result += bytes.toMutableList()
+                }
+                0 -> {
+                    val message = bytes.toMutableList()
+                    result += message
+                    isoTpOpen = message
+                }
+                else -> isoTpOpen?.addAll(bytes)
+            }
+        }
+        return result
+    }
+
+    /** Bytes of one pure-hex line (`41 0D 3C` or packed `410D3C`), or null for anything else. */
+    private fun hexBytes(line: String): List<Int>? = when {
+        line.isEmpty() -> null
+        SPACED_HEX.matches(line) -> line.split(' ').map { it.toInt(16) }
+        PACKED_HEX.matches(line) -> line.chunked(2).map { it.toInt(16) }
+        else -> null
+    }
+
+    /**
+     * Returns the data bytes of a Mode 01 response for [pid], or null when the response is an
+     * error, corrupt, truncated, or does not contain the requested PID.
+     *
+     * Robustness rules (see `docs/changes/0.7-obd-data.md`):
+     *  - only a message that *starts* with `41 <pid>` is accepted, so a stale/late reply to a
+     *    different PID (desync) is never mistaken for this one, even when its data bytes happen
+     *    to contain `41 <pid>`;
+     *  - when several ECUs answer, the first message (in reply order) with at least
+     *    [minDataBytes] data bytes wins — bytes of different ECUs are never concatenated;
+     *  - a truncated message (reply cut off without the `>` prompt) with fewer than
+     *    [minDataBytes] data bytes is rejected instead of being decoded from garbage.
+     */
+    fun parseMode01Bytes(raw: String, pid: Int, minDataBytes: Int = 1): List<Int>? {
+        val service = 0x41
+        val wantedPid = pid and 0xFF
+        for (message in messages(raw)) {
+            if (message.size < 2 || message[0] != service || message[1] != wantedPid) continue
+            val data = message.subList(2, message.size)
+            if (data.size >= minDataBytes) return data.toList()
         }
         return null
     }
@@ -67,8 +146,7 @@ object PidParser {
      * Decodes a 32-bit supported-PID bitmap (e.g. PID 0x00, 0x20, 0x40).
      */
     fun parseSupportedPids(raw: String, basePid: Int): Set<Int>? {
-        val data = parseMode01Bytes(raw, basePid) ?: return null
-        if (data.size < 4) return null
+        val data = parseMode01Bytes(raw, basePid, minDataBytes = 4) ?: return null
 
         val result = mutableSetOf<Int>()
         for (i in 0 until 32) {

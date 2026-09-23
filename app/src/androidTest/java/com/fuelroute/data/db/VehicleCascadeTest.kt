@@ -48,7 +48,7 @@ class VehicleCascadeTest {
         )
         db.obdSampleDao().insert(sample(vehicleId, timestampMs = 1_000L))
         db.obdSampleDao().insert(sample(otherId, timestampMs = 1_000L))
-        db.speedBinDao().upsertAll(
+        db.speedBinDao().overwrite(
             listOf(bin(vehicleId, binIndex = 3), bin(otherId, binIndex = 3)),
         )
         db.tripDao().insert(trip(vehicleId))

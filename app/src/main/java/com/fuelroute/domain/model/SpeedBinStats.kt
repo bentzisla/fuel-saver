@@ -51,3 +51,16 @@ data class SpeedBinStats(
         const val MIN_SECONDS = 0.01
     }
 }
+
+/**
+ * Adds per-bin [deltas] onto [base] totals (keyed by bin index), e.g. the last DB snapshot plus
+ * the increments not yet flushed. Sorted by bin index.
+ */
+fun mergeSpeedBins(base: Collection<SpeedBinStats>, deltas: Collection<SpeedBinStats>): List<SpeedBinStats> {
+    val merged = base.associateByTo(mutableMapOf()) { it.binIndex }
+    for (delta in deltas) {
+        val previous = merged[delta.binIndex]
+        merged[delta.binIndex] = previous?.plus(delta.distanceKm, delta.fuelL, delta.seconds, delta.samples) ?: delta
+    }
+    return merged.values.sortedBy { it.binIndex }
+}

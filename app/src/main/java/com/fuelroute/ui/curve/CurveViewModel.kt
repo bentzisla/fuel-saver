@@ -12,7 +12,6 @@ import com.fuelroute.domain.fuel.DefaultCurve
 import com.fuelroute.domain.fuel.ManualCurveResult
 import com.fuelroute.domain.fuel.ManualCurveValidator
 import com.fuelroute.domain.model.SpeedPoint
-import com.fuelroute.domain.model.binIndexToSpeedKmh
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -125,9 +124,10 @@ class CurveViewModel @Inject constructor(
         val fallback = manual ?: default
         val effective = CurveBlender.blend(learned, fallback)
 
-        val learnedPoints = learned.bins
-            .filter { it.binIndex > 0 && it.litersPer100Km != null }
-            .map { LearnedPoint(binIndexToSpeedKmh(it.binIndex), it.litersPer100Km!!, it.distanceKm) }
+        // Only the points the curve actually uses: tiny-distance or implausible bins (e.g. rows
+        // stored before the sample sanity filters) are not plotted as if they were measurements.
+        val learnedPoints = learned.points
+            .map { LearnedPoint(it.speedKmh, it.litersPer100Km, it.distanceKm) }
 
         val effectiveSamples = effective.samples()
         val best = effectiveSamples.minByOrNull { it.litersPer100Km }

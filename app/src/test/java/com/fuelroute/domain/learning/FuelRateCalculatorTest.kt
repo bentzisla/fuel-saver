@@ -3,6 +3,7 @@ package com.fuelroute.domain.learning
 import com.fuelroute.domain.model.FuelType
 import com.fuelroute.domain.model.ObdSample
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -49,5 +50,30 @@ class FuelRateCalculatorTest {
     @Test
     fun `returns null when there is no usable data`() {
         assertNull(FuelRateCalculator.fuelRateLph(ObdSample(timestampMs = 0), FuelType.GASOLINE, 2.0))
+    }
+
+    @Test
+    fun `estimates above the engine maximum are rejected not clamped`() {
+        // MAF sentinel 655.35 g/s -> ~215 L/h; 5E sentinel 3276.75 L/h.
+        assertNull(FuelRateCalculator.fuelRateLph(ObdSample(timestampMs = 0, mafGps = 655.35), FuelType.GASOLINE, 1.8))
+        assertNull(FuelRateCalculator.fuelRateLph(ObdSample(timestampMs = 0, fuelRateLph = 3276.75), FuelType.GASOLINE, null))
+    }
+
+    @Test
+    fun `estimates report their source`() {
+        val direct = FuelRateCalculator.estimate(ObdSample(timestampMs = 0, fuelRateLph = 5.0, mafGps = 9.0), FuelType.GASOLINE, 1.8)!!
+        assertEquals(FuelRateSource.DIRECT, direct.source)
+        val maf = FuelRateCalculator.estimate(ObdSample(timestampMs = 0, mafGps = 9.0), FuelType.GASOLINE, 1.8)!!
+        assertEquals(FuelRateSource.MAF, maf.source)
+        assertTrue(maf.learnable)
+    }
+
+    @Test
+    fun `diesel air-mass estimates are shown but never learned`() {
+        val maf = FuelRateCalculator.estimate(ObdSample(timestampMs = 0, mafGps = 20.0), FuelType.DIESEL, 2.0)!!
+        assertEquals(FuelRateSource.MAF, maf.source)
+        assertFalse(maf.learnable)
+        val direct = FuelRateCalculator.estimate(ObdSample(timestampMs = 0, fuelRateLph = 4.0), FuelType.DIESEL, 2.0)!!
+        assertTrue(direct.learnable)
     }
 }

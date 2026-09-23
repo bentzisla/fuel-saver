@@ -30,16 +30,78 @@ object ElmProtocol {
     val supportedPidBlocks: List<Int> =
         listOf(PID_SUPPORTED_01_20, PID_SUPPORTED_21_40, PID_SUPPORTED_41_60, PID_SUPPORTED_61_80)
 
-    val initializationCommands: List<String> = listOf(
-        "ATZ",   // reset
-        "ATAT1", // adaptive timing on (reduces clone timeouts)
+    /** Full adapter reset; answers with the identity banner (e.g. `ELM327 v1.5`). */
+    const val CMD_RESET = "ATZ"
+
+    /** Warm start: like `ATZ` but skips the LED test; the fallback when `ATZ` misbehaves. */
+    const val CMD_WARM_START = "ATWS"
+
+    /**
+     * Protocol close. Sent (a) as the sacrificial line-clear command right after the socket
+     * opens and (b) best-effort before closing the socket, so the adapter is idle for the next
+     * session instead of being left mid-search.
+     */
+    const val CMD_PROTOCOL_CLOSE = "ATPC"
+
+    /**
+     * Set all to defaults (no reboot). Last resort when neither `ATZ` nor `ATWS` produced a
+     * banner: an `OK` proves the adapter is alive and parsing commands.
+     */
+    const val CMD_SET_DEFAULTS = "ATD"
+
+    /** Describe protocol by number; logged once the bus is locked, for diagnostics. */
+    const val CMD_DESCRIBE_PROTOCOL_NUMBER = "ATDPN"
+
+    /**
+     * Reset attempts in order. A clone whose first `ATZ` answer is garbage / `?` / `STOPPED`
+     * (because it was still busy with a previous session's command) gets a second `ATZ`, then
+     * a warm start.
+     */
+    val resetSequence: List<String> = listOf(CMD_RESET, CMD_RESET, CMD_WARM_START)
+
+    /** Configuration sent after a successful reset (a reset restores all defaults). */
+    val configurationCommands: List<String> = listOf(
         "ATE0",  // echo off
         "ATL0",  // linefeeds off
         "ATS1", // spaces ON — PidParser tokenizes space-delimited hex; ATS0 would break parsing
         "ATH0",  // headers off
+        "ATAT1", // adaptive timing on (reduces clone timeouts)
         "ATSP0", // auto-detect protocol
         "ATST64", // set 64 ms timeout (clone-friendly)
     )
+
+    /** The nominal full init sequence: one reset followed by [configurationCommands]. */
+    val initializationCommands: List<String> = listOf(CMD_RESET) + configurationCommands
+
+    /** Result of the first data request after `ATSP0` (automatic protocol search). */
+    enum class SearchOutcome {
+        /** A valid `41 xx` reply: the bus protocol is locked. */
+        LOCKED,
+
+        /** `NO DATA`: the bus answered the search but the ECU is quiet (e.g. ignition off). */
+        NO_DATA,
+
+        /**
+         * `UNABLE TO CONNECT`, `BUS INIT: ...ERROR`, `CAN ERROR`, `BUS ERROR`, `STOPPED`, `?`
+         * or a bare `SEARCHING...`: the search failed and is worth an `ATPC` + retry.
+         */
+        BUS_ERROR,
+
+        /** Empty reply: the deadline expired and the transport closed the link. */
+        NO_REPLY,
+    }
+
+    /**
+     * Classifies the reply to the first `0100` after `ATSP0`. Note that a successful search
+     * prints `SEARCHING...` *and* the data in the same reply, so data wins over the marker.
+     */
+    fun classifySearchReply(raw: String): SearchOutcome {
+        if (raw.isBlank()) return SearchOutcome.NO_REPLY
+        if (PidParser.parseSupportedPids(raw, PID_SUPPORTED_01_20) != null) return SearchOutcome.LOCKED
+        val cleaned = PidParser.clean(raw).uppercase()
+        if (cleaned.contains("NO DATA") || cleaned.contains("NODATA")) return SearchOutcome.NO_DATA
+        return SearchOutcome.BUS_ERROR
+    }
 
     fun command(pid: Int): String = "01" + pid.toString(16).uppercase().padStart(2, '0')
 
@@ -76,11 +138,32 @@ object ElmProtocol {
     }
 
     /**
-     * True when an `ATZ` reset reply is an acceptable adapter banner. Recommended STN/OBDLink
-     * adapters (and many clones) do not say "ELM327", so accept any non-blank reply that is not
-     * an explicit no-answer marker (`NO DATA`, `?`, `UNABLE TO CONNECT`, …).
+     * True when an `ATZ`/`ATWS` reset reply is an acceptable adapter banner.
+     *
+     *  - A reply carrying a recognizable identity (`ELM`, `STN`, `OBD`, or a `v1.5`-style
+     *    version) is accepted even when surrounded by garbage bytes or a stale `?` — clones
+     *    often emit noise on reset, and a leftover `?` from an interrupted previous command
+     *    can precede the banner.
+     *  - Otherwise accept any non-blank reply that is not an explicit no-answer marker
+     *    (`NO DATA`, `?`, `UNABLE TO CONNECT`, `STOPPED`, …) and is not a bare `OK` (which is
+     *    the reply to some *other* command, i.e. the stream is out of sync).
+     *
+     * Recommended STN/OBDLink adapters (and many clones) do not say "ELM327", hence the
+     * permissive fallback.
      */
-    fun isAcceptedAdapterBanner(raw: String): Boolean = !PidParser.isError(raw)
+    fun isAcceptedAdapterBanner(raw: String): Boolean {
+        // Drop the echoed command itself (echo is ON right after a reset).
+        val cleaned = PidParser.clean(raw).uppercase()
+            .split(' ')
+            .filterNot { it == CMD_RESET || it == CMD_WARM_START }
+            .joinToString(" ")
+        if (cleaned.isEmpty()) return false
+        if (ADAPTER_IDENTITY.containsMatchIn(cleaned)) return true
+        if (cleaned == "OK") return false
+        return !PidParser.isError(cleaned)
+    }
+
+    private val ADAPTER_IDENTITY = Regex("ELM|STN|OBD|\\bV\\d+\\.\\d")
 
     /**
      * Parses the leading float of an `ATRV` reply (e.g. `12.3V`). Returns null for
@@ -97,21 +180,21 @@ object ElmProtocol {
 
     /** PID 0C - engine RPM. */
     fun rpm(raw: String): Double? {
-        val bytes = PidParser.parseMode01Bytes(raw, PID_RPM) ?: return null
+        val bytes = PidParser.parseMode01Bytes(raw, PID_RPM, minDataBytes = 2) ?: return null
         if (bytes.size < 2) return null
         return ((bytes[0] * 256) + bytes[1]) / 4.0
     }
 
     /** PID 10 - mass air flow, g/s. */
     fun mafGps(raw: String): Double? {
-        val bytes = PidParser.parseMode01Bytes(raw, PID_MAF) ?: return null
+        val bytes = PidParser.parseMode01Bytes(raw, PID_MAF, minDataBytes = 2) ?: return null
         if (bytes.size < 2) return null
         return ((bytes[0] * 256) + bytes[1]) / 100.0
     }
 
     /** PID 5E - engine fuel rate, L/h (only on some vehicles). */
     fun fuelRateLph(raw: String): Double? {
-        val bytes = PidParser.parseMode01Bytes(raw, PID_FUEL_RATE) ?: return null
+        val bytes = PidParser.parseMode01Bytes(raw, PID_FUEL_RATE, minDataBytes = 2) ?: return null
         if (bytes.size < 2) return null
         return ((bytes[0] * 256) + bytes[1]) / 20.0
     }

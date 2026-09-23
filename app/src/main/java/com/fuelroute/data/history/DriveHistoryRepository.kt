@@ -10,6 +10,7 @@ import com.fuelroute.domain.history.ManualCostCalculator
 import com.fuelroute.domain.history.PredictionAccuracy
 import com.fuelroute.domain.history.TripSplitCalculator
 import com.fuelroute.domain.history.TripTotals
+import com.fuelroute.domain.learning.LearnedDataPlausibility
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -375,18 +376,38 @@ class DriveHistoryRepository @Inject constructor(
             predictedLiters = liters,
             predictedMinutes = minutes,
             distanceKm = trip?.effectiveDistanceKm() ?: distanceKm,
-            actualCost = trip?.effectiveActualCost(),
-            actualLiters = trip?.effectiveFuelL(),
+            actualCost = trip?.displayActualCost(),
+            actualLiters = trip?.displayFuelL(),
             actualMinutes = trip?.let { (it.endedAtMs - it.startedAtMs) / 60_000.0 },
             pricePerLiterAtSearch = pricePerLiterAtSearch.takeIf { it > 0.0 },
             pricePerLiterAtTrip = trip?.pricePerLiterAtTrip?.takeIf { it > 0.0 },
-            savedAmount = savedAmount,
+            // Savings of the route the user actually picked vs the fastest one; the stored
+            // savedAmount is always relative to the top-ranked route, so choosing the fastest
+            // route must not still count as a saving.
+            savedAmount = if (fastestCost > 0.0) (fastestCost - cost).coerceAtLeast(0.0) else savedAmount,
             isDemo = trip?.source == TripSource.DEMO,
             manualCost = trip?.manualCost,
             manualDistanceKm = trip?.manualDistanceKm,
             manualLitersPer100Km = trip?.manualLitersPer100Km,
         )
     }
+
+    /**
+     * A trip whose stored OBD fuel is physically impossible (recorded before the 0.7 OBD-data
+     * fixes and not repairable from raw samples) shows no actual liters/cost instead of an
+     * absurd one — unless the user entered a manual cost, which always wins. Checked on the raw
+     * OBD columns, not on the manual overrides.
+     */
+    private fun TripEntity.isObdFuelPlausible(): Boolean =
+        LearnedDataPlausibility.isTripPlausible(distanceKm, fuelL, (endedAtMs - startedAtMs) / 1000.0)
+
+    /** History display cost: manual entry, else OBD cost when plausible, else null. */
+    private fun TripEntity.displayActualCost(): Double? =
+        manualCost ?: actualCost.takeIf { isObdFuelPlausible() }
+
+    /** History display liters: manual entry, else OBD fuel when plausible, else null. */
+    private fun TripEntity.displayFuelL(): Double? =
+        manualLiters() ?: fuelL.takeIf { isObdFuelPlausible() }
 
     private fun TripEntity.toOrphanEntry() = DriveHistoryEntry(
         searchId = null,
@@ -400,8 +421,8 @@ class DriveHistoryRepository @Inject constructor(
         predictedLiters = null,
         predictedMinutes = null,
         distanceKm = effectiveDistanceKm(),
-        actualCost = effectiveActualCost().takeIf { it > 0.0 },
-        actualLiters = effectiveFuelL(),
+        actualCost = displayActualCost()?.takeIf { it > 0.0 },
+        actualLiters = displayFuelL(),
         actualMinutes = (endedAtMs - startedAtMs) / 60_000.0,
         pricePerLiterAtSearch = null,
         pricePerLiterAtTrip = pricePerLiterAtTrip.takeIf { it > 0.0 },
@@ -416,7 +437,6 @@ class DriveHistoryRepository @Inject constructor(
      * The user's manual entry wins over the OBD measurement, but only as a read-time view:
      * the raw OBD columns are never overwritten.
      */
-    private fun TripEntity.effectiveActualCost(): Double = manualCost ?: actualCost
 
     private fun TripEntity.effectiveDistanceKm(): Double = manualDistanceKm ?: distanceKm
 

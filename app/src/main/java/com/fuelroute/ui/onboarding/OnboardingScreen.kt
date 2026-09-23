@@ -3,31 +3,25 @@ package com.fuelroute.ui.onboarding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import com.fuelroute.R
+import com.fuelroute.ui.components.Dimens
+import com.fuelroute.ui.components.PrimaryButton
+import com.fuelroute.ui.components.SecondaryButton
+import com.fuelroute.ui.components.SectionCard
 
 /**
  * First-run setup screen, shown once before the tabs (persisted via
  * `SettingsRepository.onboardingSeen`). It gates nothing — the user can dismiss it with
- * "סיימתי" — and mirrors the step-card style of the Android Auto help card in Settings.
- *
- * Covers the two hard prerequisites:
- *  1. a Google Cloud project + API key (Routes API, Maps SDK for Android, Places API New,
- *     SHA-1 restriction, `local.properties`), and
- *  2. an ELM327 dongle (pairing, Bluetooth permissions, battery-optimization exemption).
+ * "סיימתי" — and covers the two hard prerequisites (a Google Cloud API key, an ELM327 dongle)
  * plus a "try demo" entry point that needs no dongle.
  */
 @Composable
@@ -41,16 +35,17 @@ fun OnboardingScreen(
             .fillMaxSize()
             .systemBarsPadding()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+            .padding(Dimens.l),
+        verticalArrangement = Arrangement.spacedBy(Dimens.l),
     ) {
         Text(
             text = stringResource(R.string.onboarding_title),
-            style = MaterialTheme.typography.headlineSmall,
+            style = MaterialTheme.typography.headlineMedium,
+            modifier = Modifier.padding(top = Dimens.l),
         )
         Text(
             text = stringResource(R.string.onboarding_intro),
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
@@ -75,12 +70,8 @@ fun OnboardingScreen(
             note = stringResource(R.string.onboarding_obd_note),
         )
 
-        OutlinedButton(onClick = onTryDemo, modifier = Modifier.fillMaxWidth()) {
-            Text(stringResource(R.string.onboarding_demo))
-        }
-        Button(onClick = onDone, modifier = Modifier.fillMaxWidth()) {
-            Text(stringResource(R.string.onboarding_done))
-        }
+        PrimaryButton(text = stringResource(R.string.onboarding_done), onClick = onDone)
+        SecondaryButton(text = stringResource(R.string.onboarding_demo), onClick = onTryDemo)
     }
 }
 
@@ -90,28 +81,18 @@ private fun SetupCard(
     steps: List<Int>,
     note: String?,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-            )
+    SectionCard(title = title) {
+        Column(verticalArrangement = Arrangement.spacedBy(Dimens.s)) {
             steps.forEach { step ->
-                Text(
-                    text = stringResource(step),
-                    style = MaterialTheme.typography.bodySmall,
-                )
+                Text(text = stringResource(step), style = MaterialTheme.typography.bodyMedium)
             }
-            note?.let {
-                Text(
-                    text = it,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+        }
+        note?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

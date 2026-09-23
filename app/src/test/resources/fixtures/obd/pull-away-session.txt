@@ -1,0 +1,120 @@
+# Pull-away from a traffic light, recorded shape of a cheap ELM327 clone (headers off, spaces on).
+# Each loop polls, in order: 010D speed, 010C rpm, 0105 coolant, 0110 MAF, 015E fuel rate.
+# "delay=NN" before a loop's first command = loop period in ms (used as virtual time by the test).
+# Contains the real-world pathologies behind the "hundreds / thousands of L/100 km" report:
+#  - 2-3 km/h at 15-20 L/h while pulling away (old per-sample fuelRate/speed*100 = 500-1000 L/100)
+#  - speed sentinel 0xFF (255 km/h), MAF sentinel FF FF (655.35 g/s)
+#  - a stale reply of a different PID arriving late (desync), a truncated reply without prompt
+#  - a corrupt frame flagged "<DATA ERROR", two ECUs answering, SEARCHING/BUS INIT noise
+# loop 1: idle at the light
+delay=1000
+010D> 41 0D 00
+010C> 41 0C 0C 80
+0105> 41 05 7B
+0110> 41 10 00 C8
+015E> 41 5E 00 10
+# loop 2: idle
+delay=1000
+010D> 41 0D 00
+010C> 41 0C 0C 80
+0105> 41 05 7B
+0110> 41 10 00 C8
+015E> 41 5E 00 10
+# loop 3: clutch out, 2 km/h at 15 L/h
+delay=1000
+010D> 41 0D 02
+010C> 41 0C 1F 40
+0105> 41 05 7B
+0110> 41 10 0E 10
+015E> 41 5E 01 2C
+# loop 4: 3 km/h at 18 L/h
+delay=1000
+010D> 41 0D 03
+010C> 41 0C 23 28
+0105> 41 05 7B
+0110> 41 10 10 CC
+015E> 41 5E 01 68
+# loop 5: 5 km/h at 20 L/h; two ECUs answer 5E, the first one truncated
+delay=1000
+010D> 41 0D 05
+010C> 41 0C 27 10
+0105> 41 05 7B
+0110> 41 10 12 C0
+015E> 41 5E 01\r41 5E 01 90
+# loop 6: speed sentinel 0xFF and MAF sentinel FF FF, 5E missing
+delay=1000
+010D> 41 0D FF
+010C> 41 0C 2A F8
+0105> 41 05 7B
+0110> 41 10 FF FF
+015E> NO DATA
+# loop 7: 9 km/h, corrupt speed frame flagged by the adapter
+delay=1000
+010D> 41 0D 3C <DATA ERROR
+010C> 41 0C 2E E0
+0105> 41 05 7B
+0110> 41 10 14 50
+015E> 41 5E 01 90
+# loop 8: 12 km/h, SEARCHING / BUS INIT noise in front of valid data
+delay=1000
+010D> SEARCHING...\r41 0D 0C
+010C> BUS INIT: ...OK\r41 0C 2E E0
+0105> 41 05 7B
+0110> 41 10 13 88
+015E> 41 5E 01 7C
+# loop 9: desync — the speed command gets the late 015E reply, the rest shifts
+delay=1000
+010D> 41 5E 01 7C
+010C> 41 0D 0F
+0105> 41 0C 2E E0
+0110> 41 05 7B
+015E> 41 10 13 88
+# loop 10: 18 km/h, truncated MAF reply (read timeout, no '>' prompt)
+delay=1000
+010D> 41 0D 12
+010C> 41 0C 27 10
+0105> 41 05 7B
+0110> 41 10 0F
+015E> 41 5E 00 F0
+# loop 11: 22 km/h
+delay=1000
+010D> 41 0D 16
+010C> 41 0C 2A F8
+0105> 41 05 7B
+0110> 41 10 0E 10
+015E> 41 5E 00 DC
+# loop 12: 26 km/h
+delay=1000
+010D> 41 0D 1A
+010C> 41 0C 2E E0
+0105> 41 05 7B
+0110> 41 10 0C 80
+015E> 41 5E 00 B4
+# loop 13: 30 km/h
+delay=1000
+010D> 41 0D 1E
+010C> 41 0C 1F 40
+0105> 41 05 7B
+0110> 41 10 0A F0
+015E> 41 5E 00 A0
+# loop 14: 33 km/h
+delay=1000
+010D> 41 0D 21
+010C> 41 0C 20 D0
+0105> 41 05 7B
+0110> 41 10 09 60
+015E> 41 5E 00 8C
+# loop 15: 35 km/h cruising
+delay=1000
+010D> 41 0D 23
+010C> 41 0C 1F 40
+0105> 41 05 7B
+0110> 41 10 07 D0
+015E> 41 5E 00 64
+# loop 16: 36 km/h cruising
+delay=1000
+010D> 41 0D 24
+010C> 41 0C 1F 40
+0105> 41 05 7B
+0110> 41 10 07 D0
+015E> 41 5E 00 64
