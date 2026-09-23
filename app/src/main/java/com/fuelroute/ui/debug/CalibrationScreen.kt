@@ -2,7 +2,6 @@ package com.fuelroute.ui.debug
 
 import androidx.annotation.StringRes
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,6 +16,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -36,6 +36,10 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fuelroute.R
+import com.fuelroute.ui.components.Dimens
+import com.fuelroute.ui.components.ErrorCard
+import com.fuelroute.ui.components.FuelTopBar
+import com.fuelroute.ui.theme.FuelTheme
 import com.fuelroute.domain.fuel.CalibrationAccuracy
 import com.fuelroute.domain.fuel.CalibrationAccuracyBands
 import com.fuelroute.domain.fuel.ModelConstants
@@ -51,72 +55,52 @@ import java.util.Locale
 @Composable
 fun CalibrationScreen(
     modifier: Modifier = Modifier,
+    onBack: () -> Unit = {},
     viewModel: CalibrationViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var advanced by remember { mutableStateOf(false) }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Text(
-            text = stringResource(R.string.calibration_title),
-            style = MaterialTheme.typography.headlineSmall,
-        )
-        Text(
-            text = stringResource(R.string.calibration_hint),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        if (state.error) {
-            CalibrationLoadErrorCard(onRetry = viewModel::load)
-            return@Column
-        }
-
-        if (!state.isLoaded) return@Column
-
-        GuidedFlowCard(state = state, viewModel = viewModel)
-
-        ParametersCard(
-            state = state,
-            advanced = advanced,
-            onAdvancedChange = { advanced = it },
-            viewModel = viewModel,
-        )
-
-        RefuelCalibrationCard(state = state)
-
-        state.message?.let { messageRes ->
-            Text(
-                text = stringResource(messageRes),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
-    }
-}
-
-/** Shown when the initial calibration load fails, so the screen never blanks on a throw. */
-@Composable
-private fun CalibrationLoadErrorCard(onRetry: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Column(modifier = modifier.fillMaxSize()) {
+        FuelTopBar(title = stringResource(R.string.calibration_title), onBack = onBack)
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(start = Dimens.l, end = Dimens.l, bottom = Dimens.xl, top = Dimens.s),
+            verticalArrangement = Arrangement.spacedBy(Dimens.m),
         ) {
             Text(
-                text = stringResource(R.string.calibration_error_load),
+                text = stringResource(R.string.calibration_hint),
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Button(onClick = onRetry, modifier = Modifier.fillMaxWidth()) {
-                Text(stringResource(R.string.calibration_retry))
+
+            if (state.error) {
+                ErrorCard(message = stringResource(R.string.calibration_error_load), onRetry = viewModel::load)
+                return@Column
             }
+
+            if (!state.isLoaded) return@Column
+
+            state.message?.let { messageRes ->
+                Text(
+                    text = stringResource(messageRes),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+
+            GuidedFlowCard(state = state, viewModel = viewModel)
+
+            RefuelCalibrationCard(state = state)
+
+            ParametersCard(
+                state = state,
+                advanced = advanced,
+                onAdvancedChange = { advanced = it },
+                viewModel = viewModel,
+            )
         }
     }
 }
@@ -129,7 +113,10 @@ private fun GuidedFlowCard(
     val beforeAccuracy = CalibrationAccuracyBands.from(state.currentMape, state.pairCount)
     val afterAccuracy = CalibrationAccuracyBands.from(state.afterMape, state.pairCount)
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+    ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -305,7 +292,10 @@ private fun ParametersCard(
         ),
     )
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+    ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -418,7 +408,10 @@ private fun OverrideRow(spec: OverrideRowSpec, advanced: Boolean) {
 
 @Composable
 private fun RefuelCalibrationCard(state: CalibrationUiState) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+    ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -507,14 +500,11 @@ private fun accuracyLabel(accuracy: CalibrationAccuracy): String = stringResourc
 )
 
 @Composable
-private fun accuracyColor(accuracy: CalibrationAccuracy): Color {
-    val dark = isSystemInDarkTheme()
-    return when (accuracy) {
-        CalibrationAccuracy.NONE -> Color(0xFF9E9E9E)
-        CalibrationAccuracy.LOW -> if (dark) Color(0xFFEF5350) else Color(0xFFD9534F)
-        CalibrationAccuracy.MEDIUM -> if (dark) Color(0xFFFFCA28) else Color(0xFFE0A800)
-        CalibrationAccuracy.HIGH -> if (dark) Color(0xFF66BB6A) else Color(0xFF1B6B4A)
-    }
+private fun accuracyColor(accuracy: CalibrationAccuracy): Color = when (accuracy) {
+    CalibrationAccuracy.NONE -> FuelTheme.colors.neutral
+    CalibrationAccuracy.LOW -> FuelTheme.colors.negative
+    CalibrationAccuracy.MEDIUM -> FuelTheme.colors.caution
+    CalibrationAccuracy.HIGH -> FuelTheme.colors.positive
 }
 
 private data class OverrideRowSpec(
