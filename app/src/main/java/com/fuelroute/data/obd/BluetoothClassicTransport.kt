@@ -1,24 +1,26 @@
 package com.fuelroute.data.obd
 
 import android.annotation.SuppressLint
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket
+import android.os.SystemClock
 import android.util.Log
+import com.fuelroute.domain.obd.ElmLinkFailure
 import com.fuelroute.domain.obd.ObdConnectionPolicy
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.IOException
 import java.net.SocketTimeoutException
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Carries the transport's connect-chain reason code (`CONNECT TIMEOUT`, `SOCKET CLOSED`,
@@ -31,31 +33,45 @@ internal class ObdConnectException(
 ) : IOException(reason, cause)
 
 /**
- * Real ELM327 transport over Bluetooth Classic SPP. Uses a blocking read bounded by a
- * socket read-timeout (NOT polling `available()`, which is unreliable on a real Bluetooth
- * socket) and stops at the ELM `>` prompt. Every command/reply is logged as raw traffic so
- * the connection can be diagnosed with `adb logcat -s FuelRoute:*`.
+ * Real ELM327 transport over Bluetooth Classic SPP.
+ *
+ * Link hygiene for cheap single-connection clones (the "works only after re-plugging the
+ * dongle" bug):
+ *  - **single-flight** connect per dongle address, process-wide (two transports, e.g. an ACL
+ *    auto-start racing a manual connect or a service re-arm, can never open two RFCOMM links);
+ *  - discovery is cancelled before every `connect()`;
+ *  - every socket from every failed/abandoned/cancelled attempt is closed, and the next
+ *    connect waits [ObdConnectionPolicy.RFCOMM_RELEASE_MS] after the last close so the clone
+ *    can release its RFCOMM channel;
+ *  - [disconnect] also aborts a connect that is still in flight.
+ *
+ * Exchanges go through [ElmLink], whose per-command deadline really fires (it closes the
+ * socket to unblock the read). Every connect step and raw command/reply is logged under the
+ * `FuelRoute` tag: `adb logcat -s FuelRoute:*`.
  */
 class BluetoothClassicTransport(
     private val device: BluetoothDevice,
 ) : ObdTransport {
 
-    private var socket: BluetoothSocket? = null
-    private var input: java.io.InputStream? = null
-    private var output: java.io.OutputStream? = null
+    @Volatile
+    private var link: ElmLink? = null
 
-    /**
-     * Serializes command/response exchanges so a second command can never be written while a
-     * prior blocking `read()` is still outstanding (which would desync the ELM request/response
-     * stream). A timed-out command holds this lock until its socket is closed by [disconnect],
-     * which unblocks the read.
-     */
-    private val commandMutex = Mutex()
+    /** Socket of a connect that is still in flight, so [disconnect] can abort it. */
+    @Volatile
+    private var pendingSocket: BluetoothSocket? = null
 
-    private val _connected = kotlinx.coroutines.flow.MutableStateFlow(false)
+    /** Bumped by [disconnect]; a connect started under an older epoch aborts. */
+    private val epoch = AtomicLong()
 
     override val isConnected: Boolean
-        get() = _connected.value
+        get() = link?.isOpen == true
+
+    override val lastFailure: ElmLinkFailure?
+        get() = link?.lastFailure ?: lastLinkFailure
+
+    /** Failure of the previous (now discarded) link, kept so the engine can still classify it. */
+    @Volatile
+    private var lastLinkFailure: ElmLinkFailure? = null
 
     override val deviceName: String
         get() = try {
@@ -63,6 +79,9 @@ class BluetoothClassicTransport(
         } catch (e: SecurityException) {
             device.address
         }
+
+    private val address: String
+        get() = device.address
 
     /**
      * Best-effort ACL state of the dongle. `BluetoothDevice.isConnected()` is hidden API, so
@@ -81,67 +100,112 @@ class BluetoothClassicTransport(
 
     @SuppressLint("MissingPermission")
     override suspend fun connect(): Result<Unit> = withContext(Dispatchers.IO) {
-        var lastError: Throwable? = null
-        var attempt = 1
-        while (true) {
-            val result = attemptConnect()
-            result.exceptionOrNull()?.let { lastError = it }
-            if (result.isSuccess) return@withContext result
-
-            if (!ObdConnectionPolicy.shouldRetryConnect(attempt)) break
-            Log.w(
-                TAG,
-                "connect attempt $attempt/${ObdConnectionPolicy.connectAttempts()} failed " +
-                    "(${classifyConnectError(lastError)}) — retrying",
-                lastError,
-            )
-            delay(ObdConnectionPolicy.CONNECT_RETRY_BACKOFF_MS)
-            attempt++
+        val startEpoch = epoch.get()
+        // A reconnect always starts from a fully closed previous link.
+        link?.let { old ->
+            old.close("replaced by a new connect")
+            lastLinkFailure = old.lastFailure
         }
-        val reason = classifyConnectError(lastError)
-        Log.e(TAG, "connect to ${device.address} failed after $attempt attempt(s): $reason", lastError)
-        Result.failure(ObdConnectException(reason, lastError))
+        link = null
+
+        val gate = connectLock(address)
+        if (gate.isLocked) Log.i(TAG, "connect $address: waiting for another in-flight connect")
+        gate.withLock {
+            Log.i(TAG, "connect $address: begin (${deviceName})")
+            cancelDiscovery()
+            var lastError: Throwable? = null
+            var attempt = 1
+            while (true) {
+                if (epoch.get() != startEpoch) {
+                    Log.i(TAG, "connect $address: aborted by disconnect()")
+                    return@withContext Result.failure(
+                        ObdConnectException(ObdConnectionPolicy.ERROR_CONNECT, IOException("aborted")),
+                    )
+                }
+                val result = attemptConnect(startEpoch)
+                result.exceptionOrNull()?.let { lastError = it }
+                if (result.isSuccess) {
+                    Log.i(TAG, "connect $address: RFCOMM link up (attempt $attempt)")
+                    return@withContext result
+                }
+
+                if (!ObdConnectionPolicy.shouldRetryConnect(attempt)) break
+                Log.w(
+                    TAG,
+                    "connect $address: attempt $attempt/${ObdConnectionPolicy.connectAttempts()} failed " +
+                        "(${classifyConnectError(lastError)}: ${lastError?.message}) — retrying",
+                )
+                delay(ObdConnectionPolicy.CONNECT_RETRY_BACKOFF_MS)
+                attempt++
+            }
+            val reason = classifyConnectError(lastError)
+            Log.e(TAG, "connect $address: failed after $attempt attempt(s): $reason", lastError)
+            Result.failure(ObdConnectException(reason, lastError))
+        }
     }
 
     /**
      * One pass over the workaround chain (secure → insecure → channel 1). Returns the first
-     * socket that connects, or the last error when every variant fails.
+     * socket that connects, or the last error when every variant fails. Every socket that does
+     * not become the live link is closed before the next variant is tried.
      */
     @SuppressLint("MissingPermission")
-    private suspend fun attemptConnect(): Result<Unit> {
+    private suspend fun attemptConnect(startEpoch: Long): Result<Unit> {
         var lastError: Throwable? = null
         for (variant in ObdConnectionPolicy.connectVariants()) {
+            waitForRfcommRelease()
+            if (epoch.get() != startEpoch) return Result.failure(IOException("aborted"))
+
             val socket = try {
                 createSocket(variant)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
+                Log.w(TAG, "connect $address: create $variant socket failed: ${t.message}")
                 lastError = t
                 continue
             }
 
-            val connected = connectSocket(socket)
-            if (connected.isSuccess) {
-                try {
-                    applySoTimeout(socket, SO_TIMEOUT_MS)
-                    this.socket = socket
-                    input = socket.inputStream
-                    output = socket.outputStream
-                    _connected.value = true
-                    return Result.success(Unit)
-                } catch (t: Throwable) {
-                    runCatching { socket.close() }
-                    if (t is CancellationException) throw t
-                    lastError = t
-                }
-            } else {
-                runCatching { socket.close() }
-                val error = connected.exceptionOrNull()
-                lastError = error
-                // A timeout means the dongle did not answer at all; the other socket types
-                // will not help within this attempt, so fail fast and let the outer retry
-                // (with its own backoff) have another go later.
-                if (error is SocketTimeoutException) return Result.failure(error)
+            Log.i(TAG, "connect $address: trying $variant")
+            pendingSocket = socket
+            val connected = try {
+                connectSocket(socket)
+            } catch (e: CancellationException) {
+                closeSocket(socket, "connect cancelled ($variant)")
+                throw e
+            } finally {
+                pendingSocket = null
             }
+
+            if (connected.isSuccess) {
+                if (epoch.get() != startEpoch) {
+                    // disconnect() raced the successful connect: do not leak the socket.
+                    closeSocket(socket, "disconnect() during connect ($variant)")
+                    return Result.failure(IOException("aborted"))
+                }
+                return try {
+                    link = ElmLink(
+                        input = socket.inputStream,
+                        output = socket.outputStream,
+                        label = "$address/$variant",
+                        closeAction = { closeSocket(socket, null) },
+                        log = { Log.d(TAG, it) },
+                    )
+                    lastLinkFailure = null
+                    Result.success(Unit)
+                } catch (t: Throwable) {
+                    closeSocket(socket, "stream setup failed ($variant)")
+                    Result.failure(t)
+                }
+            }
+
+            closeSocket(socket, "$variant failed")
+            val error = connected.exceptionOrNull()
+            lastError = error
+            Log.w(TAG, "connect $address: $variant failed: ${error?.javaClass?.simpleName}: ${error?.message}")
+            // A timeout means the dongle did not answer at all; the other socket types
+            // will not help within this attempt, so fail fast and let the outer retry
+            // (with its own backoff) have another go later.
+            if (error is SocketTimeoutException) return Result.failure(error)
         }
         return Result.failure(lastError ?: IOException(ObdConnectionPolicy.ERROR_CONNECT))
     }
@@ -168,34 +232,58 @@ class BluetoothClassicTransport(
     }
 
     /**
-     * Runs the blocking, non-cancellable `BluetoothSocket.connect()` on a sibling coroutine
-     * so `withTimeout` can abandon it, then closes the socket to unblock the RFCOMM thread.
+     * Runs the blocking, non-cancellable `BluetoothSocket.connect()` on its own thread so the
+     * caller can give up after [ObdConnectionPolicy.CONNECT_TIMEOUT_MS] (or be cancelled). The
+     * caller closes the socket on every non-success, which also aborts the parked connect.
      */
     private suspend fun connectSocket(s: BluetoothSocket): Result<Unit> {
-        val failure = CompletableDeferred<Throwable?>()
-        val connectJob = CoroutineScope(Dispatchers.IO).launch {
-            try {
-                s.connect()
-                failure.complete(null)
-            } catch (t: Throwable) {
-                failure.complete(t)
-            }
-        }
-        val timedOut = try {
-            withTimeout(ObdConnectionPolicy.CONNECT_TIMEOUT_MS) { connectJob.join() }
-            false
-        } catch (_: TimeoutCancellationException) {
-            true
-        }
+        val done = CompletableDeferred<Result<Unit>>()
+        Thread({
+            done.complete(runCatching { s.connect() })
+        }, "bt-connect").apply { isDaemon = true }.start()
 
-        if (timedOut) {
-            Log.w(TAG, "connect to ${device.address} timed out after ${ObdConnectionPolicy.CONNECT_TIMEOUT_MS}ms")
-            runCatching { s.close() }
-            connectJob.cancel()
+        val outcome = withTimeoutOrNull(ObdConnectionPolicy.CONNECT_TIMEOUT_MS) { done.await() }
+        if (outcome == null) {
+            Log.w(TAG, "connect $address: timed out after ${ObdConnectionPolicy.CONNECT_TIMEOUT_MS}ms")
             return Result.failure(SocketTimeoutException(ObdConnectionPolicy.ERROR_CONNECT_TIMEOUT))
         }
-        failure.getCompleted()?.let { return Result.failure(it) }
-        return Result.success(Unit)
+        return outcome
+    }
+
+    /** Waits until the dongle has had [ObdConnectionPolicy.RFCOMM_RELEASE_MS] since our last close. */
+    private suspend fun waitForRfcommRelease() {
+        val waitMs = ObdConnectionPolicy.rfcommReleaseWaitMs(lastCloseAt[key(address)], SystemClock.elapsedRealtime())
+        if (waitMs > 0) {
+            Log.i(TAG, "connect $address: waiting ${waitMs}ms for the dongle to release the previous RFCOMM link")
+            delay(waitMs)
+        }
+    }
+
+    /**
+     * Discovery (e.g. a device scan left running) starves RFCOMM connects. Needs
+     * BLUETOOTH_SCAN on API 31+; when it is not granted there is nothing we can do about a
+     * running scan anyway.
+     */
+    @SuppressLint("MissingPermission")
+    private fun cancelDiscovery() {
+        try {
+            @Suppress("DEPRECATION")
+            val adapter = BluetoothAdapter.getDefaultAdapter() ?: return
+            if (adapter.isDiscovering) {
+                Log.i(TAG, "connect $address: cancelling running discovery")
+            }
+            adapter.cancelDiscovery()
+        } catch (e: SecurityException) {
+            Log.w(TAG, "connect $address: cannot cancel discovery (BLUETOOTH_SCAN not granted)")
+        } catch (t: Throwable) {
+            Log.w(TAG, "connect $address: cancelDiscovery failed: ${t.message}")
+        }
+    }
+
+    private fun closeSocket(s: BluetoothSocket, reason: String?) {
+        if (reason != null) Log.i(TAG, "connect $address: closing socket ($reason)")
+        runCatching { s.close() }
+        lastCloseAt[key(address)] = SystemClock.elapsedRealtime()
     }
 
     /** Maps the chain's last throwable to a machine reason code for the UI. */
@@ -210,103 +298,54 @@ class BluetoothClassicTransport(
         else -> ObdConnectionPolicy.ERROR_CONNECT
     }
 
-    override suspend fun disconnect(): Unit = withContext(Dispatchers.IO) {
-        _connected.value = false
-        // Intentionally does not take [commandMutex]: closing the socket is what unblocks an
-        // in-flight (possibly abandoned) blocking read, so the lock is released by that read's
-        // failure rather than held here.
-        runCatching { input?.close() }
-        runCatching { output?.close() }
-        runCatching { socket?.close() }
-        input = null
-        output = null
-        socket = null
-    }
-
-    override suspend fun sendCommand(command: String): String = withContext(Dispatchers.IO) {
-        commandMutex.withLock {
-            val out = output ?: return@withLock ""
-            val stream = input ?: return@withLock ""
-
-            Log.d(TAG, "ELM>> $command")
-            val started = System.currentTimeMillis()
-
-            val writeFailed = runCatching {
-                drain(stream)
-                out.write((command + '\r').toByteArray(Charsets.US_ASCII))
-                out.flush()
-            }.onFailure { e ->
-                Log.e(TAG, "ELM write failed", e)
-            }.isFailure
-            if (writeFailed) return@withLock ""
-
-            val reply = readUntilPrompt(stream)
-            val elapsed = System.currentTimeMillis() - started
-            Log.d(TAG, "ELM<< ${truncate(reply)} (${elapsed}ms)")
-            reply
-        }
-    }
-
     /**
-     * `android.bluetooth.BluetoothSocket` has no public `setSoTimeout` and blocks forever
-     * on a non-responsive adapter, so reach the underlying `java.net.Socket` via reflection
-     * (best effort). If hidden-API policy blocks it, the read is not independently
-     * cancellable: a timeout/cancellation cannot interrupt a thread parked in `read()`.
-     * The engine therefore closes the socket on an init timeout (see
-     * `ObdEngine.sendInitCommand`), and [sendCommand] serializes exchanges with
-     * [commandMutex] so the orphaned read cannot desync the next command.
+     * Closes the link and aborts an in-flight connect. Never waits for a pending read or the
+     * connect lock: closing the socket is exactly what unblocks them.
      */
-    private fun applySoTimeout(bt: BluetoothSocket, timeoutMs: Int) {
-        try {
-            val field = BluetoothSocket::class.java.getDeclaredField("mSocket")
-            field.isAccessible = true
-            (field.get(bt) as? java.net.Socket)?.soTimeout = timeoutMs
-        } catch (_: Throwable) {
-            // ignore — see KDoc above
+    override suspend fun disconnect() {
+        epoch.incrementAndGet()
+        pendingSocket?.let { closeSocket(it, "disconnect() while connecting") }
+        link?.let { current ->
+            current.close("disconnect()")
+            lastLinkFailure = current.lastFailure
         }
+        link = null
     }
 
-    /**
-     * Blocking read: each `read()` waits up to the socket's read-timeout. Accumulate bytes
-     * until the ELM `>` prompt, a timeout, EOF or an IO error. On timeout we still return
-     * whatever was buffered (a partial reply beats an empty string that hides the data).
-     */
-    private fun readUntilPrompt(stream: java.io.InputStream): String {
-        val buffer = StringBuilder()
-        while (true) {
-            val byte = try {
-                stream.read()
-            } catch (_: SocketTimeoutException) {
-                break
-            } catch (_: IOException) {
-                break
-            }
-            if (byte < 0) break
-            val char = byte.toChar()
-            if (char == '>') break
-            buffer.append(char)
-        }
-        return buffer.toString()
+    override suspend fun sendCommand(command: String): String =
+        sendCommand(command, ObdConnectionPolicy.COMMAND_TIMEOUT_MS)
+
+    override suspend fun sendCommand(command: String, timeoutMs: Long): String {
+        val current = link ?: return ""
+        return current.exchange(command, timeoutMs)
     }
 
-    private fun drain(stream: java.io.InputStream) {
-        try {
-            while (stream.available() > 0) {
-                stream.read()
-            }
-        } catch (_: IOException) {
-            // best effort; a stale byte is not fatal
-        }
+    override suspend fun sendSoft(command: String, timeoutMs: Long): String {
+        val current = link ?: return ""
+        return current.exchangeSoft(command, timeoutMs)
     }
-
-    private fun truncate(reply: String): String =
-        if (reply.length <= MAX_LOG_CHARS) reply
-        else reply.take(MAX_LOG_CHARS) + "…"
 
     companion object {
         val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
         private const val TAG = "FuelRoute"
-        private const val SO_TIMEOUT_MS = 1_500
-        private const val MAX_LOG_CHARS = 160
+
+        /** Process-wide single-flight connect lock per dongle address. */
+        private val connectLocks = ConcurrentHashMap<String, Mutex>()
+
+        /** Process-wide time (elapsedRealtime) we last closed a socket to each dongle. */
+        private val lastCloseAt = ConcurrentHashMap<String, Long>()
+
+        private fun key(address: String): String = address.uppercase()
+
+        /**
+         * True while this process is running the connect chain for [address]. Each variant that
+         * fails closes its socket, which makes the ACL link flap; the ACL receiver uses this to
+         * avoid treating our own connect attempts as "the dongle went away".
+         */
+        fun isConnectInFlight(address: String): Boolean =
+            connectLocks[key(address)]?.isLocked == true
+
+        private fun connectLock(address: String): Mutex =
+            connectLocks.getOrPut(key(address)) { Mutex() }
     }
 }

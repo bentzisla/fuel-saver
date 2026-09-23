@@ -48,8 +48,9 @@ class SimulatedObdTransport(
             "0140", "0160" -> "NO DATA"
             "0902" -> VIN_RESPONSE
             "ATRV" -> String.format(Locale.US, "%.1fV", 12.4)
-            "ATZ" -> "ELM327 v1.5"
-            "ATE0", "ATL0", "ATS0", "ATS1", "ATH0", "ATSP0", "ATAT1", "ATST64" -> "OK"
+            "ATZ", "ATWS" -> "ELM327 v1.5"
+            "ATDPN" -> "A6"
+            "ATE0", "ATL0", "ATS0", "ATS1", "ATH0", "ATSP0", "ATAT1", "ATST64", "ATD", "ATPC" -> "OK"
             else -> "NO DATA"
         }
     }
