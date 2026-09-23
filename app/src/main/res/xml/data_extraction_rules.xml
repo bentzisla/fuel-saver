@@ -2,12 +2,23 @@
 <!--
   Auto-backup / device-transfer rules for API >= 31 (referenced by android:dataExtractionRules).
 
-  There is no on-device secret to exclude: MAPS_API_KEY is injected at build time as a
+  Cloud backup: exclude the Room database (VIN, coordinates, trips) plus its WAL/SHM sidecars and
+  the DataStore files that carry the same private data (vehicle profile/VIN, recent destinations).
+  Settings and fuel-price Preferences remain backed up. Device transfer is left pass-through
+  (local phone-to-phone), as before.
+
+  There is no on-device secret to exclude otherwise: MAPS_API_KEY is injected at build time as a
   BuildConfig field and a manifest placeholder, so it lives in the APK (code/manifest), not in
-  any extracted file. local.properties is repo-only. Raw OBD samples live in a Room table and
-  are pruned by retention; extraction rules address files, not tables.
+  any extracted file. local.properties is repo-only.
 -->
 <data-extraction-rules>
-    <cloud-backup />
+    <cloud-backup>
+        <exclude domain="database" path="fuelroute.db" />
+        <exclude domain="database" path="fuelroute.db-wal" />
+        <exclude domain="database" path="fuelroute.db-shm" />
+
+        <exclude domain="file" path="datastore/vehicle.preferences_pb" />
+        <exclude domain="file" path="datastore/places.preferences_pb" />
+    </cloud-backup>
     <device-transfer />
 </data-extraction-rules>

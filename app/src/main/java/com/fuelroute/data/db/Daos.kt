@@ -30,6 +30,36 @@ interface VehicleDao {
     @Query("DELETE FROM vehicle WHERE id = :id")
     suspend fun deleteById(id: String)
 
+    @Query("DELETE FROM obd_sample WHERE vehicleId = :vehicleId")
+    suspend fun deleteSamplesForVehicle(vehicleId: String)
+
+    @Query("DELETE FROM speed_bin_stats WHERE vehicleId = :vehicleId")
+    suspend fun deleteSpeedBinsForVehicle(vehicleId: String)
+
+    @Query("DELETE FROM trip WHERE vehicleId = :vehicleId")
+    suspend fun deleteTripsForVehicle(vehicleId: String)
+
+    @Query("DELETE FROM refuel WHERE vehicleId = :vehicleId")
+    suspend fun deleteRefuelsForVehicle(vehicleId: String)
+
+    @Query("DELETE FROM learning_extras WHERE vehicleId = :vehicleId")
+    suspend fun deleteLearningExtrasForVehicle(vehicleId: String)
+
+    /**
+     * Deletes a vehicle and every row that belongs to it, mirroring an `ON DELETE CASCADE` foreign
+     * key. The schema deliberately has no `@ForeignKey` (adding one would rewrite the tables), so
+     * the cascade is done explicitly here, in child-before-parent order, inside one transaction.
+     */
+    @Transaction
+    suspend fun deleteWithChildren(vehicleId: String) {
+        deleteSamplesForVehicle(vehicleId)
+        deleteSpeedBinsForVehicle(vehicleId)
+        deleteTripsForVehicle(vehicleId)
+        deleteRefuelsForVehicle(vehicleId)
+        deleteLearningExtrasForVehicle(vehicleId)
+        deleteById(vehicleId)
+    }
+
     @Query("SELECT COUNT(*) FROM vehicle")
     suspend fun count(): Int
 }

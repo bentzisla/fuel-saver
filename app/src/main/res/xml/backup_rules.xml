@@ -2,11 +2,23 @@
 <!--
   Auto-backup rules for API < 31 (referenced by android:fullBackupContent).
 
-  There is no on-device secret to exclude: MAPS_API_KEY is injected at build time as a
+  The Room database carries private vehicle data (VIN, saved destinations / coordinates, trip
+  history), so it is excluded from cloud backup entirely, together with its WAL/SHM sidecars.
+  The DataStore files that hold the same kind of data are excluded too:
+    * datastore/vehicle.preferences_pb  - vehicle profile + VIN
+    * datastore/places.preferences_pb   - recent destinations / coordinates
+  Ordinary Preferences (datastore/settings.preferences_pb and datastore/price.preferences_pb)
+  stay backed up so the user's settings survive a restore.
+
+  There is no on-device secret to exclude otherwise: MAPS_API_KEY is injected at build time as a
   BuildConfig field and a manifest placeholder, so it lives in the APK (code/manifest), not in
   any backed-up file. local.properties is a repo-only file and never ships or backs up.
-
-  Raw OBD samples (`obd_sample`) are pruned by the retention policy, but Android backup rules
-  operate on files, not SQLite tables, so the Room database is backed up as a whole.
 -->
-<full-backup-content />
+<full-backup-content>
+    <exclude domain="database" path="fuelroute.db" />
+    <exclude domain="database" path="fuelroute.db-wal" />
+    <exclude domain="database" path="fuelroute.db-shm" />
+
+    <exclude domain="file" path="datastore/vehicle.preferences_pb" />
+    <exclude domain="file" path="datastore/places.preferences_pb" />
+</full-backup-content>

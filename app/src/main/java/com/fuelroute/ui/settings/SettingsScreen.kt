@@ -430,14 +430,6 @@ private fun VersionFooter() {
                 ),
                 style = MaterialTheme.typography.bodySmall,
             )
-            Text(
-                text = stringResource(
-                    R.string.settings_build_date_label,
-                    formatTimestamp(BuildConfig.BUILD_TIME.toLong()),
-                ),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }
