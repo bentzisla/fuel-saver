@@ -16,6 +16,9 @@ val localProperties = Properties().apply {
 }
 val mapsApiKey: String = localProperties.getProperty("MAPS_API_KEY") ?: ""
 
+val privacyPolicyUrl: String = localProperties.getProperty("PRIVACY_POLICY_URL")
+    ?: "https://github.com/bentzisla/fuel-saver/blob/master/docs/play/privacy-policy.md"
+
 val keystoreFile = rootProject.file("keystore.properties")
 val keystoreProperties = Properties().apply {
     if (keystoreFile.exists()) keystoreFile.inputStream().use { load(it) }
@@ -29,12 +32,15 @@ android {
         applicationId = "com.fuelroute"
         minSdk = 26
         targetSdk = 36
-        versionCode = 700
-        versionName = "0.7.0"
+        versionCode = 701
+        versionName = "0.7.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField("String", "MAPS_API_KEY", "\"$mapsApiKey\"")
+        // Public URL of the privacy policy (docs/play/privacy-policy.md). Override with
+        // `PRIVACY_POLICY_URL=...` in local.properties once it is hosted (e.g. GitHub Pages).
+        buildConfigField("String", "PRIVACY_POLICY_URL", "\"$privacyPolicyUrl\"")
         manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
     }
 
@@ -49,6 +55,22 @@ android {
         }
     }
 
+    // `sideload` keeps everything (Android Auto dashboard, floating overlay, battery-optimization
+    // prompt) and is what scripts/wireless-deploy.ps1 installs. `play` is the Google Play build:
+    // those three features are removed because Play policy does not allow them for this app type
+    // (see docs/play/README.md).
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("sideload") {
+            dimension = "distribution"
+            buildConfigField("boolean", "SIDELOAD_FEATURES", "true")
+        }
+        create("play") {
+            dimension = "distribution"
+            buildConfigField("boolean", "SIDELOAD_FEATURES", "false")
+        }
+    }
+
     buildTypes {
         debug {
             // Sign debug with the same release key so debug<->release installs are
@@ -57,7 +79,8 @@ android {
             signingConfigs.findByName("release")?.let { signingConfig = it }
         }
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

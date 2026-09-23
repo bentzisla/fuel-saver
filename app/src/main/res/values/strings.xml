@@ -388,7 +388,7 @@
     <string name="settings_android_auto_step_2">2. בטלפון: Android Auto ← הגדרות ← הקישו 10 פעמים על ״גרסה״ כדי להפעיל מצב מפתחים.</string>
     <string name="settings_android_auto_step_3">3. בתפריט ⋮ בחרו ״הגדרות מפתחים״ והפעילו ״מקורות לא ידועים״.</string>
     <string name="settings_android_auto_step_4">4. נתקו וחברו מחדש את הרכב, ואז בחרו את FuelRoute במסך האפליקציות ברכב.</string>
-    <string name="settings_android_auto_hint">בלי ״מקורות לא ידועים״ האפליקציה לא תופיע כלל ברשימה ברכב — זו הסיבה הנפוצה ביותר ל״לא מופיע״.</string>
+    <string name="settings_android_auto_hint">ברכב אמיתי Android Auto מציג רק אפליקציות שהותקנו מ-Google Play (אפשר גם ממסלול הבדיקה הפנימי). התקנה ידנית לא תופיע, גם עם ״מקורות לא ידועים״.</string>
     <string name="settings_android_auto_diagnostic_hint">אם ״התחברות אחרונה״ ריקה, הטלפון מעולם לא התחבר למארח הרכב. לאבחון מפורט: adb logcat -s FuelRoute:*</string>
 
     <string name="overlay_close">✕</string>
@@ -532,4 +532,5 @@
     <string name="stats_error_init_link_closed">החיבור לדונגל נסגר בזמן האתחול</string>
     <!-- obd-data: notification while crawling/idle shows L/h instead of L/100 km -->
     <string name="notification_live_lph">מהירות %1$d קמ״ש • צריכה %2$s ל׳/שעה</string>
+    <string name="settings_privacy_policy">מדיניות פרטיות</string>
 </resources>

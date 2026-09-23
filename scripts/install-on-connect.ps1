@@ -34,7 +34,7 @@ function Invoke-Install([string]$serial) {
     Write-Host ("[{0}] {1} connected (device). Building + installing..." -f (Get-Date -Format 'HH:mm:ss'), $serial) -ForegroundColor Cyan
     Push-Location $repoRoot
     try {
-        & $gradlew installDebug --console=plain
+        & $gradlew installSideloadDebug --console=plain
         if ($LASTEXITCODE -ne 0) {
             Write-Host ("[{0}] Build/install failed (gradle exit {1})." -f (Get-Date -Format 'HH:mm:ss'), $LASTEXITCODE) -ForegroundColor Red
             return

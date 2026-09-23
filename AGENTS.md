@@ -17,6 +17,8 @@ using per-segment speed and a vehicle consumption-vs-speed curve. Full design: `
 - Unit tests (JVM, domain layer): `.\gradlew.bat testDebugUnitTest`
 - Lint: `.\gradlew.bat lintDebug`
 - Signing report (SHA-1 for API key restriction): `.\gradlew.bat signingReport`
+- Google Play bundle (signed with the upload key from `keystore.properties`): `.\gradlew.bat bundlePlayRelease` -> `app/build/outputs/bundle/playRelease/`
+- Full-featured sideload release APK: `.\gradlew.bat assembleSideloadRelease`
 - Devices: `adb devices -l`
 - Launch: `adb shell am start -n com.fuelroute/.MainActivity`
 - Logs: `adb logcat -s FuelRoute:* AndroidRuntime:E`
@@ -24,7 +26,7 @@ using per-segment speed and a vehicle consumption-vs-speed curve. Full design: `
 
 Add `--console=plain` to gradle commands for cleaner output. First build downloads Gradle + deps and is slow (several minutes).
 
-A pre-push hook is installed (`.git/hooks/pre-push`) that runs `.\gradlew.bat testDebugUnitTest lintDebug` before every push (install script: `scripts/install-pre-push-hook.ps1`; skip with `git push --no-verify`).
+A pre-push hook is installed (`.git/hooks/pre-push`) that runs `.\gradlew.bat testSideloadDebugUnitTest testPlayDebugUnitTest lintSideloadDebug lintPlayDebug` before every push (install script: `scripts/install-pre-push-hook.ps1`; skip with `git push --no-verify`).
 
 ## Project conventions
 - Package: `com.fuelroute`. Layers: `ui/` (Compose + ViewModels), `domain/` (pure Kotlin, no Android imports), `data/` (Retrofit, DataStore, Room), `nav/`, `di/`, `car/` (Android Auto Car App Library templates).
@@ -53,7 +55,12 @@ A pre-push hook is installed (`.git/hooks/pre-push`) that runs `.\gradlew.bat te
 - Learning: 5 km/h speed bins; per bin accumulate `distanceKm`, `fuelL`, `seconds`, `samples` in Room (`speed_bin_stats`). Bin 0 with RPM > 0 = idle L/h. Samples with dt > 2 s or cold engine (< 60 C) are excluded from the curve.
 - Logging runs in `service/ObdLoggingService` (Foreground Service, type `connectedDevice`) independent of routing.
 - Recorded ELM sessions for tests/fixtures go under `app/src/test/resources/fixtures/obd/`.
-- Android Auto: `car/FuelRouteCarAppService` renders a live OBD dashboard (templates only, ~1 Hz). Test via the Desktop Head Unit (DHU), not the emulator: `sdkmanager --install "extras;google;auto"`, enable Android Auto developer mode on the phone, `adb forward tcp:5277 tcp:5277`, run `desktop-head-unit.exe`. Play Store will not approve a generic vehicle-dashboard category → sideload only (Android Auto "Unknown sources").
+- Android Auto: `car/FuelRouteCarAppService` renders a live OBD dashboard (templates only, ~1 Hz). Test via the Desktop Head Unit (DHU), not the emulator: `sdkmanager --install "extras;google;auto"`, enable Android Auto developer mode on the phone, `adb forward tcp:5277 tcp:5277`, run `desktop-head-unit.exe`. Android Auto only runs apps from a trusted store in a real car, so a sideloaded APK will not show there: use the Play internal-testing track for in-car use (see `docs/play/README.md`); the DHU accepts debug builds.
+
+## Build flavors
+- `sideload` (default for deploy scripts): everything, including the floating overlay and the battery-optimization prompt.
+- `play`: same app minus `SYSTEM_ALERT_WINDOW` and `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` (Play policy). Android Auto is kept in both. Gate flavor-specific behavior with `BuildConfig.SIDELOAD_FEATURES`.
+- Plain `installDebug` would install both flavors (same applicationId): always use `installSideloadDebug`.
 
 ## Backup / export
 - Backup/export uses the Android Storage Access Framework (document intents); its dialog lives in Settings.

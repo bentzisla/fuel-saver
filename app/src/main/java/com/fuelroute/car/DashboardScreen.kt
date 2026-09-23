@@ -183,9 +183,9 @@ class DashboardScreen(
             )
             .build()
 
-        return PaneTemplate.Builder(pane)
-            .setHeader(titleHeader())
-            .build()
+        val template = PaneTemplate.Builder(pane)
+        if (supportsHeader) template.setHeader(titleHeader()) else @Suppress("DEPRECATION") template.setTitle(string(R.string.car_title))
+        return template.build()
     }
 
     private fun buildDisconnected(): Template {
@@ -197,7 +197,7 @@ class DashboardScreen(
                 ?: string(R.string.car_disconnected)
         }
         val builder = MessageTemplate.Builder(message)
-            .setHeader(titleHeader())
+        if (supportsHeader) builder.setHeader(titleHeader()) else @Suppress("DEPRECATION") builder.setTitle(string(R.string.car_title))
         if (status != ObdStatus.Connecting) {
             builder.addAction(
                 Action.Builder()
@@ -219,16 +219,29 @@ class DashboardScreen(
             val address = runCatching {
                 settingsRepository.settings.first().lastDeviceAddress
             }.getOrNull()
-            ObdLoggingService.start(carContext, address, auto = true)
+            // A null address means "run the simulated demo drive"; never do that from the car,
+            // where fake numbers could be mistaken for the real vehicle.
+            if (address.isNullOrBlank()) {
+                Log.w(TAG, "car connect tapped but no dongle has been paired in the phone app")
+                return@launch
+            }
+            // Android 12+ may refuse a foreground-service start from the background; a crash here
+            // would take the whole car session down, so log it and let the user retry.
+            runCatching { ObdLoggingService.start(carContext, address, auto = true) }
+                .onFailure { Log.w(TAG, "car connect: could not start logging service", it) }
         }
     }
 
     private fun string(resId: Int, vararg args: Any): String =
         carContext.getString(resId, *args)
 
+    /** API-7 [Header]; older hosts (manifest declares minCarApiLevel 1) get the legacy title. */
     private fun titleHeader(): Header = Header.Builder()
         .setTitle(string(R.string.car_title))
         .build()
+
+    private val supportsHeader: Boolean
+        get() = runCatching { carContext.carAppApiLevel >= 7 }.getOrDefault(false)
 
     private fun string(resId: Int): String = carContext.getString(resId)
 

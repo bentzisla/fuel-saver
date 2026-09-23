@@ -14,7 +14,7 @@ $hook = @'
 # Install via scripts/install-pre-push-hook.ps1
 set -e
 echo "[pre-push] Running unit tests + lint..."
-./gradlew.bat testDebugUnitTest lintDebug --console=plain
+./gradlew.bat testSideloadDebugUnitTest testPlayDebugUnitTest lintSideloadDebug lintPlayDebug --console=plain
 '@
 
 $hookPath = Join-Path $hooksDir "pre-push"

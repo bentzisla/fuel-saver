@@ -67,8 +67,9 @@ app/src/main/java/com/fuelroute/
 ## Build & run
 
 ```powershell
-.\gradlew.bat assembleDebug          # build debug APK
-.\gradlew.bat installDebug           # build + install on the connected device
+.\gradlew.bat assembleSideloadDebug  # build debug APK (full-featured flavor)
+.\gradlew.bat installSideloadDebug   # build + install on the connected device
+.\gradlew.bat bundlePlayRelease       # signed Google Play bundle (see docs/play/README.md)
 .\gradlew.bat testDebugUnitTest      # JVM unit tests (domain layer)
 .\gradlew.bat lintDebug              # Android lint
 .\gradlew.bat signingReport          # SHA-1 for the API-key restriction
@@ -79,7 +80,7 @@ adb logcat -s FuelRoute:* AndroidRuntime:E
 
 Add `--console=plain` for cleaner output. The first build downloads Gradle + dependencies and is slow.
 
-A pre-push hook runs `testDebugUnitTest lintDebug` before every `git push` (install via
+A pre-push hook runs `testSideloadDebugUnitTest testPlayDebugUnitTest lintSideloadDebug lintPlayDebug` before every `git push` (install via
 `scripts/install-pre-push-hook.ps1`; skip with `git push --no-verify`). Helper scripts live in `scripts/`, the ELM327
 TCP emulator in `tools/elm327_emulator.py`.
 

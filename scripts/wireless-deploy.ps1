@@ -2,7 +2,7 @@
 # Builds, installs (over Wi-Fi ADB) and launches the FuelRoute debug APK on the phone.
 #
 # The phone is paired over wireless debugging and may appear under several adb transport
-# entries (re-pairing appends " (2)" etc.). `installDebug` installs to every online device;
+# entries (re-pairing appends " (2)" etc.). `installSideloadDebug` installs to every online device;
 # the launch step targets the first online device by serial.
 param(
     [switch]$NoLaunch
@@ -51,9 +51,9 @@ try {
         }
     }
 
-    Write-Host "==> Building + installing (installDebug) ..."
-    & .\gradlew.bat installDebug --console=plain
-    if ($LASTEXITCODE -ne 0) { throw "installDebug failed (exit $LASTEXITCODE)" }
+    Write-Host "==> Building + installing (installSideloadDebug) ..."
+    & .\gradlew.bat installSideloadDebug --console=plain
+    if ($LASTEXITCODE -ne 0) { throw "installSideloadDebug failed (exit $LASTEXITCODE)" }
 
     if ($NoLaunch) {
         Write-Host "Done (installed; launch skipped)."

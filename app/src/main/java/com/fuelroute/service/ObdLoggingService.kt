@@ -13,6 +13,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.fuelroute.BuildConfig
 import com.fuelroute.MainActivity
 import com.fuelroute.R
 import com.fuelroute.data.obd.BluetoothClassicTransport
@@ -183,7 +184,8 @@ class ObdLoggingService : Service() {
         scope.launch {
             settingsRepository.settings.collect { settings ->
                 latestSettings = settings
-                overlayEnabled = settings.showOverlay && Settings.canDrawOverlays(this@ObdLoggingService)
+                overlayEnabled = BuildConfig.SIDELOAD_FEATURES && settings.showOverlay &&
+                    Settings.canDrawOverlays(this@ObdLoggingService)
                 if (!overlayEnabled) overlay.hide()
             }
         }

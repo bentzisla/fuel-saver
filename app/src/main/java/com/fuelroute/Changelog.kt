@@ -15,6 +15,15 @@ object Changelog {
 
     val entries: List<Entry> = listOf(
         Entry(
+            versionName = "0.7.1",
+            title = "הכנה ל-Google Play",
+            changes = listOf(
+                "גרסת Play נפרדת (ללא שכבת-על וללא בקשת פטור מסוללה); Android Auto נשאר בכל הגרסאות",
+                "Android Auto: כותרת תואמת למארחים ישנים, כפתור החיבור לא מפעיל עוד נסיעת הדגמה, וכשל בהפעלת השירות לא מפיל את מסך הרכב",
+                "כיווץ קוד (R8), קישור למדיניות פרטיות בהגדרות ואייקון מונוכרומטי",
+            ),
+        ),
+        Entry(
             versionName = "0.7.0",
             title = "עיצוב חדש, חיבור OBD אמין ותיקון צריכת דלק שגויה",
             changes = listOf(

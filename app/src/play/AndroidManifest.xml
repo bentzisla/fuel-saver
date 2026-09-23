@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Google Play flavor: strips the two permissions Play policy restricts for this app type.
+    * SYSTEM_ALERT_WINDOW                    - floating consumption overlay (sideload only)
+    * REQUEST_IGNORE_BATTERY_OPTIMIZATIONS   - Play only allows it for narrow app categories
+  Android Auto is intentionally kept in every flavor.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" tools:node="remove" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" tools:node="remove" />
+</manifest>

@@ -167,6 +167,16 @@ fun SettingsScreen(
                     onClick = { showChangelog = true },
                     trailing = { Chevron() },
                 )
+                Divider()
+                ListRow(
+                    title = stringResource(R.string.settings_privacy_policy),
+                    onClick = {
+                        runCatching {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, BuildConfig.PRIVACY_POLICY_URL.toUri()))
+                        }
+                    },
+                    trailing = { Chevron() },
+                )
             }
         }
     }
@@ -339,22 +349,24 @@ private fun ObdLogging(state: SettingsUiState, viewModel: SettingsViewModel, ign
         checked = state.keepScreenOn,
         onCheckedChange = viewModel::onKeepScreenOnChange,
     )
-    Divider()
-    SwitchRow(
-        title = stringResource(R.string.settings_show_overlay),
-        subtitle = stringResource(R.string.settings_show_overlay_hint),
-        checked = state.showOverlay,
-        onCheckedChange = { value ->
-            viewModel.onShowOverlayChange(value)
-            if (value && !Settings.canDrawOverlays(context)) {
-                runCatching {
-                    context.startActivity(
-                        Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, "package:${context.packageName}".toUri()),
-                    )
+    if (BuildConfig.SIDELOAD_FEATURES) {
+        Divider()
+        SwitchRow(
+            title = stringResource(R.string.settings_show_overlay),
+            subtitle = stringResource(R.string.settings_show_overlay_hint),
+            checked = state.showOverlay,
+            onCheckedChange = { value ->
+                viewModel.onShowOverlayChange(value)
+                if (value && !Settings.canDrawOverlays(context)) {
+                    runCatching {
+                        context.startActivity(
+                            Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, "package:${context.packageName}".toUri()),
+                        )
+                    }
                 }
-            }
-        },
-    )
+            },
+        )
+    }
     Text(
         text = stringResource(R.string.settings_elm_battery_note),
         style = MaterialTheme.typography.bodySmall,
