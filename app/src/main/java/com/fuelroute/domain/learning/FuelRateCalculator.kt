@@ -2,6 +2,35 @@ package com.fuelroute.domain.learning
 
 import com.fuelroute.domain.model.FuelType
 import com.fuelroute.domain.model.ObdSample
+import com.fuelroute.domain.obd.SampleSanitizer
+
+/** Which OBD path produced a fuel-rate estimate. */
+enum class FuelRateSource {
+    /** PID 5E, engine fuel rate reported by the ECU. Most trustworthy. */
+    DIRECT,
+
+    /** PID 10 MAF / stoichiometric AFR — accurate for gasoline (closed-loop lambda ≈ 1). */
+    MAF,
+
+    /** MAP + RPM + IAT speed-density estimate — needs displacement, low accuracy. */
+    SPEED_DENSITY,
+}
+
+/**
+ * A fuel-rate estimate plus whether it may feed the learned curve.
+ *
+ * [learnable] is false for diesel estimates derived from air mass (MAF or speed-density):
+ * a diesel runs lean (lambda ≈ 1.2 at full load up to 3-6 at light load/idle), so dividing the
+ * air mass by the stoichiometric AFR (14.5) overestimates consumption by roughly that factor —
+ * i.e. several-fold in normal driving. Without a lambda/equivalence-ratio signal (PID 44 is
+ * rarely supported on diesels, and not polled) there is no verifiable correction, so these
+ * values are still shown live (marked by [source]) but never learned into the curve.
+ */
+data class FuelRateEstimate(
+    val litersPerHour: Double,
+    val source: FuelRateSource,
+    val learnable: Boolean,
+)
 
 /**
  * Derives fuel rate (L/h) from whatever the vehicle exposes, in order of
@@ -10,6 +39,14 @@ import com.fuelroute.domain.model.ObdSample
  *  1. PID 5E  - direct fuel rate.
  *  2. PID 10  - MAF, via the air/fuel ratio and fuel density.
  *  3. MAP + RPM + IAT - speed-density estimate (needs engine displacement).
+ *
+ * Every result is bounded by [SampleSanitizer.maxFuelRateLph]: an estimate above the
+ * plausible maximum for the engine (e.g. from a garbage MAF) is rejected (`null`), never
+ * clamped.
+ *
+ * Diesel caveat: see [FuelRateEstimate.learnable]. The MAF/speed-density formulas below use
+ * the stoichiometric AFR for diesel too, which is an *upper bound* on real diesel
+ * consumption, not an estimate of it.
  */
 object FuelRateCalculator {
 
@@ -25,16 +62,40 @@ object FuelRateCalculator {
         sample: ObdSample,
         fuelType: FuelType,
         engineDisplacementL: Double?,
-    ): Double? {
-        sample.fuelRateLph?.let { if (it >= 0.0) return it }
+    ): Double? = estimate(sample, fuelType, engineDisplacementL)?.litersPerHour
+
+    fun estimate(
+        sample: ObdSample,
+        fuelType: FuelType,
+        engineDisplacementL: Double?,
+    ): FuelRateEstimate? {
+        // Defensive: a displacement typed in cc (1800) or out of range must never reach the
+        // speed-density formula — it multiplies the fuel rate by 1000.
+        val displacement = EngineDisplacement.normalizeLiters(engineDisplacementL)
+        val max = SampleSanitizer.maxFuelRateLph(displacement)
+        val diesel = fuelType == FuelType.DIESEL
+
+        sample.fuelRateLph?.let {
+            if (it.isFinite() && it >= 0.0) {
+                return if (it <= max) FuelRateEstimate(it, FuelRateSource.DIRECT, learnable = true) else null
+            }
+        }
 
         val maf = sample.mafGps
-        if (maf != null && maf > 0.0) return mafToLph(maf, fuelType)
+        if (maf != null && maf.isFinite() && maf > 0.0) {
+            val lph = mafToLph(maf, fuelType)
+            return if (lph <= max) FuelRateEstimate(lph, FuelRateSource.MAF, learnable = !diesel) else null
+        }
 
         val map = sample.mapKpa
         val rpm = sample.rpm
-        if (map != null && rpm != null && rpm > 0.0 && engineDisplacementL != null) {
-            return speedDensityLph(map, rpm, sample.intakeTempC ?: 20.0, engineDisplacementL, fuelType)
+        if (map != null && rpm != null && rpm > 0.0 && displacement != null) {
+            val lph = speedDensityLph(map, rpm, sample.intakeTempC ?: 20.0, displacement, fuelType)
+            return if (lph.isFinite() && lph >= 0.0 && lph <= max) {
+                FuelRateEstimate(lph, FuelRateSource.SPEED_DENSITY, learnable = !diesel)
+            } else {
+                null
+            }
         }
 
         return null

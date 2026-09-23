@@ -7,6 +7,7 @@ import com.fuelroute.data.db.TripEntity
 import com.fuelroute.data.db.TripSource
 import com.fuelroute.domain.history.DriveOutcome
 import com.fuelroute.domain.history.PredictionAccuracy
+import com.fuelroute.domain.learning.LearnedDataPlausibility
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -182,8 +183,8 @@ class DriveHistoryRepository @Inject constructor(
             predictedLiters = liters,
             predictedMinutes = minutes,
             distanceKm = trip?.distanceKm ?: distanceKm,
-            actualCost = trip?.actualCost,
-            actualLiters = trip?.fuelL,
+            actualCost = trip?.takeIf { it.isFuelPlausible() }?.actualCost,
+            actualLiters = trip?.takeIf { it.isFuelPlausible() }?.fuelL,
             actualMinutes = trip?.let { (it.endedAtMs - it.startedAtMs) / 60_000.0 },
             pricePerLiterAtSearch = pricePerLiterAtSearch.takeIf { it > 0.0 },
             pricePerLiterAtTrip = trip?.pricePerLiterAtTrip?.takeIf { it > 0.0 },
@@ -191,6 +192,13 @@ class DriveHistoryRepository @Inject constructor(
             isDemo = trip?.source == TripSource.DEMO,
         )
     }
+
+    /**
+     * A trip whose stored fuel is physically impossible (recorded before the 0.7 OBD-data fixes
+     * and not repairable from raw samples) shows no actual liters/cost instead of an absurd one.
+     */
+    private fun TripEntity.isFuelPlausible(): Boolean =
+        LearnedDataPlausibility.isTripPlausible(distanceKm, fuelL, (endedAtMs - startedAtMs) / 1000.0)
 
     private fun TripEntity.toOrphanEntry() = DriveHistoryEntry(
         searchId = null,
@@ -202,8 +210,8 @@ class DriveHistoryRepository @Inject constructor(
         predictedLiters = null,
         predictedMinutes = null,
         distanceKm = distanceKm,
-        actualCost = actualCost.takeIf { it > 0.0 },
-        actualLiters = fuelL,
+        actualCost = actualCost.takeIf { it > 0.0 && isFuelPlausible() },
+        actualLiters = fuelL.takeIf { isFuelPlausible() },
         actualMinutes = (endedAtMs - startedAtMs) / 60_000.0,
         pricePerLiterAtSearch = null,
         pricePerLiterAtTrip = pricePerLiterAtTrip.takeIf { it > 0.0 },

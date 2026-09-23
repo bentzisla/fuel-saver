@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fuelroute.data.price.FuelGrades
 import com.fuelroute.data.vehicle.VehicleRepository
+import com.fuelroute.domain.learning.EngineDisplacement
 import com.fuelroute.domain.model.FuelType
 import com.fuelroute.domain.model.VehicleProfile
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -116,7 +117,10 @@ class VehicleViewModel @Inject constructor(
         val state = _uiState.value
         val name = state.name.trim()
         val ratedCombined = state.ratedCombined.trim()
-        val displacement = state.displacement.trim()
+        // Litres expected; a value typed in cc (1800) is converted (1.8) and anything outside
+        // 0.6-8.0 L is dropped (unknown) — it feeds the speed-density fuel formula directly.
+        val displacementLiters = EngineDisplacement.parseLiters(state.displacement)
+        val displacement = displacementLiters?.toString().orEmpty()
         val tankCapacity = state.tankCapacity.trim()
         _uiState.value = state.copy(
             name = name,
@@ -130,7 +134,7 @@ class VehicleViewModel @Inject constructor(
             name = name,
             fuelType = state.fuelType,
             ratedCombinedL100 = ratedCombined.toDoubleOrNull() ?: DEFAULT_RATED_L100,
-            engineDisplacementL = displacement.toDoubleOrNull(),
+            engineDisplacementL = displacementLiters,
             tankCapacityL = tankCapacity.toDoubleOrNull(),
             grade = normalizeGrade(state.fuelType, state.grade),
         )

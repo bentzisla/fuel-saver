@@ -119,14 +119,14 @@ class DashboardScreen(
     }
 
     private fun valuesFor(state: LiveObdState, price: Double): LiveDashboardValues {
+        // The engine already smooths fuel and distance over a trip-computer window and only
+        // reports L/100 km while really moving (instantL100 == null when crawling/idle). Never
+        // recompute L/100 km here from a smoothed rate / smoothed speed: at 1-2 km/h that
+        // division is what produced hundreds of L/100 km.
         val fuelRate = fuelRateSmoother.update(state.fuelRateLph)
         val speed = speedSmoother.update(state.speedKmh)
-        val moving = (speed ?: 0.0) >= LiveCostCalculator.MIN_MOVING_SPEED_KMH
-        val consumption = if (moving) {
-            LiveCostCalculator.litersPer100Km(fuelRate, speed)
-        } else {
-            fuelRate
-        }
+        val moving = state.instantL100 != null
+        val consumption = if (moving) state.instantL100 else fuelRate
         return LiveDashboardValues(
             costPerHour = round(LiveCostCalculator.costPerHour(fuelRate, price), 1),
             consumption = consumption?.let { round(it, 1) },

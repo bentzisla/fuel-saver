@@ -11,6 +11,7 @@ import com.fuelroute.data.db.SpeedBinDao
 import com.fuelroute.data.db.TripDao
 import com.fuelroute.data.db.VehicleDao
 import com.fuelroute.data.db.VehicleEntity
+import com.fuelroute.domain.learning.EngineDisplacement
 import com.fuelroute.domain.model.FuelType
 import com.fuelroute.domain.model.SpeedPoint
 import com.fuelroute.domain.model.VehicleProfile
@@ -155,7 +156,7 @@ class DefaultVehicleRepository @Inject constructor(
                         ?.let { runCatching { FuelType.valueOf(it) }.getOrNull() }
                         ?: FuelType.GASOLINE,
                     ratedCombinedL100 = prefs[Keys.RATED_COMBINED] ?: DEFAULT_RATED_L100,
-                    engineDisplacementL = prefs[Keys.ENGINE_DISPLACEMENT]?.toDoubleOrNull(),
+                    engineDisplacementL = EngineDisplacement.parseLiters(prefs[Keys.ENGINE_DISPLACEMENT]),
                     tankCapacityL = prefs[Keys.TANK_CAPACITY]?.toDoubleOrNull(),
                     manualCurve = decodeManualCurve(prefs[Keys.MANUAL_CURVE]),
                     fuelRateCorrection = prefs[Keys.CORRECTION] ?: 1.0,
@@ -182,7 +183,8 @@ class DefaultVehicleRepository @Inject constructor(
         name = name,
         fuelType = runCatching { FuelType.valueOf(fuelType) }.getOrDefault(FuelType.GASOLINE),
         ratedCombinedL100 = ratedCombinedL100,
-        engineDisplacementL = engineDisplacementL,
+        // A value typed in cc (e.g. 1800) is normalized to litres on every read and write.
+        engineDisplacementL = EngineDisplacement.normalizeLiters(engineDisplacementL),
         manualCurve = decodeManualCurve(manualCurve),
         fuelRateCorrection = fuelRateCorrection,
         tankCapacityL = tankCapacityL,
@@ -195,7 +197,8 @@ class DefaultVehicleRepository @Inject constructor(
         name = name,
         fuelType = fuelType.name,
         ratedCombinedL100 = ratedCombinedL100,
-        engineDisplacementL = engineDisplacementL,
+        // A value typed in cc (e.g. 1800) is normalized to litres on every read and write.
+        engineDisplacementL = EngineDisplacement.normalizeLiters(engineDisplacementL),
         tankCapacityL = tankCapacityL,
         fuelRateCorrection = fuelRateCorrection,
         manualCurve = encodeManualCurve(manualCurve),
