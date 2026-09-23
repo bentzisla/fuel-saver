@@ -2,6 +2,5 @@
 <!-- Toll display strings (remediation card 44). Kept in a dedicated file to avoid touching
      strings.xml, which parallel work owns. -->
 <resources>
-    <string name="route_toll_amount">אגרה: ₪ %1$s</string>
-    <string name="route_total_includes_toll">הסכום הכולל כולל אגרה של ₪ %1$s</string>
+    <string name="route_total_includes_toll">כולל אגרה ₪%1$s</string>
 </resources>
