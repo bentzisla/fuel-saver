@@ -37,11 +37,18 @@ try {
         $backupDir = Join-Path $root ".\build\db-backups"
         New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
         Write-Host "==> Backing up app database before install ..."
-        & $adb -s "$serial" exec-out "run-as com.fuelroute cat databases/fuelroute.db" |
-            Set-Content -AsByteStream -Path (Join-Path $backupDir "fuelroute-$stamp.db") -ErrorAction SilentlyContinue
-        & $adb -s "$serial" exec-out "run-as com.fuelroute cat databases/fuelroute.db-wal" |
-            Set-Content -AsByteStream -Path (Join-Path $backupDir "fuelroute-$stamp.db-wal") -ErrorAction SilentlyContinue
-        Write-Host "   saved to $backupDir (fuelroute-$stamp.db(.wal))"
+        # PowerShell 5.1 has no -AsByteStream; use cmd /c redirection for a byte-exact copy.
+        $dbPath = Join-Path $backupDir "fuelroute-$stamp.db"
+        $walPath = Join-Path $backupDir "fuelroute-$stamp.db-wal"
+        cmd /c "`"$adb`" -s `"$serial`" exec-out run-as com.fuelroute cat databases/fuelroute.db > `"$dbPath`" 2>nul"
+        cmd /c "`"$adb`" -s `"$serial`" exec-out run-as com.fuelroute cat databases/fuelroute.db-wal > `"$walPath`" 2>nul"
+        if (Test-Path $dbPath) {
+            Write-Host "   saved to $backupDir (fuelroute-$stamp.db)"
+        } else {
+            Write-Host "   (no database to back up - app not installed or not run yet)"
+            Remove-Item -LiteralPath $dbPath -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $walPath -Force -ErrorAction SilentlyContinue
+        }
     }
 
     Write-Host "==> Building + installing (installDebug) ..."
