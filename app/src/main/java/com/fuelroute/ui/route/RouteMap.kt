@@ -148,5 +148,5 @@ private val RouteColors = listOf(
     Color(0xFFAD1457), // pink
 )
 
-private fun routeColor(index: Int): Color =
+internal fun routeColor(index: Int): Color =
     RouteColors[((index % RouteColors.size) + RouteColors.size) % RouteColors.size]

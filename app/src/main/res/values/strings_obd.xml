@@ -9,7 +9,7 @@
     <string name="stats_connect_stage_settle">מזהה פרוטוקול OBD…</string>
     <string name="stats_connect_stage_pids">בודק חיישנים נתמכים…</string>
     <string name="stats_connect_stage_vin">קורא מספר שלדה (VIN)…</string>
-    <string name="stats_connect_elapsed">שניות: %1$d</string>
+    <string name="stats_connect_elapsed">%1$d שנ׳</string>
     <string name="stats_connect_hint">החיבור עשוי לקחת עד ~30 שניות; אם הדונגל כבוי הוא ייכשל מהר</string>
     <string name="stats_error_init_timeout">הדונגל לא הגיב לפקודת האתחול</string>
 </resources>

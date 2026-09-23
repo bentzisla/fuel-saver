@@ -4,11 +4,12 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -24,14 +25,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -39,6 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,6 +64,18 @@ import com.fuelroute.domain.fuel.CurveDataQuality
 import com.fuelroute.domain.fuel.ManualCurveResult
 import com.fuelroute.domain.fuel.ManualCurveValidator
 import com.fuelroute.domain.model.SpeedPoint
+import com.fuelroute.ui.components.ConfirmDialog
+import com.fuelroute.ui.components.Dimens
+import com.fuelroute.ui.components.ErrorCard
+import com.fuelroute.ui.components.ExpandableSection
+import com.fuelroute.ui.components.FuelTopBar
+import com.fuelroute.ui.components.HeroValue
+import com.fuelroute.ui.components.KeyValueRow
+import com.fuelroute.ui.components.PillTone
+import com.fuelroute.ui.components.SecondaryButton
+import com.fuelroute.ui.components.SectionCard
+import com.fuelroute.ui.components.StatusPill
+import com.fuelroute.ui.theme.FuelTheme
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -73,96 +87,57 @@ import kotlin.math.roundToInt
 /** Destructive actions that must be confirmed before they touch stored data. */
 private enum class PendingCurveAction { AdoptLearned, ResetLearning, ClearManual }
 
+/**
+ * "My car's curve": the one insight first (most efficient speed + how much data backs it), the
+ * chart second, the manual editor as the single visible action. Destructive data actions live in
+ * the top-bar overflow menu; the model explanation is folded away.
+ */
 @Composable
 fun CurveScreen(
     modifier: Modifier = Modifier,
+    onBack: () -> Unit = {},
     viewModel: CurveViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Text(
-            text = stringResource(R.string.curve_title),
-            style = MaterialTheme.typography.headlineSmall,
-        )
-
-        when {
-            state.isLoading -> Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-
-            state.error -> CurveLoadErrorCard(onRetry = viewModel::load)
-
-            else -> {
-                SummaryCard(state)
-                ChartCard(state)
-                ActionsCard(state, viewModel)
-            }
-        }
-    }
-}
-
-/** Shown when [CurveViewModel.load] fails, so the screen never spins forever or stays blank. */
-@Composable
-private fun CurveLoadErrorCard(onRetry: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                text = stringResource(R.string.curve_error_load),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error,
-            )
-            Button(onClick = onRetry, modifier = Modifier.fillMaxWidth()) {
-                Text(stringResource(R.string.curve_retry))
-            }
-        }
-    }
-}
-
-@Composable
-private fun ActionsCard(state: CurveUiState, viewModel: CurveViewModel) {
     var pending by remember { mutableStateOf<PendingCurveAction?>(null) }
-    var editingManual by remember { mutableStateOf(false) }
+    var editingManual by rememberSaveable { mutableStateOf(false) }
+    val ready = !state.isLoading && !state.error
 
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Button(
-            onClick = { pending = PendingCurveAction.AdoptLearned },
-            enabled = state.hasLearnedData,
-            modifier = Modifier.fillMaxWidth(),
+    Column(modifier = modifier.fillMaxSize()) {
+        FuelTopBar(
+            title = stringResource(R.string.curve_title),
+            onBack = onBack,
+            actions = {
+                if (ready) CurveOverflowMenu(state = state, onAction = { pending = it })
+            },
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(start = Dimens.l, end = Dimens.l, bottom = Dimens.xl, top = Dimens.s),
+            verticalArrangement = Arrangement.spacedBy(Dimens.m),
         ) {
-            Text(stringResource(R.string.curve_adopt))
-        }
-        Button(
-            onClick = { editingManual = true },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(stringResource(R.string.curve_edit_manual))
-        }
-        OutlinedButton(
-            onClick = { pending = PendingCurveAction.ResetLearning },
-            enabled = state.hasLearnedData,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(stringResource(R.string.curve_reset_learning))
-        }
-        OutlinedButton(
-            onClick = { pending = PendingCurveAction.ClearManual },
-            enabled = state.hasManualCurve,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(stringResource(R.string.curve_clear_manual))
+            when {
+                state.isLoading -> Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+
+                state.error -> ErrorCard(
+                    message = stringResource(R.string.curve_error_load),
+                    onRetry = viewModel::load,
+                )
+
+                else -> {
+                    CurveHero(state)
+                    ChartCard(state)
+                    SecondaryButton(
+                        text = stringResource(R.string.curve_edit_manual),
+                        onClick = { editingManual = true },
+                    )
+                    HowItWorksSection(state)
+                }
+            }
         }
     }
 
@@ -179,9 +154,10 @@ private fun ActionsCard(state: CurveUiState, viewModel: CurveViewModel) {
     }
 
     when (pending) {
-        PendingCurveAction.AdoptLearned -> ConfirmDestructiveDialog(
+        PendingCurveAction.AdoptLearned -> ConfirmDialog(
             title = stringResource(R.string.curve_adopt_confirm_title),
             message = stringResource(R.string.curve_adopt_confirm_message),
+            confirmLabel = stringResource(R.string.curve_adopt_confirm),
             onConfirm = {
                 viewModel.adoptLearned()
                 pending = null
@@ -189,9 +165,10 @@ private fun ActionsCard(state: CurveUiState, viewModel: CurveViewModel) {
             onDismiss = { pending = null },
         )
 
-        PendingCurveAction.ResetLearning -> ConfirmDestructiveDialog(
+        PendingCurveAction.ResetLearning -> ConfirmDialog(
             title = stringResource(R.string.curve_reset_confirm_title),
             message = stringResource(R.string.curve_reset_confirm_message),
+            confirmLabel = stringResource(R.string.curve_delete_confirm),
             onConfirm = {
                 viewModel.resetLearning()
                 pending = null
@@ -199,9 +176,10 @@ private fun ActionsCard(state: CurveUiState, viewModel: CurveViewModel) {
             onDismiss = { pending = null },
         )
 
-        PendingCurveAction.ClearManual -> ConfirmDestructiveDialog(
+        PendingCurveAction.ClearManual -> ConfirmDialog(
             title = stringResource(R.string.curve_clear_manual_confirm_title),
             message = stringResource(R.string.curve_clear_manual_confirm_message),
+            confirmLabel = stringResource(R.string.curve_delete_confirm),
             onConfirm = {
                 viewModel.clearManual()
                 pending = null
@@ -214,30 +192,209 @@ private fun ActionsCard(state: CurveUiState, viewModel: CurveViewModel) {
 }
 
 @Composable
-private fun ConfirmDestructiveDialog(
-    title: String,
-    message: String,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = { Text(message) },
-        confirmButton = {
-            TextButton(onClick = onConfirm) {
-                Text(
-                    text = stringResource(R.string.curve_delete_confirm),
-                    color = MaterialTheme.colorScheme.error,
-                )
+private fun CurveOverflowMenu(state: CurveUiState, onAction: (PendingCurveAction) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }) {
+            Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.common_more))
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.curve_adopt)) },
+                enabled = state.hasLearnedData,
+                onClick = {
+                    open = false
+                    onAction(PendingCurveAction.AdoptLearned)
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.curve_reset_learning)) },
+                enabled = state.hasLearnedData,
+                onClick = {
+                    open = false
+                    onAction(PendingCurveAction.ResetLearning)
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.curve_clear_manual)) },
+                enabled = state.hasManualCurve,
+                onClick = {
+                    open = false
+                    onAction(PendingCurveAction.ClearManual)
+                },
+            )
+        }
+    }
+}
+
+/** The insight: the car's most efficient speed, and how trustworthy the curve is. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CurveHero(state: CurveUiState) {
+    SectionCard {
+        val speed = state.efficientSpeedKmh
+        val l100 = state.efficientL100
+        if (speed != null && l100 != null) {
+            HeroValue(
+                value = "${Math.round(speed)}",
+                unit = stringResource(R.string.route_units_kmh),
+                label = stringResource(R.string.curve_efficient_label),
+                color = FuelTheme.colors.positive,
+            )
+            Text(
+                text = stringResource(R.string.curve_efficient_detail, format(l100, 1)),
+                style = MaterialTheme.typography.bodyLarge,
+            )
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(Dimens.xs), verticalArrangement = Arrangement.spacedBy(Dimens.xs)) {
+            StatusPill(
+                text = stringResource(R.string.curve_quality_label, qualityLabel(state.quality)),
+                tone = qualityTone(state.quality),
+            )
+            if (state.hasManualCurve) {
+                StatusPill(text = stringResource(R.string.curve_legend_manual), tone = PillTone.Accent)
             }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.curve_delete_cancel))
-            }
-        },
-    )
+        }
+        Text(
+            text = if (state.totalKm > 0.0) {
+                stringResource(R.string.curve_based_on, format(state.totalKm, 1))
+            } else {
+                stringResource(R.string.curve_no_data)
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun qualityLabel(quality: CurveDataQuality): String = stringResource(
+    when (quality) {
+        CurveDataQuality.NONE -> R.string.curve_quality_none
+        CurveDataQuality.LOW -> R.string.curve_quality_low
+        CurveDataQuality.MEDIUM -> R.string.curve_quality_medium
+        CurveDataQuality.HIGH -> R.string.curve_quality_high
+    },
+)
+
+private fun qualityTone(quality: CurveDataQuality): PillTone = when (quality) {
+    CurveDataQuality.NONE -> PillTone.Neutral
+    CurveDataQuality.LOW -> PillTone.Caution
+    CurveDataQuality.MEDIUM -> PillTone.Accent
+    CurveDataQuality.HIGH -> PillTone.Positive
+}
+
+@Composable
+private fun ChartCard(state: CurveUiState) {
+    val kmSuffix = stringResource(R.string.curve_km_suffix)
+    val seriesColors = curveSeriesColors()
+    var selectedBin by remember(state.learnedPoints) { mutableStateOf<LearnedPoint?>(null) }
+
+    SectionCard {
+        Text(
+            text = stringResource(R.string.curve_y_label),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        CurveChart(
+            defaultPoints = state.defaultPoints,
+            effectivePoints = state.effectivePoints,
+            manualPoints = state.manualPoints,
+            learnedPoints = state.learnedPoints,
+            selectedPoint = selectedBin,
+            onSelect = { selectedBin = it },
+            colors = seriesColors,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(240.dp),
+        )
+        Text(
+            text = stringResource(R.string.curve_x_axis),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Legend(
+            colors = seriesColors,
+            hasManual = state.manualPoints.isNotEmpty(),
+            hasLearned = state.learnedPoints.isNotEmpty(),
+        )
+        val bin = selectedBin
+        if (bin != null) {
+            CurveBinChip(point = bin, kmSuffix = kmSuffix)
+        } else if (state.learnedPoints.isNotEmpty()) {
+            Text(
+                text = stringResource(R.string.curve_tap_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** Only the series actually drawn get a legend entry. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun Legend(colors: CurveSeriesColors, hasManual: Boolean, hasLearned: Boolean) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(Dimens.l),
+        verticalArrangement = Arrangement.spacedBy(Dimens.xs),
+    ) {
+        LegendItem(color = colors.effective, label = stringResource(R.string.curve_legend_effective))
+        LegendItem(color = colors.default, label = stringResource(R.string.curve_legend_default))
+        if (hasManual) LegendItem(color = colors.manual, label = stringResource(R.string.curve_legend_manual))
+        if (hasLearned) {
+            LegendItem(color = colors.learned, label = stringResource(R.string.curve_legend_learned))
+            LegendItem(color = colors.learned.copy(alpha = 0.3f), label = stringResource(R.string.curve_legend_band))
+        }
+    }
+}
+
+@Composable
+private fun LegendItem(color: Color, label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(
+            modifier = Modifier
+                .size(10.dp)
+                .background(color, CircleShape),
+        )
+        Text(text = label, style = MaterialTheme.typography.labelMedium)
+    }
+}
+
+/** The model explanation and secondary numbers, folded away by default. */
+@Composable
+private fun HowItWorksSection(state: CurveUiState) {
+    ExpandableSection(title = stringResource(R.string.curve_basis_title)) {
+        if (state.totalKm > 0.0) {
+            KeyValueRow(
+                label = stringResource(R.string.curve_learned_share_label),
+                value = "${(state.learnedShare * 100.0).roundToInt()}%",
+            )
+            KeyValueRow(label = stringResource(R.string.curve_samples_label), value = state.totalSamples.toString())
+        }
+        state.idleLph?.let { idle ->
+            KeyValueRow(
+                label = stringResource(R.string.curve_idle_label),
+                value = "${format(idle, 1)} ${stringResource(R.string.stats_units_lph)}",
+            )
+        }
+        KeyValueRow(label = stringResource(R.string.curve_calibration_label), value = format(state.calibrationFactor, 2))
+        Text(
+            text = stringResource(R.string.curve_basis_body),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = stringResource(R.string.curve_quality_hint),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = stringResource(R.string.curve_confidence_hint),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }
 
 /** One editable speed/consumption row in the manual-curve editor. */
@@ -465,189 +622,6 @@ private fun CurveEditRowItem(
                 contentDescription = stringResource(R.string.curve_editor_remove),
             )
         }
-    }
-}
-
-@Composable
-private fun SummaryCard(state: CurveUiState) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(
-                text = stringResource(R.string.curve_quality_label, qualityLabel(state.quality)),
-                style = MaterialTheme.typography.titleSmall,
-                color = qualityColor(state.quality),
-            )
-            Text(
-                text = stringResource(R.string.curve_quality_hint),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            if (state.totalKm > 0.0) {
-                Text(
-                    text = stringResource(R.string.curve_based_on, format(state.totalKm, 1)),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Text(
-                    text = stringResource(
-                        R.string.curve_blend_split,
-                        (state.learnedShare * 100.0).roundToInt().toString(),
-                        stringResource(
-                            if (state.hasManualCurve) {
-                                R.string.curve_legend_manual
-                            } else {
-                                R.string.curve_legend_default
-                            },
-                        ),
-                    ),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Text(
-                    text = stringResource(R.string.curve_samples, state.totalSamples.toString()),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else {
-                Text(
-                    text = stringResource(R.string.curve_no_data),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            if (state.efficientSpeedKmh != null && state.efficientL100 != null) {
-                Text(
-                    text = stringResource(
-                        R.string.curve_efficient,
-                        "${Math.round(state.efficientSpeedKmh)}",
-                        format(state.efficientL100, 1),
-                    ),
-                    style = MaterialTheme.typography.titleSmall,
-                )
-            }
-            state.idleLph?.let { idle ->
-                Text(
-                    text = stringResource(R.string.curve_idle, format(idle, 1)),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Text(
-                text = stringResource(R.string.curve_calibration, format(state.calibrationFactor, 2)),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-@Composable
-private fun qualityLabel(quality: CurveDataQuality): String = stringResource(
-    when (quality) {
-        CurveDataQuality.NONE -> R.string.curve_quality_none
-        CurveDataQuality.LOW -> R.string.curve_quality_low
-        CurveDataQuality.MEDIUM -> R.string.curve_quality_medium
-        CurveDataQuality.HIGH -> R.string.curve_quality_high
-    },
-)
-
-@Composable
-private fun qualityColor(quality: CurveDataQuality): Color {
-    val dark = isSystemInDarkTheme()
-    return when (quality) {
-        CurveDataQuality.NONE -> Color(0xFF9E9E9E)
-        CurveDataQuality.LOW -> if (dark) Color(0xFFEF5350) else Color(0xFFD9534F)
-        CurveDataQuality.MEDIUM -> if (dark) Color(0xFFFFCA28) else Color(0xFFE0A800)
-        CurveDataQuality.HIGH -> if (dark) Color(0xFF66BB6A) else Color(0xFF1B6B4A)
-    }
-}
-
-@Composable
-private fun ChartCard(state: CurveUiState) {
-    val kmSuffix = stringResource(R.string.curve_km_suffix)
-    val seriesColors = curveSeriesColors()
-    var selectedBin by remember(state.learnedPoints) { mutableStateOf<LearnedPoint?>(null) }
-
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(
-                text = stringResource(R.string.curve_y_label),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            CurveChart(
-                defaultPoints = state.defaultPoints,
-                effectivePoints = state.effectivePoints,
-                manualPoints = state.manualPoints,
-                learnedPoints = state.learnedPoints,
-                selectedPoint = selectedBin,
-                onSelect = { selectedBin = it },
-                colors = seriesColors,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(260.dp),
-            )
-
-            selectedBin?.let { point ->
-                CurveBinChip(point = point, kmSuffix = kmSuffix)
-            }
-
-            Text(
-                text = stringResource(R.string.curve_x_axis),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            Legend(colors = seriesColors)
-
-            Text(
-                text = stringResource(R.string.curve_confidence_hint),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            Text(
-                text = stringResource(R.string.curve_basis_title),
-                style = MaterialTheme.typography.titleSmall,
-            )
-            Text(
-                text = stringResource(R.string.curve_basis_body),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-@Composable
-private fun Legend(colors: CurveSeriesColors) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            LegendItem(color = colors.default, label = stringResource(R.string.curve_legend_default))
-            LegendItem(color = colors.manual, label = stringResource(R.string.curve_legend_manual))
-            LegendItem(color = colors.effective, label = stringResource(R.string.curve_legend_effective))
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            LegendItem(color = colors.learned, label = stringResource(R.string.curve_legend_learned))
-            LegendItem(
-                color = colors.learned.copy(alpha = 0.3f),
-                label = stringResource(R.string.curve_legend_band),
-            )
-        }
-    }
-}
-
-@Composable
-private fun LegendItem(color: Color, label: String) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Box(
-            modifier = Modifier
-                .size(10.dp)
-                .background(color, CircleShape),
-        )
-        Text(text = label, style = MaterialTheme.typography.labelSmall)
     }
 }
 
@@ -1005,10 +979,7 @@ private fun buildBandPath(
     return path
 }
 
-/**
- * Theme-aware series colours. The light-theme shades (especially the darkest, the "effective"
- * green) are unreadable on the dark surface, so dark mode uses lighter variants.
- */
+/** Chart series colours, from the theme's semantic palette (dark-mode aware). */
 private data class CurveSeriesColors(
     val default: Color,
     val manual: Color,
@@ -1017,16 +988,12 @@ private data class CurveSeriesColors(
 )
 
 @Composable
-private fun curveSeriesColors(): CurveSeriesColors {
-    val dark = isSystemInDarkTheme()
-    return CurveSeriesColors(
-        default = MaterialTheme.colorScheme.onSurfaceVariant,
-        manual = MaterialTheme.colorScheme.primary,
-        // The darkest light-mode line: brighten it so it stays visible on the dark surface.
-        effective = if (dark) Color(0xFF4ADE80) else Color(0xFF1B6B4A),
-        learned = MaterialTheme.colorScheme.tertiary,
-    )
-}
+private fun curveSeriesColors(): CurveSeriesColors = CurveSeriesColors(
+    default = FuelTheme.colors.chartDefault,
+    manual = FuelTheme.colors.chartManual,
+    effective = FuelTheme.colors.chartEffective,
+    learned = FuelTheme.colors.chartLearned,
+)
 
 /** Plot padding, shared by the Canvas mapping and the touch hit-testing. */
 private val PlotLeftPad = 38.dp
