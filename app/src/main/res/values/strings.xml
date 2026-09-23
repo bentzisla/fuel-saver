@@ -525,4 +525,9 @@
     <string name="settings_value_per_minute_help">כמה שווה לכם דקה. 0 = דירוג לפי עלות בלבד</string>
     <string name="settings_backup_import_hint">מיזוג נתונים מקובץ גיבוי קיים</string>
     <string name="settings_android_auto_row_hint">הפעלה ראשונה ובדיקת חיבור</string>
+    <!-- obd-link: specific ELM init failure causes (codes INIT WRITE FAILED / INIT EOF / INIT READ ERROR / INIT LINK CLOSED) -->
+    <string name="stats_error_init_write_failed">החיבור לדונגל נפתח אך השליחה נכשלה — נתקו וחברו שוב</string>
+    <string name="stats_error_init_eof">הדונגל סגר את החיבור בזמן האתחול</string>
+    <string name="stats_error_init_read_error">שגיאת קריאה מהדונגל בזמן האתחול</string>
+    <string name="stats_error_init_link_closed">החיבור לדונגל נסגר בזמן האתחול</string>
 </resources>

@@ -344,7 +344,11 @@ class ObdLoggingService : Service() {
         reconnectJob = null
         activeTransport = null
         activeVehicle = null
-        engine.stop()
+        // Never block the main thread on the engine: a run stuck on a silent adapter used to
+        // freeze onDestroy here (runBlocking + join) until ANR. The stop runs on the engine's
+        // own application-lifetime scope, bounded in time, and still flushes samples/bins/trip
+        // and sends ATPC + closes the socket. A later start() is never cancelled by it.
+        engine.requestStop()
         overlay.hide()
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null

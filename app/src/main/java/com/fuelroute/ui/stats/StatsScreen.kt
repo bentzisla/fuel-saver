@@ -57,6 +57,7 @@ import com.fuelroute.data.settings.AppSettings
 import com.fuelroute.domain.fuel.ModelConstants
 import com.fuelroute.domain.fuel.RangeEstimator
 import com.fuelroute.domain.model.VehicleProfile
+import com.fuelroute.domain.obd.ObdConnectionPolicy
 import com.fuelroute.domain.obd.ObdDevice
 import com.fuelroute.ui.components.ConfirmDialog
 import com.fuelroute.ui.components.DASH
@@ -720,6 +721,10 @@ private fun obdErrorText(code: String?): String = when {
     code == "RECONNECT" -> stringResource(R.string.stats_error_reconnect)
     code == "RECONNECT FAILED" -> stringResource(R.string.stats_error_reconnect_failed)
     code == "INIT TIMEOUT" -> stringResource(R.string.stats_error_init_timeout)
+    code == ObdConnectionPolicy.ERROR_INIT_WRITE_FAILED -> stringResource(R.string.stats_error_init_write_failed)
+    code == ObdConnectionPolicy.ERROR_INIT_EOF -> stringResource(R.string.stats_error_init_eof)
+    code == ObdConnectionPolicy.ERROR_INIT_READ_ERROR -> stringResource(R.string.stats_error_init_read_error)
+    code == ObdConnectionPolicy.ERROR_INIT_LINK_CLOSED -> stringResource(R.string.stats_error_init_link_closed)
     else -> code
 }
 

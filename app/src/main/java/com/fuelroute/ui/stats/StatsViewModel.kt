@@ -189,7 +189,7 @@ class StatsViewModel @Inject constructor(
     fun connectDemo() {
         lastAddress = null
         lastName = null
-        if (!engine.isRunning) engine.reset()
+        engine.clearIfIdle()
         _connectingName.value = null
         viewModelScope.launch { settingsRepository.saveManualDisconnect(false) }
         ObdLoggingService.start(appContext, null)
@@ -199,7 +199,7 @@ class StatsViewModel @Inject constructor(
     fun connect(device: ObdDevice) {
         lastAddress = device.address
         lastName = device.name
-        if (!engine.isRunning) engine.reset()
+        engine.clearIfIdle()
         _connectingName.value = lastName
         ObdLoggingService.start(appContext, device.address)
         viewModelScope.launch {
@@ -219,7 +219,7 @@ class StatsViewModel @Inject constructor(
             if (settings.autoConnect && !settings.lastDeviceAddress.isNullOrBlank()) {
                 lastAddress = settings.lastDeviceAddress
                 lastName = settings.lastDeviceName ?: settings.lastDeviceAddress
-                if (!engine.isRunning) engine.reset()
+                engine.clearIfIdle()
                 _connectingName.value = lastName
                 ObdLoggingService.start(appContext, settings.lastDeviceAddress, auto = true)
             }
@@ -231,9 +231,11 @@ class StatsViewModel @Inject constructor(
         _connectingName.value = null
         // Sticky latch — must be persisted BEFORE stopping so a racing ACL/STATE broadcast
         // (the dongle is often still connected at this instant) can't re-arm logging. Keep the
-        // ordering (await the write, then stop) but do it off the main thread: viewModelScope
-        // runs on Dispatchers.Main.immediate, and the suspend `saveManualDisconnect` suspends
-        // without blocking the UI thread.
+        // ordering (await the write, then stop). This coroutine runs on Main
+        // (viewModelScope), but both calls only SUSPEND it: `engine.disconnect()` is a
+        // bounded suspending stop whose cleanup (DB flush, ATPC, socket close) runs on the
+        // engine's background scope, so the UI thread is never blocked even when the dongle
+        // has gone silent.
         viewModelScope.launch {
             settingsRepository.saveManualDisconnect(true)
             engine.disconnect()
@@ -256,7 +258,7 @@ class StatsViewModel @Inject constructor(
      * a stuck/errored engine cannot reject the new run, then re-arms the logging service.
      */
     fun retry() {
-        if (!engine.isRunning) engine.reset()
+        engine.clearIfIdle()
         _connectingName.value = lastName
         viewModelScope.launch { settingsRepository.saveManualDisconnect(false) }
         ObdLoggingService.start(appContext, lastAddress)
