@@ -149,34 +149,23 @@ class DefaultBackupRepository @Inject constructor(
         vehicleDao.upsert(payload.vehicles.map { it.toEntity() })
     }
 
+    /**
+     * Imported bins are *added* to the existing totals with the additive DAO upsert, in one
+     * transaction — never written back as absolute snapshots, so a concurrently running OBD
+     * session (which also only adds deltas) can neither overwrite the import nor be overwritten
+     * by it. The read is only used to skip value-identical bins (re-import of the same backup).
+     */
     private suspend fun mergeSpeedBins(payload: BackupPayload): Int {
         if (payload.speedBins.isEmpty()) return 0
-        val merged = speedBinDao.getAll()
+        val existing = speedBinDao.getAll()
             .map { it.toSnapshot() }
-            .associateByTo(mutableMapOf()) { it.vehicleId to it.binIndex }
-        val toUpsert = ArrayList<SpeedBinSnapshot>(payload.speedBins.size)
-        for (incoming in payload.speedBins) {
-            val key = incoming.vehicleId to incoming.binIndex
-            val previous = merged[key]
-            // Value-identical bin => this backup was already imported; summing again would
-            // double-count the learned curve. See SpeedBinSnapshot's KDoc for the rationale.
-            if (previous == incoming) continue
-            val combined = if (previous == null) {
-                incoming
-            } else {
-                incoming.copy(
-                    distanceKm = previous.distanceKm + incoming.distanceKm,
-                    fuelL = previous.fuelL + incoming.fuelL,
-                    seconds = previous.seconds + incoming.seconds,
-                    samples = previous.samples + incoming.samples,
-                )
-            }
-            merged[key] = combined
-            toUpsert.add(combined)
-        }
-        if (toUpsert.isEmpty()) return 0
-        speedBinDao.upsertAll(toUpsert.map { it.toEntity() })
-        return toUpsert.size
+            .associateBy { it.vehicleId to it.binIndex }
+        // Value-identical bin => this backup was already imported; summing again would
+        // double-count the learned curve. See SpeedBinSnapshot's KDoc for the rationale.
+        val toAdd = payload.speedBins.filter { existing[it.vehicleId to it.binIndex] != it }
+        if (toAdd.isEmpty()) return 0
+        speedBinDao.addDeltas(toAdd.map { it.toEntity() })
+        return toAdd.size
     }
 
     private suspend fun insertTrips(payload: BackupPayload): Pair<Int, Int> {

@@ -12,12 +12,12 @@ import com.fuelroute.data.learning.ColdStartRepository
 import com.fuelroute.data.price.FuelPriceRepository
 import com.fuelroute.domain.fuel.DefaultCurve
 import com.fuelroute.domain.learning.ColdStartLearner
-import com.fuelroute.domain.learning.FuelRateCalculator
-import com.fuelroute.domain.learning.SpeedBinAggregator
+import com.fuelroute.domain.learning.ObdSampleProcessor
 import com.fuelroute.domain.learning.TripDetector
 import com.fuelroute.domain.model.ObdSample
 import com.fuelroute.domain.model.SpeedBinStats
 import com.fuelroute.domain.model.VehicleProfile
+import com.fuelroute.domain.model.mergeSpeedBins
 import com.fuelroute.domain.obd.ElmProtocol
 import com.fuelroute.domain.obd.ObdConnectionPolicy
 import com.fuelroute.domain.obd.ObdRunGeneration
@@ -527,15 +527,10 @@ class ObdEngine @Inject constructor(
         return ElmProtocol.vin(transport.sendCommand(ElmProtocol.command09(ElmProtocol.PID_VIN)))
     }
 
-    private suspend fun runLoop(
-        transport: ObdTransport,
-        vehicle: VehicleProfile,
-        vehicleId: String,
-        runId: Long,
-    ) {
-        val bins = mutableMapOf<Int, SpeedBinStats>()
-        speedBinDao.getForVehicle(vehicleId).forEach {
-            bins[it.binIndex] = SpeedBinStats(
+    /** Reads the vehicle's bin totals from the DB (the source of truth) for the live display. */
+    private suspend fun loadBinSnapshot(vehicleId: String): List<SpeedBinStats> =
+        speedBinDao.getForVehicle(vehicleId).map {
+            SpeedBinStats(
                 vehicleId = it.vehicleId,
                 binIndex = it.binIndex,
                 distanceKm = it.distanceKm,
@@ -545,7 +540,51 @@ class ObdEngine @Inject constructor(
             )
         }
 
-        val aggregator = SpeedBinAggregator()
+    /**
+     * Adds the bin increments collected since the last flush to the DB (additive, in one
+     * transaction) and clears them only once that succeeded, then re-reads the totals so a
+     * reset/import done meanwhile is reflected in the live display. Returns the fresh snapshot,
+     * or null when the write failed (the deltas are kept and retried on the next flush).
+     */
+    private suspend fun flushBinDeltas(
+        vehicleId: String,
+        deltas: MutableMap<Int, SpeedBinStats>,
+    ): List<SpeedBinStats>? {
+        return try {
+            if (deltas.isNotEmpty()) {
+                speedBinDao.addDeltas(deltas.values.map { it.toEntity() })
+                deltas.clear()
+            }
+            loadBinSnapshot(vehicleId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "speed-bin delta flush failed; keeping ${deltas.size} pending bin(s)", e)
+            null
+        }
+    }
+
+    private suspend fun runLoop(
+        transport: ObdTransport,
+        vehicle: VehicleProfile,
+        vehicleId: String,
+        runId: Long,
+    ) {
+        // Bug B fix: the DB is the source of truth for bin totals. The loop only collects
+        // *increments* (`binDeltas`) and adds them with an additive upsert, so a reset, an
+        // "adopt learned" or a backup import done while logging is never overwritten by a stale
+        // in-memory snapshot. `binSnapshot` is only a read-only view for the live display.
+        var binSnapshot: List<SpeedBinStats> = loadBinSnapshot(vehicleId)
+        val binDeltas = mutableMapOf<Int, SpeedBinStats>()
+
+        // A simulated drive must never teach the real vehicle's curve nor pollute its raw samples.
+        val simulated = transport.isSimulated
+        val processor = ObdSampleProcessor(
+            fuelType = vehicle.fuelType,
+            engineDisplacementL = vehicle.engineDisplacementL,
+            fuelRateCorrection = vehicle.fuelRateCorrection,
+            learningEnabled = !simulated,
+        )
         val tripDetector = TripDetector()
         val coldStartLearner = ColdStartLearner(
             warmCurve = DefaultCurve.forVehicle(vehicle.ratedCombinedL100, vehicle.fuelType),
@@ -553,7 +592,7 @@ class ObdEngine @Inject constructor(
         val tripRecorder = TripRecorder(tripDao)
         tripRecorder.closeLeftovers(System.currentTimeMillis())
         // Provenance for every trip this run records: the demo transport must never look real.
-        val source = if (transport.isSimulated) TripSource.DEMO else TripSource.REAL
+        val source = if (simulated) TripSource.DEMO else TripSource.REAL
 
         var lastSample: ObdSample? = null
         var sampleCount = 0
@@ -619,32 +658,32 @@ class ObdEngine @Inject constructor(
                 val rawLoad = pollIf(transport, ElmProtocol.PID_ENGINE_LOAD, supportedPids, pidNegotiationFailed)
                 val rawFuelLevel = pollIf(transport, ElmProtocol.PID_FUEL_LEVEL, supportedPids, pidNegotiationFailed)
 
-                val speed = ElmProtocol.speed(rawSpeed)
-                val rpm = ElmProtocol.rpm(rawRpm)
-                val coolant = ElmProtocol.coolantTempC(rawCoolant)
-                val maf = ElmProtocol.mafGps(rawMaf)
-                val fuelRateRaw = ElmProtocol.fuelRateLph(rawFuelRate)
-
-                val sample = ObdSample(
+                // Raw parsed values: persisted as-is so learned data can be rebuilt later.
+                val rawSample = ObdSample(
                     timestampMs = now,
-                    speedKmh = speed,
-                    rpm = rpm,
-                    mafGps = maf,
-                    fuelRateLph = fuelRateRaw,
+                    speedKmh = ElmProtocol.speed(rawSpeed),
+                    rpm = ElmProtocol.rpm(rawRpm),
+                    mafGps = ElmProtocol.mafGps(rawMaf),
+                    fuelRateLph = ElmProtocol.fuelRateLph(rawFuelRate),
                     mapKpa = ElmProtocol.mapKpa(rawMap),
                     intakeTempC = ElmProtocol.intakeTempC(rawIat),
-                    coolantTempC = coolant,
+                    coolantTempC = ElmProtocol.coolantTempC(rawCoolant),
                     engineLoadPct = ElmProtocol.engineLoadPct(rawLoad),
                     fuelLevelPct = ElmProtocol.fuelLevelPct(rawFuelLevel),
                 )
 
-                val fuelRate = FuelRateCalculator.fuelRateLph(sample, vehicle.fuelType, vehicle.engineDisplacementL)
-                    ?.times(vehicle.fuelRateCorrection)
+                // Sanitize -> bounded fuel rate -> learnable deltas -> smoothed live consumption.
+                // The same processor rebuilds learned data from stored samples (LearnedDataRepair).
+                val processed = processor.process(rawSample, binDeltas, vehicleId)
+                val sample = processed.sample
+                val speed = sample.speedKmh
+                val rpm = sample.rpm
+                val coolant = sample.coolantTempC
+                val fuelRate = processed.fuelRateLph
                 // No clamp here: the aggregator rejects gaps > 2 s itself, while trip
                 // totals need the true wall-clock delta.
-                val dtSec = lastSample?.let { (now - it.timestampMs) / 1000.0 } ?: 0.0
+                val dtSec = processed.dtSec
 
-                aggregator.accumulate(bins, sample, dtSec, fuelRate, vehicleId)
                 coldStartLearner.onSample(
                     speedKmh = sample.speedKmh,
                     fuelRateLph = fuelRate,
@@ -702,7 +741,7 @@ class ObdEngine @Inject constructor(
                 }
 
                 sampleCount++
-                sampleBuffer += sample.toEntity(vehicleId)
+                if (!simulated) sampleBuffer += rawSample.toEntity(vehicleId)
                 if (now - lastSamplePersistMs >= SAMPLE_PERSIST_INTERVAL_MS) {
                     if (sampleBuffer.isNotEmpty()) {
                         sampleDao.insertAll(sampleBuffer.toList())
@@ -712,7 +751,7 @@ class ObdEngine @Inject constructor(
                 }
 
                 if (now - lastBinPersistMs >= SPEED_BIN_PERSIST_INTERVAL_MS) {
-                    speedBinDao.upsertAll(bins.values.map { it.toEntity() })
+                    flushBinDeltas(vehicleId, binDeltas)?.let { binSnapshot = it }
                     pricePerLiter = try {
                         fuelPriceRepository.current(vehicle.grade).pricePerLiter
                     } catch (e: CancellationException) {
@@ -745,20 +784,25 @@ class ObdEngine @Inject constructor(
                 // stationary; otherwise a clone that never answers 0C would stop the loop mid-drive.
                 val rpmPidSupported = supportedPids.isEmpty() ||
                     supportedPids.contains(ElmProtocol.PID_RPM)
-                if (rpm == null && ObdConnectionPolicy.shouldTrackRpmAbsence(rpmPidSupported, speed)) {
+                // Connection logic keys on the raw parse, as before sanitizing existed.
+                if (rawSample.rpm == null &&
+                    ObdConnectionPolicy.shouldTrackRpmAbsence(rpmPidSupported, rawSample.speedKmh)
+                ) {
                     if (rpmNullSinceMs == null) rpmNullSinceMs = now
                 } else {
                     rpmNullSinceMs = null
                 }
 
-                val speedKmh = speed ?: 0.0
-                val instantL100 = if (speedKmh > 1.0 && fuelRate != null) fuelRate / speedKmh * 100.0 else null
+                // Bug A fix: trip-computer style smoothing (fuel sum / distance sum over a ~8 s
+                // window), L/100 km only while moving, L/h otherwise — see LiveConsumptionWindow.
+                val instantL100 = processed.live.litersPer100Km
+                val displayBins = mergeSpeedBins(binSnapshot, binDeltas.values)
 
                 val badReason = when {
                     rawSpeed.contains("SEARCHING", ignoreCase = true) -> ObdConnectionPolicy.ERROR_SEARCHING
                     rawSpeed.contains("NO DATA", ignoreCase = true) ||
                         rawSpeed.contains("NODATA", ignoreCase = true) -> "NO DATA"
-                    speed == null && rawSpeed.isNotBlank() -> "PARSE"
+                    rawSample.speedKmh == null && rawSpeed.isNotBlank() -> "PARSE"
                     rawSpeed.isBlank() -> "TIMEOUT"
                     else -> null
                 }
@@ -773,14 +817,14 @@ class ObdEngine @Inject constructor(
                         speedKmh = speed,
                         rpm = rpm,
                         coolantTempC = coolant,
-                        fuelRateLph = fuelRate,
+                        fuelRateLph = processed.live.litersPerHour,
                         fuelLevelPct = sample.fuelLevelPct,
                         instantL100 = instantL100,
                         tripDistanceKm = tripDistance,
                         tripFuelL = tripFuel,
                         tripSeconds = tripSeconds,
-                        bins = bins.values.sortedBy { bin -> bin.binIndex },
-                        totalDistanceKm = bins.values.sumOf { bin -> bin.distanceKm },
+                        bins = displayBins,
+                        totalDistanceKm = displayBins.sumOf { bin -> bin.distanceKm },
                         sampleCount = sampleCount,
                         sampleRateHz = sampleRateHz,
                         batteryVoltage = batteryVoltage,
@@ -839,6 +883,7 @@ class ObdEngine @Inject constructor(
                     consecutiveBad = 0
                     rpmNullSinceMs = null
                     lastSample = null
+                    processor.resetTiming()
                 }
 
                 if (ObdConnectionPolicy.shouldStopForIgnitionOff(rpmNullSinceMs, now, batteryVoltage)) {
@@ -858,8 +903,8 @@ class ObdEngine @Inject constructor(
                     runCatching { sampleDao.insertAll(sampleBuffer.toList()) }
                         .onFailure { Log.w(TAG, "flush samples on stop failed", it) }
                 }
-                runCatching { speedBinDao.upsertAll(bins.values.map { it.toEntity() }) }
-                    .onFailure { Log.w(TAG, "persist bins on stop failed", it) }
+                // Additive delta flush (never an absolute snapshot); logs and keeps going on failure.
+                flushBinDeltas(vehicleId, binDeltas)
                 runCatching {
                     val end = tripDetector.forceEnd(lastSample?.timestampMs ?: System.currentTimeMillis())
                     if (end is TripDetector.TripTransition.Ended) {

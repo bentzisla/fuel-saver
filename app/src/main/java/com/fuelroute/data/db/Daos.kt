@@ -3,6 +3,7 @@ package com.fuelroute.data.db
 import androidx.room.Dao
 import androidx.room.Delete
 import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
@@ -96,30 +97,93 @@ interface ObdSampleDao {
 
     @Query("DELETE FROM obd_sample WHERE timestampMs < :cutoffMs")
     suspend fun deleteOlderThan(cutoffMs: Long): Int
+
+    /**
+     * One page of a vehicle's raw samples in insertion order (primary-key order, which is also
+     * time order), for the offline rebuild of learned data. Keyset-paginated on `id`.
+     */
+    @Query("SELECT * FROM obd_sample WHERE vehicleId = :vehicleId AND id > :afterId ORDER BY id LIMIT :limit")
+    suspend fun pageForVehicle(vehicleId: String, afterId: Long, limit: Int): List<ObdSampleEntity>
 }
 
+/**
+ * Speed-bin totals. The table is the single source of truth: writers add *increments* with
+ * [addDeltas] (never absolute snapshots), so a reset ([resetForVehicle]), an "adopt learned"
+ * or a backup import is never overwritten by a long-running OBD session's stale in-memory copy.
+ */
 @Dao
-interface SpeedBinDao {
+abstract class SpeedBinDao {
 
+    /**
+     * Absolute overwrite of whole rows. Only for the conservative data repair
+     * (`LearnedDataRepair`), which replaces a row it just recomputed inside a transaction.
+     * Never use it for OBD accumulation or imports — use [addDeltas].
+     */
     @Upsert
-    suspend fun upsertAll(bins: List<SpeedBinStatsEntity>)
+    abstract suspend fun overwrite(bins: List<SpeedBinStatsEntity>)
 
     @Query("SELECT * FROM speed_bin_stats WHERE vehicleId = :vehicleId ORDER BY binIndex")
-    suspend fun getForVehicle(vehicleId: String): List<SpeedBinStatsEntity>
+    abstract suspend fun getForVehicle(vehicleId: String): List<SpeedBinStatsEntity>
 
     /** One-shot dump of the whole table (backup/export). */
     @Query("SELECT * FROM speed_bin_stats ORDER BY vehicleId, binIndex")
-    suspend fun getAll(): List<SpeedBinStatsEntity>
+    abstract suspend fun getAll(): List<SpeedBinStatsEntity>
 
     @Query("SELECT COALESCE(SUM(fuelL), 0.0) FROM speed_bin_stats WHERE vehicleId = :vehicleId")
-    suspend fun totalFuelForVehicle(vehicleId: String): Double
+    abstract suspend fun totalFuelForVehicle(vehicleId: String): Double
 
     @Query("DELETE FROM speed_bin_stats WHERE vehicleId = :vehicleId")
-    suspend fun resetForVehicle(vehicleId: String)
+    abstract suspend fun resetForVehicle(vehicleId: String)
+
+    @Query("DELETE FROM speed_bin_stats WHERE vehicleId = :vehicleId AND binIndex = :binIndex")
+    abstract suspend fun deleteBin(vehicleId: String, binIndex: Int)
 
     /** Idempotent bootstrap migration: repoints rows written under an unknown vehicle id. */
     @Query("UPDATE speed_bin_stats SET vehicleId = :newVehicleId WHERE vehicleId NOT IN (SELECT id FROM vehicle)")
-    suspend fun repointOrphans(newVehicleId: String)
+    abstract suspend fun repointOrphans(newVehicleId: String)
+
+    /** Adds increments to an existing row; returns the number of rows updated (0 or 1). */
+    @Query(
+        "UPDATE speed_bin_stats SET distanceKm = distanceKm + :distanceKm, fuelL = fuelL + :fuelL, " +
+            "seconds = seconds + :seconds, samples = samples + :samples " +
+            "WHERE vehicleId = :vehicleId AND binIndex = :binIndex"
+    )
+    abstract suspend fun addToExisting(
+        vehicleId: String,
+        binIndex: Int,
+        distanceKm: Double,
+        fuelL: Double,
+        seconds: Double,
+        samples: Int,
+    ): Int
+
+    /** Inserts a brand-new row; aborts (throws) if the key already exists. */
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    abstract suspend fun insertNew(bin: SpeedBinStatsEntity)
+
+    /**
+     * Additive upsert: for each delta, `row += delta` if the (vehicleId, binIndex) row exists,
+     * otherwise the delta is inserted as the new row. Runs in one transaction, so either all
+     * deltas land or none do (the caller can then safely retry with the same deltas).
+     *
+     * Implemented as update-then-insert rather than `INSERT ... ON CONFLICT DO UPDATE` because
+     * SQLite's UPSERT syntax needs 3.24 (API 30+) and minSdk is 26.
+     */
+    @Transaction
+    open suspend fun addDeltas(deltas: List<SpeedBinStatsEntity>) {
+        for (delta in deltas) {
+            if (delta.samples == 0 && delta.distanceKm == 0.0 && delta.fuelL == 0.0 && delta.seconds == 0.0) continue
+            val updated = addToExisting(
+                vehicleId = delta.vehicleId,
+                binIndex = delta.binIndex,
+                distanceKm = delta.distanceKm,
+                fuelL = delta.fuelL,
+                seconds = delta.seconds,
+                samples = delta.samples,
+            )
+            if (updated == 0) insertNew(delta)
+        }
+    }
 }
 
 @Dao
@@ -140,6 +204,10 @@ interface TripDao {
 
     @Query("SELECT * FROM trip WHERE vehicleId = :vehicleId ORDER BY startedAtMs DESC LIMIT :limit")
     suspend fun recentForVehicle(vehicleId: String, limit: Int): List<TripEntity>
+
+    /** Every closed trip of [vehicleId], oldest first (data repair). */
+    @Query("SELECT * FROM trip WHERE vehicleId = :vehicleId AND isOpen = 0 ORDER BY startedAtMs")
+    suspend fun closedForVehicle(vehicleId: String): List<TripEntity>
 
     @Query("SELECT * FROM trip WHERE isOpen = 1 ORDER BY startedAtMs DESC")
     suspend fun recentOpenTrips(): List<TripEntity>

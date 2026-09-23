@@ -180,21 +180,21 @@ object ElmProtocol {
 
     /** PID 0C - engine RPM. */
     fun rpm(raw: String): Double? {
-        val bytes = PidParser.parseMode01Bytes(raw, PID_RPM) ?: return null
+        val bytes = PidParser.parseMode01Bytes(raw, PID_RPM, minDataBytes = 2) ?: return null
         if (bytes.size < 2) return null
         return ((bytes[0] * 256) + bytes[1]) / 4.0
     }
 
     /** PID 10 - mass air flow, g/s. */
     fun mafGps(raw: String): Double? {
-        val bytes = PidParser.parseMode01Bytes(raw, PID_MAF) ?: return null
+        val bytes = PidParser.parseMode01Bytes(raw, PID_MAF, minDataBytes = 2) ?: return null
         if (bytes.size < 2) return null
         return ((bytes[0] * 256) + bytes[1]) / 100.0
     }
 
     /** PID 5E - engine fuel rate, L/h (only on some vehicles). */
     fun fuelRateLph(raw: String): Double? {
-        val bytes = PidParser.parseMode01Bytes(raw, PID_FUEL_RATE) ?: return null
+        val bytes = PidParser.parseMode01Bytes(raw, PID_FUEL_RATE, minDataBytes = 2) ?: return null
         if (bytes.size < 2) return null
         return ((bytes[0] * 256) + bytes[1]) / 20.0
     }

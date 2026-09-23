@@ -530,4 +530,6 @@
     <string name="stats_error_init_eof">הדונגל סגר את החיבור בזמן האתחול</string>
     <string name="stats_error_init_read_error">שגיאת קריאה מהדונגל בזמן האתחול</string>
     <string name="stats_error_init_link_closed">החיבור לדונגל נסגר בזמן האתחול</string>
+    <!-- obd-data: notification while crawling/idle shows L/h instead of L/100 km -->
+    <string name="notification_live_lph">מהירות %1$d קמ״ש • צריכה %2$s ל׳/שעה</string>
 </resources>
