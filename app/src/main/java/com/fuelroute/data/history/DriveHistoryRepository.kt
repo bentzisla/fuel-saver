@@ -380,7 +380,10 @@ class DriveHistoryRepository @Inject constructor(
             actualMinutes = trip?.let { (it.endedAtMs - it.startedAtMs) / 60_000.0 },
             pricePerLiterAtSearch = pricePerLiterAtSearch.takeIf { it > 0.0 },
             pricePerLiterAtTrip = trip?.pricePerLiterAtTrip?.takeIf { it > 0.0 },
-            savedAmount = savedAmount,
+            // Savings of the route the user actually picked vs the fastest one; the stored
+            // savedAmount is always relative to the top-ranked route, so choosing the fastest
+            // route must not still count as a saving.
+            savedAmount = if (fastestCost > 0.0) (fastestCost - cost).coerceAtLeast(0.0) else savedAmount,
             isDemo = trip?.source == TripSource.DEMO,
             manualCost = trip?.manualCost,
             manualDistanceKm = trip?.manualDistanceKm,
