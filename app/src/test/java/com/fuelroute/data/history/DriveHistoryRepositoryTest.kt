@@ -47,6 +47,25 @@ class DriveHistoryRepositoryTest {
     }
 
     @Test
+    fun `savings are measured for the selected route, not the top-ranked one`() = runTest {
+        // Top-ranked 10.0, fastest 12.0; the user picked the fastest route.
+        coEvery { routeSearchDao.recent(any()) } returns listOf(
+            search(id = 1, ts = 1_000).copy(selectedRouteIndex = 1, selectedPredictedCost = 12.0),
+        )
+        coEvery { tripDao.recentClosedForVehicle("v1", any()) } returns emptyList()
+
+        assertEquals(0.0, repository.recent("v1").entries.single().savedAmount, 1e-9)
+    }
+
+    @Test
+    fun `savings for the top-ranked route are fastest minus cheapest`() = runTest {
+        coEvery { routeSearchDao.recent(any()) } returns listOf(search(id = 1, ts = 1_000))
+        coEvery { tripDao.recentClosedForVehicle("v1", any()) } returns emptyList()
+
+        assertEquals(2.0, repository.recent("v1").entries.single().savedAmount, 1e-9)
+    }
+
+    @Test
     fun `recent surfaces orphan trips for the vehicle with no search side`() = runTest {
         coEvery { routeSearchDao.recent(any()) } returns emptyList()
         coEvery { tripDao.recentClosedForVehicle("v2", any()) } returns listOf(
