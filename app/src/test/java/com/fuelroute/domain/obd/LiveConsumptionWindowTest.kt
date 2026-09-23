@@ -61,6 +61,14 @@ class LiveConsumptionWindowTest {
     }
 
     @Test
+    fun `compact readout shows L per 100 km when moving and L per hour otherwise`() {
+        assertEquals(ConsumptionReadout(6.5, perHour = false), ConsumptionReadout.of(6.5, 5.0))
+        assertEquals(ConsumptionReadout(0.9, perHour = true), ConsumptionReadout.of(null, 0.9))
+        assertNull(ConsumptionReadout.of(null, null))
+        assertNull(ConsumptionReadout.of(null, Double.NaN))
+    }
+
+    @Test
     fun `missing values are skipped not guessed`() {
         val window = LiveConsumptionWindow()
         window.add(0L, 50.0, 5.0)

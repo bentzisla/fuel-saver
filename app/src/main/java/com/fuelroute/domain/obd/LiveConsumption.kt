@@ -23,6 +23,22 @@ data class LiveConsumption(
 }
 
 /**
+ * The single consumption number a compact display (overlay bubble, notification) shows:
+ * L/100 km while moving, otherwise L/h — never a per-sample fuel/speed division.
+ */
+data class ConsumptionReadout(val value: Double, val perHour: Boolean) {
+    companion object {
+        /** Picks L/100 km when [litersPer100Km] is meaningful, else L/h; null when neither is known. */
+        fun of(litersPer100Km: Double?, litersPerHour: Double?): ConsumptionReadout? = when {
+            litersPer100Km != null && litersPer100Km.isFinite() -> ConsumptionReadout(litersPer100Km, perHour = false)
+            litersPerHour != null && litersPerHour.isFinite() && litersPerHour >= 0.0 ->
+                ConsumptionReadout(litersPerHour, perHour = true)
+            else -> null
+        }
+    }
+}
+
+/**
  * Trip-computer style instantaneous consumption.
  *
  * Why not `fuelRate / speed * 100` per sample (the old behaviour): pulling away at 2 km/h with

@@ -12,6 +12,7 @@ import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.fuelroute.R
+import com.fuelroute.domain.obd.ConsumptionReadout
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -58,7 +59,8 @@ class ObdOverlayController(private val context: Context) {
 
     fun updateSpeed(speedKmh: Double?) = bubble?.setSpeed(speedKmh)
 
-    fun updateConsumption(litersPer100Km: Double?) = bubble?.setConsumption(litersPer100Km)
+    /** L/100 km while moving, L/h when crawling/idle (see [ConsumptionReadout]). */
+    fun updateConsumption(readout: ConsumptionReadout?) = bubble?.setConsumption(readout)
 
     /**
      * The overlay view itself; handles its own dragging by moving its window
@@ -121,12 +123,15 @@ class ObdOverlayController(private val context: Context) {
             addView(speedText)
         }
 
-        fun setConsumption(litersPer100Km: Double?) {
-            valueText.text = if (litersPer100Km != null) {
-                String.format(java.util.Locale.US, "%.1f", litersPer100Km)
+        fun setConsumption(readout: ConsumptionReadout?) {
+            valueText.text = if (readout != null) {
+                String.format(java.util.Locale.US, "%.1f", readout.value)
             } else {
                 context.getString(R.string.overlay_no_data)
             }
+            unitText.text = context.getString(
+                if (readout?.perHour == true) R.string.stats_units_lph else R.string.overlay_unit_l100,
+            )
         }
 
         fun setSpeed(speedKmh: Double?) {
