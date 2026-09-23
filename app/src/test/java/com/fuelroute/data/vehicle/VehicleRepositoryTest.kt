@@ -84,6 +84,18 @@ class VehicleRepositoryTest {
         assertEquals("8.0", saved.ratedCombinedL100.toString())
     }
 
+    @Test
+    fun `delete removes the vehicle through the child-cascade helper`() = runTest {
+        coEvery { vehicleDao.count() } returns 2
+        coEvery { vehicleDao.deleteWithChildren(any()) } just Runs
+        coEvery { vehicleDao.getAll() } returns flowOf(listOf(existingVehicle(id = "v2", rated = 6.5)))
+
+        repository.delete("v2")
+
+        coVerify(exactly = 1) { vehicleDao.deleteWithChildren("v2") }
+        coVerify(exactly = 0) { vehicleDao.deleteById("v2") }
+    }
+
     private fun existingVehicle(id: String, rated: Double) = VehicleEntity(
         id = id,
         name = "Car",

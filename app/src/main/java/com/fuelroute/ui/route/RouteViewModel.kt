@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import android.util.Log
 import com.fuelroute.R
 import com.fuelroute.data.history.TripLinker
+import com.fuelroute.data.learning.ColdStartRepository
 import com.fuelroute.data.location.Coordinates
 import com.fuelroute.data.location.LocationRepository
 import com.fuelroute.data.location.ReverseGeocoder
@@ -30,11 +31,14 @@ import com.fuelroute.domain.fuel.ConsumptionCurve
 import com.fuelroute.domain.fuel.CurveBlender
 import com.fuelroute.domain.fuel.DefaultCurve
 import com.fuelroute.domain.fuel.FuelModel
+import com.fuelroute.domain.fuel.ModelConstants
 import com.fuelroute.domain.model.RouteCost
 import com.fuelroute.domain.model.SpeedPoint
 import com.fuelroute.domain.ranking.RouteRanker
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -46,7 +50,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-private const val DEFAULT_FUEL_PRICE = 7.0
 private const val AUTOCOMPLETE_DEBOUNCE_MS = 300L
 
 data class RouteUiState(
@@ -68,7 +71,7 @@ data class RouteUiState(
     val results: List<RouteCost> = emptyList(),
     val selectedIndex: Int = 0,
     val departureTimeMs: Long? = null,
-    val fuelPricePerLiter: Double = DEFAULT_FUEL_PRICE,
+    val fuelPricePerLiter: Double = ModelConstants.DEFAULT_FUEL_PRICE,
     val learnedKm: Double = 0.0,
     val navigationApp: String = NAV_GOOGLE,
     val departLinkFeedback: Int? = null,
@@ -89,6 +92,7 @@ class RouteViewModel @Inject constructor(
     private val fuelPriceRepository: FuelPriceRepository,
     private val routeSearchRepository: RouteSearchRepository,
     private val tripLinker: TripLinker,
+    private val coldStartRepository: ColdStartRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(RouteUiState())
@@ -96,6 +100,9 @@ class RouteViewModel @Inject constructor(
 
     /** Id of the route_search row written by the most recent compute(), if any. */
     private var lastSearchId: Long? = null
+
+    /** The in-flight search; a new search cancels it so a stale result can never win the race. */
+    private var searchJob: Job? = null
 
     private val originQuery = MutableStateFlow("")
     private val destinationQuery = MutableStateFlow("")
@@ -475,7 +482,11 @@ class RouteViewModel @Inject constructor(
             return
         }
 
-        viewModelScope.launch {
+        searchJob?.cancel()
+        // Results of the previous search are gone; its id must not receive this search's
+        // selection or departure link.
+        lastSearchId = null
+        searchJob = viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null, results = emptyList()) }
             try {
                 val vehicle = vehicleRepository.active()
@@ -516,8 +527,11 @@ class RouteViewModel @Inject constructor(
                 )
                 val notice = RoutesError.fromRoutes(routes)
                 val fuelPrice = fuelPriceRepository.current(vehicle.grade).pricePerLiter
+                val coldStartStats = coldStartRepository.stats(vehicle.id)
                 val ranked = RouteRanker.rank(
-                    routes.map { fuelModel.cost(it, fuelPrice) },
+                    routes.map {
+                        fuelModel.cost(it, fuelPrice, coldStartLiters = coldStartStats.effectiveExtraL)
+                    },
                     valuePerMinute = settings.valuePerMinute,
                 )
                 _uiState.update {
@@ -570,6 +584,8 @@ class RouteViewModel @Inject constructor(
                         )
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Throwable) {
                 val mapped = RoutesError.from(e)
                 Log.w("FuelRoute", "route search failed: ${mapped.javaClass.simpleName}", e)

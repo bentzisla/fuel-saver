@@ -56,18 +56,27 @@
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
 
+        <!--
+            Android Auto templated app entry point. android:label/android:icon are declared
+            explicitly so the car host can represent the app in its launcher (the host falls back to
+            the <application> values when they are absent, but being explicit avoids relying on the
+            fallback and matches the Car App Library setup guide).
+        -->
         <service
             android:name=".car.FuelRouteCarAppService"
-            android:exported="true">
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/app_name">
             <intent-filter>
                 <action android:name="androidx.car.app.CarAppService" />
                 <!--
                     POI, not NAVIGATION: this car screen is a fuel/OBD dashboard and has no
                     navigation flow (no NavigationTemplate, no navigation-intent handling), so
                     declaring NAVIGATION is a mismatch the host can reject (card 26). PaneTemplate
-                    is available to POI apps. If a real navigation flow is ever added, switch this
-                    back to androidx.car.app.category.NAVIGATION and add
-                    androidx.car.app.NAVIGATION_TEMPLATES.
+                    is available to POI apps and POI is one of the categories Android Auto surfaces
+                    in its app launcher (verified against the "Android for Cars overview" supported
+                    categories table). If a real navigation flow is ever added, switch this back to
+                    androidx.car.app.category.NAVIGATION and add androidx.car.app.NAVIGATION_TEMPLATES.
                 -->
                 <category android:name="androidx.car.app.category.POI" />
             </intent-filter>

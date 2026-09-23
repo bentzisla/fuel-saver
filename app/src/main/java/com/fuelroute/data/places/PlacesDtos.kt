@@ -21,6 +21,11 @@ data class PlacesAutocompleteRequest(
     val input: String,
     val languageCode: String = "he",
     val includedRegionCodes: List<String> = listOf("IL"),
+    /**
+     * Billing session token shared by a burst of autocomplete calls and the single details
+     * lookup that follows. Null means "no session" (each request billed separately).
+     */
+    val sessionToken: String? = null,
 )
 
 @Serializable
@@ -30,7 +35,11 @@ data class PlacesAutocompleteResponse(
 
 @Serializable
 data class AutocompleteSuggestionDto(
-    val placePrediction: PlacePredictionDto,
+    /**
+     * Null for a generic query-only suggestion (`queryPrediction`), which carries no place to
+     * select. Such suggestions are skipped rather than failing the whole response.
+     */
+    val placePrediction: PlacePredictionDto? = null,
 )
 
 @Serializable

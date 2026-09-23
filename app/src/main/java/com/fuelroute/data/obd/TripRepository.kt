@@ -16,13 +16,21 @@ class DefaultTripRepository @Inject constructor(
 
     override suspend fun recentTrips(vehicleId: String, limit: Int): List<Trip> =
         tripDao.recentForVehicle(vehicleId, limit).map {
+            // A manual post-drive entry (km + L/100km) wins over the OBD measurement, mirroring
+            // the computed view in DriveHistoryRepository, so Stats and History stay consistent.
+            val distanceKm = it.manualDistanceKm ?: it.distanceKm
+            val fuelL = if (it.manualDistanceKm != null && it.manualLitersPer100Km != null) {
+                it.manualDistanceKm * it.manualLitersPer100Km / 100.0
+            } else {
+                it.fuelL
+            }
             Trip(
                 id = it.id,
                 vehicleId = it.vehicleId,
                 startedAtMs = it.startedAtMs,
                 endedAtMs = it.endedAtMs,
-                distanceKm = it.distanceKm,
-                fuelL = it.fuelL,
+                distanceKm = distanceKm,
+                fuelL = fuelL,
                 avgSpeedKmh = it.avgSpeedKmh,
                 maxSpeedKmh = it.maxSpeedKmh,
                 idleSeconds = it.idleSeconds,

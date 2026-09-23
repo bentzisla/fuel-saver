@@ -1,5 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Declares that FuelRoute provides a template-based Android Auto app (projected). -->
+<!--
+    Declares that FuelRoute provides a template-based Android Auto app (projected).
+
+    <uses name="template" /> is the current (Car App Library 1.7.0) declaration for templated apps;
+    the Android for Cars overview lists exactly this resource content under "Templated apps".
+    Referenced from <meta-data android:name="com.google.android.gms.car.application" ...> in
+    AndroidManifest.xml. Do not change to name="media"/"notification" — those are for the
+    MediaBrowser / MessagingStyle categories, not Car App Library templates.
+-->
 <automotiveApp>
     <uses name="template" />
 </automotiveApp>

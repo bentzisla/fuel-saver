@@ -20,6 +20,11 @@ class ConsumptionCurve(points: List<SpeedPoint>) {
 
     fun litersPer100Km(speedKmh: Double): Double {
         val last = points.last()
+        // NaN / ±Inf have no interpolation position; fall back to the nearest endpoint in the
+        // direction the value points (NaN is treated as slower than any point, i.e. the crawl end).
+        if (!speedKmh.isFinite()) {
+            return if (speedKmh > points.first().speedKmh) last.litersPer100Km else points.first().litersPer100Km
+        }
         if (speedKmh >= last.speedKmh) return last.litersPer100Km
 
         val v = speedKmh.coerceAtLeast(points.first().speedKmh)

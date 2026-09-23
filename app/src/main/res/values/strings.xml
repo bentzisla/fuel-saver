@@ -86,6 +86,7 @@
     <string name="route_graph_hide_hint">הקש לצמצום</string>
     <string name="route_graph_description">גרף מהירות לפי מרחק לאורך המסלול — מראה איפה המסלול איטי/פקוק</string>
     <string name="route_error_no_network">אין חיבור לאינטרנט</string>
+    <string name="route_error_timeout">הבקשה לשרת ארכה יותר מדי — נסו שוב</string>
     <string name="route_error_quota">חריגה ממכסת השימוש בשירות המסלולים</string>
     <string name="route_error_forbidden">המפתח אינו מורשה לשירות המסלולים</string>
     <string name="route_error_no_route">לא נמצא מסלול ליעד שצוין</string>
@@ -100,6 +101,7 @@
     <string name="route_detail_title">חישוב העלות</string>
     <string name="route_close">סגור</string>
     <string name="route_navigate">נווט</string>
+    <string name="nav_waze_destination_only">Waze יבחר את המסלול בעצמו — מועבר אליו היעד בלבד, ללא המסלול הנבחר.</string>
     <string name="route_departed_button">יצאתי במסלול הזה</string>
     <string name="route_departed_linked">קושר לנסיעה — יוצג בהיסטוריה</string>
     <string name="route_departed_none">לא נמצאה נסיעה לקשר (עדיין לא התחילה רישום OBD)</string>
@@ -194,6 +196,9 @@
     <string name="stats_no_devices">אין דונגלים מצומדים. צמד את ה-ELM327 בהגדרות Bluetooth של המכשיר ואז לחץ רענון.</string>
     <string name="stats_refresh">רענון</string>
     <string name="stats_demo_row">הדמיה (ללא דונגל)</string>
+    <string name="stats_obd_favorite_add">הוסף למועדפים</string>
+    <string name="stats_obd_favorite_remove">הסר מהמועדפים</string>
+    <string name="stats_obd_last_used">שומש לאחרונה</string>
     <string name="stats_connecting_to">מתחבר ל־%1$s…</string>
     <string name="stats_trips">נסיעות</string>
     <string name="stats_no_trips">אין נסיעות מתועדות עדיין</string>
@@ -298,6 +303,22 @@
     <string name="curve_reset_confirm_message">פעולה זו תמחק את כל נתוני המדידה שנלמדו מהרכב. לא ניתן לשחזר אותם.</string>
     <string name="curve_clear_manual_confirm_title">להסיר את העקומה הידנית?</string>
     <string name="curve_clear_manual_confirm_message">פעולה זו תמחק את העקומה הידנית השמורה. לא ניתן לשחזר אותה.</string>
+    <string name="curve_edit_manual">ערוך עקומה ידנית</string>
+    <string name="curve_editor_title">עריכת עקומה ידנית</string>
+    <string name="curve_editor_hint">הזינו נקודות של מהירות וצריכה. נדרשות לפחות 2 נקודות; רשימה ריקה תסיר את העקומה הידנית.</string>
+    <string name="curve_editor_units_hint">מהירות בקמ״ש (עד 140), צריכה בל׳/100 ק״מ (גדולה מ־0)</string>
+    <string name="curve_editor_speed_label">מהירות</string>
+    <string name="curve_editor_consumption_label">צריכה</string>
+    <string name="curve_editor_add">הוסף נקודה</string>
+    <string name="curve_editor_remove">הסר נקודה</string>
+    <string name="curve_editor_preset_empty">התחל ריק</string>
+    <string name="curve_editor_preset_default">מברירת מחדל</string>
+    <string name="curve_editor_preset_manual">מהעקומה הידנית</string>
+    <string name="curve_editor_error_row">בדקו את הערכים המסומנים (מהירות עד 140, צריכה גדולה מ־0)</string>
+    <string name="curve_editor_error_too_few">יש להזין לפחות 2 נקודות תקינות</string>
+    <string name="curve_editor_clear_hint">שמירה ללא נקודות תסיר את העקומה הידנית</string>
+    <string name="curve_editor_save">שמור</string>
+    <string name="curve_editor_cancel">ביטול</string>
     <string name="curve_delete_confirm">מחק</string>
     <string name="curve_delete_cancel">ביטול</string>
     <string name="curve_quality_label">איכות הנתונים: %1$s</string>
@@ -348,7 +369,7 @@
     <string name="settings_elm_battery_note">שימו לב: דונגל ELM327 נשאר מחובר וצורך חשמל מהמצבר — נתקו אותו כשהרכב אינו בשימוש.</string>
     <string name="settings_autosaved">ההגדרות נשמרות אוטומטית</string>
     <string name="settings_version_label">גרסה: %1$s (%2$d)</string>
-    <string name="settings_build_date_label">נבנה ב־: %1$s</string>
+    <string name="settings_changelog_title">מה חדש</string>
 
     <string name="settings_backup_title">גיבוי נתונים</string>
     <string name="settings_backup_hint">ייצוא נתוני הלמידה, הנסיעות וההגדרות לקובץ, או מיזוג מקובץ גיבוי קיים.</string>
@@ -468,4 +489,37 @@
     <string name="car_error">שגיאה: %1$s</string>
     <string name="car_error_unknown">שגיאת חיבור לדונגל OBD</string>
     <string name="car_connect">התחבר</string>
+
+    <!-- First-run onboarding: shown once before the tabs, gates nothing. -->
+    <string name="onboarding_title">הגדרה ראשונית</string>
+    <string name="onboarding_intro">FuelRoute עובד גם בלי הגדרה, אבל כדי לקבל מסלולים אמיתיים ורישום דלק מלא יש להשלים שני דברים — אפשר גם פשוט לנסות הדגמה ולהשלים אחר כך.</string>
+
+    <string name="onboarding_google_title">1. מפתח Google Cloud ו-API</string>
+    <string name="onboarding_google_step_1">1. צרו פרויקט ב-Google Cloud Console והפעילו את השירותים: Routes API, Maps SDK for Android ו-Places API (New).</string>
+    <string name="onboarding_google_step_2">2. הפעילו חיוב (Billing) והגדירו התראת תקציב (Budget alert) כדי למנוע חיוב לא צפוי.</string>
+    <string name="onboarding_google_step_3">3. צרו API Key והגבילו אותו לאפליקציה: הוסיפו את שם החבילה com.fuelroute ואת טביעת האצבע SHA-1 של החתימה שחתמה על ה-APK (הריצו gradlew signingReport).</string>
+    <string name="onboarding_google_step_4">4. שמרו את המפתח בקובץ local.properties בשורה MAPS_API_KEY=... (הקובץ אינו נכנס ל-git).</string>
+    <string name="onboarding_google_note">בלי הגבלת שם החבילה ו-SHA-1 המפתח עלול להיחסם או לשמש אחרים.</string>
+
+    <string name="onboarding_obd_title">2. דונגל ELM327 ורישום OBD</string>
+    <string name="onboarding_obd_step_1">1. צמדו את דונגל ה-ELM327 דרך הגדרות Bluetooth של המכשיר (לא מתוך האפליקציה).</string>
+    <string name="onboarding_obd_step_2">2. אשרו הרשאות Bluetooth (והתראות) כשהאפליקציה תבקש — בלעדיהן לא ניתן להתחבר לדונגל.</string>
+    <string name="onboarding_obd_step_3">3. פטרו את FuelRoute מאופטימיזציית סוללה כדי שרישום הדלק ימשיך לפעול כשהמסך כבוי.</string>
+    <string name="onboarding_obd_note">אפשר להתחיל בהדמיה ללא דונגל כדי להתרשם מהמסך החי, ולחבר את הדונגל מאוחר יותר.</string>
+    <string name="onboarding_demo">נסה הדגמה (ללא דונגל)</string>
+    <string name="onboarding_done">סיימתי</string>
+
+    <!-- Confirmation for the destructive "אפס" action on the stats screen. -->
+    <string name="stats_reset_confirm_title">לאפס את הרישום?</string>
+    <string name="stats_reset_confirm_message">הפעולה תעצור את הרישום הפעיל ותאפס את מצב המנוע. נתוני הלמידה שנשמרו לא יימחקו. להמשיך?</string>
+    <string name="stats_reset_confirm">אפס</string>
+    <string name="stats_cancel">ביטול</string>
+
+    <!-- Retry cards for screens that can fail to load. -->
+    <string name="curve_error_load">טעינת העקומה נכשלה</string>
+    <string name="curve_retry">נסה שוב</string>
+    <string name="vehicle_error_load">טעינת הרכבים נכשלה</string>
+    <string name="vehicle_retry">נסה שוב</string>
+    <string name="calibration_error_load">טעינת הכיול נכשלה</string>
+    <string name="calibration_retry">נסה שוב</string>
 </resources>

@@ -128,6 +128,65 @@ class FuelModelTest {
     }
 
     @Test
+    fun `zero static duration falls back to the route average speed`() {
+        val route = Route(
+            id = "missing-static",
+            distanceMeters = 10_000.0,
+            staticDurationSeconds = 600.0,
+            durationSeconds = 600.0,
+            segments = listOf(RouteSegment(distanceMeters = 10_000.0, staticDurationSeconds = 0.0)),
+        )
+
+        val cost = model.cost(route, 7.0)
+
+        // Not 0 (which would charge the curve's ~2.2x crawl rate): the route average, 60 km/h.
+        assertEquals(60.0, cost.segments.single().effectiveSpeedKmh, 1e-6)
+        assertEquals(10.0 * curve.litersPer100Km(60.0) / 100.0, cost.fuelLiters, 1e-6)
+    }
+
+    @Test
+    fun `non-finite price yields a finite zero fuel cost`() {
+        val route = Route(
+            id = "nan-price",
+            distanceMeters = 10_000.0,
+            staticDurationSeconds = 600.0,
+            durationSeconds = 600.0,
+            segments = listOf(RouteSegment(10_000.0, 600.0)),
+        )
+
+        val cost = model.cost(route, pricePerLiter = Double.NaN)
+
+        assertTrue(cost.totalCost.isFinite())
+        assertEquals(0.0, cost.fuelCost, 0.0)
+        assertEquals(cost.fuelLiters, 10.0 * curve.litersPer100Km(60.0) / 100.0, 1e-6)
+    }
+
+    @Test
+    fun `slow factor override changes the costed speed of a slow segment`() {
+        val route = Route(
+            id = "slow-override",
+            distanceMeters = 10_000.0,
+            staticDurationSeconds = 600.0,
+            durationSeconds = 900.0,
+            trafficResolution = TrafficResolution.NONE,
+            segments = listOf(
+                RouteSegment(5_000.0, 300.0, congestionFactor = 1.0, congestion = CongestionLevel.NORMAL),
+                RouteSegment(5_000.0, 300.0, congestionFactor = 0.55, congestion = CongestionLevel.SLOW),
+            ),
+        )
+        val defaultCost = model.cost(route, 7.0)
+        val fasterSlow = FuelModel(
+            curve = curve,
+            idleLitersPerHour = 0.8,
+            overrides = FuelModelOverrides(slowFactor = 0.8),
+        ).cost(route, 7.0)
+
+        // Raising the slow factor makes the slow half faster, so it burns less fuel.
+        assertTrue(fasterSlow.segments[1].effectiveSpeedKmh > defaultCost.segments[1].effectiveSpeedKmh)
+        assertTrue(fasterSlow.segments[1].liters < defaultCost.segments[1].liters)
+    }
+
+    @Test
     fun `toll is added to the total`() {
         val route = Route(
             id = "t",

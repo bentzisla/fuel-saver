@@ -14,9 +14,20 @@ object NavigationUris {
     private const val MAPS_BASE = "https://www.google.com/maps/dir/"
     private const val WAZE_BASE = "waze://"
 
+    /**
+     * Builds a Google Maps directions URL using the documented `google.com/maps/dir/?api=1`
+     * parameters: `origin`, `destination`, optional coordinate `waypoints`, and
+     * `dir_action=navigate` to ask for turn-by-turn navigation (degrading to a preview when the
+     * origin is far from the current location).
+     *
+     * [encodedPolyline] is accepted for API compatibility but is IGNORED here: the
+     * `via:enc:<polyline>:` pass-through form is Directions-API (not `api=1`) syntax and is
+     * unreliable on consumer Maps, so callers pass explicit coordinate [waypoints] instead.
+     */
     fun googleMaps(
         destination: NavDestination,
         origin: NavDestination? = null,
+        encodedPolyline: String? = null,
         waypoints: List<Pair<Double, Double>> = emptyList(),
     ): String {
         val params = mutableListOf<Pair<String, String>>()
@@ -31,6 +42,7 @@ object NavigationUris {
         if (waypoints.isNotEmpty()) {
             params += "waypoints" to waypoints.joinToString("|") { (lat, lng) -> "${coord(lat)},${coord(lng)}" }
         }
+        params += "dir_action" to "navigate"
         return MAPS_BASE + "?" + encodeParams(params)
     }
 
@@ -63,8 +75,11 @@ object NavigationUris {
         params.joinToString("&") { (key, value) -> "${enc(key)}=${enc(value)}" }
 
     /**
-     * RFC 3986 query-value encoder that additionally leaves `,` unescaped (coordinates and
-     * waypoint separators) and never emits `+` for spaces.
+     * Query-value encoder that keeps every printable ASCII character raw except the ones that
+     * would break or alter the query string (`%`, `#`, `&`, `+`, `=`, `"`, `<`, `>`), spaces and
+     * non-ASCII bytes (percent-encoded UTF-8). This is what lets the documented
+     * `waypoints=via:enc:<polyline>:` form survive verbatim, since encoded polylines use the
+     * printable range `?`..`~` which includes `:`, `|`, `~`, `@` and backtick.
      */
     private fun enc(value: String): String {
         val hex = "0123456789ABCDEF"
@@ -72,10 +87,8 @@ object NavigationUris {
         for (b in value.toByteArray(Charsets.UTF_8)) {
             val v = b.toInt() and 0xFF
             val c = v.toChar()
-            val keep = v < 128 && (
-                c in 'A'..'Z' || c in 'a'..'z' || c in '0'..'9' ||
-                    c == '-' || c == '_' || c == '.' || c == '~' || c == ','
-                )
+            val keep = v in 0x21..0x7E &&
+                c != '%' && c != '#' && c != '&' && c != '+' && c != '=' && c != '"' && c != '<' && c != '>'
             if (keep) {
                 sb.append(c)
             } else {

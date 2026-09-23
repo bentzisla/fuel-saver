@@ -34,6 +34,7 @@ import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -72,11 +73,13 @@ class BackupRepositoryTest {
         assertEquals(a.learningExtras.sortedBy { it.vehicleId }, b.learningExtras.sortedBy { it.vehicleId })
         assertEquals(a.favorites.sortedBy { it.createdAtMs }, b.favorites.sortedBy { it.createdAtMs })
         assertEquals(a.settings, b.settings)
+        assertEquals(a.modelOverrides, b.modelOverrides)
+        assertEquals(source.settings.overrides, dest.settings.overrides)
         assertEquals(a.prices.sortedBy { it.grade }, b.prices.sortedBy { it.grade })
     }
 
     @Test
-    fun `importing twice dedupes rows and sums bins`() = runTest {
+    fun `importing twice dedupes rows and does not double-count bins`() = runTest {
         val source = Harness().apply { seed() }
         val exported = source.repo.export()
         val expected = decode(exported)
@@ -92,6 +95,8 @@ class BackupRepositoryTest {
         assertEquals(expected.refuels.size, second.refuelsSkipped)
         assertEquals(0, second.favoritesAdded)
         assertEquals(expected.favorites.size, second.favoritesSkipped)
+        // Re-importing the same file finds value-identical bins and skips them.
+        assertEquals(0, second.binsMerged)
 
         // No duplicate rows.
         assertEquals(expected.vehicles.size, dest.vehicles.size)
@@ -100,17 +105,52 @@ class BackupRepositoryTest {
         assertEquals(expected.routeSearches.size, dest.searches.size)
         assertEquals(expected.favorites.size, dest.favorites.size)
 
-        // Bins are summed (imported twice => 2x the source values).
+        // Bins are NOT summed a second time (would double-count the learned curve).
         assertEquals(expected.speedBins.size, dest.bins.size)
         dest.bins.forEach { bin ->
             val original = expected.speedBins.first {
                 it.vehicleId == bin.vehicleId && it.binIndex == bin.binIndex
             }
-            assertEquals(original.distanceKm * 2, bin.distanceKm, 1e-9)
-            assertEquals(original.fuelL * 2, bin.fuelL, 1e-9)
-            assertEquals(original.seconds * 2, bin.seconds, 1e-9)
-            assertEquals(original.samples * 2, bin.samples)
+            assertEquals(original.distanceKm, bin.distanceKm, 1e-9)
+            assertEquals(original.fuelL, bin.fuelL, 1e-9)
+            assertEquals(original.seconds, bin.seconds, 1e-9)
+            assertEquals(original.samples, bin.samples)
         }
+    }
+
+    @Test
+    fun `device-specific settings are neither exported nor imported`() = runTest {
+        val source = Harness().apply { seed() }
+        val exported = source.repo.export()
+
+        // The exporting device's dongle/session state must not appear in the file at all.
+        val decoded = decode(exported)
+        assertNotNull(decoded.settings)
+        assertFalse(exported.contains("lastDeviceAddress"))
+        assertFalse(exported.contains("lastDeviceName"))
+        assertFalse(exported.contains("lastAutoStartMs"))
+        assertFalse(exported.contains("lastObdError"))
+
+        val dest = Harness()
+        assertTrue(dest.repo.import(exported).success)
+        // Portable preferences arrived; device state kept the destination's own (unset) values.
+        assertEquals("waze", dest.settings.value.navigationApp)
+        assertEquals(90, dest.settings.value.retentionDays)
+        assertNull(dest.settings.value.lastDeviceAddress)
+        assertNull(dest.settings.value.lastDeviceName)
+        assertNull(dest.settings.value.lastAutoStartMs)
+        assertNull(dest.settings.value.lastObdError)
+    }
+
+    @Test
+    fun `import runs all writes inside a single transaction`() = runTest {
+        val source = Harness().apply { seed() }
+        val exported = source.repo.export()
+
+        val dest = Harness()
+        assertTrue(dest.repo.import(exported).success)
+
+        assertEquals(1, dest.runner.invocations)
     }
 
     @Test
@@ -122,6 +162,7 @@ class BackupRepositoryTest {
         assertFalse(result.success)
         assertNotNull(result.error)
         assertNothingWritten(dest)
+        assertEquals(0, dest.runner.invocations)
     }
 
     @Test
@@ -133,6 +174,7 @@ class BackupRepositoryTest {
         assertFalse(result.success)
         assertNotNull(result.error)
         assertNothingWritten(dest)
+        assertEquals(0, dest.runner.invocations)
     }
 
     private fun assertNothingWritten(harness: Harness) {
@@ -169,6 +211,7 @@ class BackupRepositoryTest {
 
         val settings = FakeSettingsRepository()
         val prices = FakeFuelPriceRepository()
+        val runner = InlineTransactionRunner()
 
         val repo: BackupRepository = DefaultBackupRepository(
             vehicleDao = mockk<VehicleDao>(relaxed = true).also { dao ->
@@ -244,6 +287,7 @@ class BackupRepositoryTest {
             },
             settingsRepository = settings,
             fuelPriceRepository = prices,
+            transactionRunner = runner,
         )
 
         fun seed() {
@@ -362,21 +406,28 @@ class BackupRepositoryTest {
                     retentionDays = 90,
                 ),
             )
+            settings.setOverrides(FuelModelOverrides(slowFactor = 0.6, fuelCorrection = 1.15))
             prices.put("95", FuelPrice(pricePerLiter = 7.25, grade = "95", manuallyPinned = true))
         }
     }
 
     private class FakeSettingsRepository : SettingsRepository {
         private val state = MutableStateFlow(AppSettings())
+        private val overridesState = MutableStateFlow(FuelModelOverrides.DEFAULT)
         val value: AppSettings get() = state.value
+        val overrides: FuelModelOverrides get() = overridesState.value
 
         fun set(appSettings: AppSettings) {
             state.value = appSettings
         }
 
+        fun setOverrides(value: FuelModelOverrides) {
+            overridesState.value = value
+        }
+
         override val settings: Flow<AppSettings> = state.asStateFlow()
 
-        override val modelOverrides: Flow<FuelModelOverrides> = flowOf(FuelModelOverrides.DEFAULT)
+        override val modelOverrides: Flow<FuelModelOverrides> = overridesState.asStateFlow()
 
         override suspend fun saveValuePerMinute(value: Double) = update { it.copy(valuePerMinute = value) }
         override suspend fun saveNavigationApp(value: String) = update { it.copy(navigationApp = value) }
@@ -390,7 +441,9 @@ class BackupRepositoryTest {
         override suspend fun saveAutoConnectIntroSeen(value: Boolean) =
             update { it.copy(autoConnectIntroSeen = value) }
         override suspend fun saveRetentionDays(value: Int) = update { it.copy(retentionDays = value) }
-        override suspend fun saveModelOverrides(value: FuelModelOverrides) = Unit
+        override suspend fun saveModelOverrides(value: FuelModelOverrides) {
+            overridesState.value = value
+        }
 
         private fun update(transform: (AppSettings) -> AppSettings) {
             state.update(transform)
@@ -424,5 +477,16 @@ class BackupRepositoryTest {
 
         private fun currentSync(grade: String): FuelPrice =
             stored[grade] ?: FuelPrice(ModelConstants.DEFAULT_FUEL_PRICE, grade, false)
+    }
+
+    /** Executes the block directly; the real runner wraps `RoomDatabase.withTransaction`. */
+    private class InlineTransactionRunner : TransactionRunner {
+        var invocations = 0
+            private set
+
+        override suspend fun <R> run(block: suspend () -> R): R {
+            invocations++
+            return block()
+        }
     }
 }

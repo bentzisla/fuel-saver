@@ -152,6 +152,29 @@ class RoutesMapperTest {
     }
 
     @Test
+    fun `unpriced route toll falls through to priced leg tolls`() {
+        val response = ComputeRoutesResponse(
+            routes = listOf(
+                RouteDto(
+                    distanceMeters = 2_000,
+                    duration = "200s",
+                    staticDuration = "200s",
+                    travelAdvisory = TravelAdvisoryDto(tollInfo = TollInfoDto(estimatedPrice = emptyList())),
+                    legs = listOf(
+                        legWithToll(distanceMeters = 1_000, units = 4L, nanos = 0),
+                        legWithToll(distanceMeters = 1_000, units = 8L, nanos = 250_000_000),
+                    ),
+                ),
+            ),
+        )
+
+        val route = RoutesMapper.toDomain(response).single()
+
+        assertFalse(route.tollUnknown)
+        assertEquals(12.25, route.tollCost!!, 1e-9)
+    }
+
+    @Test
     fun `route level intervals fall back and set ROUTE_AVERAGE`() {
         val encoded = encode(listOf(0.0 to 0.0, 0.0 to 0.01, 0.0 to 0.02))
         val response = ComputeRoutesResponse(
@@ -231,6 +254,36 @@ class RoutesMapperTest {
         assertEquals(CongestionLevel.TRAFFIC_JAM, route.segments[0].congestion)
         assertEquals(0.25, route.segments[0].congestionFactor, 0.02)
         assertEquals(CongestionLevel.NORMAL, route.segments[1].congestion)
+    }
+
+    @Test
+    fun `missing step static duration falls back to a distance share of the leg`() {
+        val response = ComputeRoutesResponse(
+            routes = listOf(
+                RouteDto(
+                    distanceMeters = 3_000,
+                    duration = "300s",
+                    staticDuration = "240s",
+                    legs = listOf(
+                        LegDto(
+                            distanceMeters = 3_000,
+                            duration = "300s",
+                            staticDuration = "240s",
+                            steps = listOf(
+                                StepDto(distanceMeters = 1_000),
+                                StepDto(distanceMeters = 2_000),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val route = RoutesMapper.toDomain(response).single()
+
+        // 240 s shared 1:2 by distance -> 80 s and 160 s instead of 0 s.
+        assertEquals(80.0, route.segments[0].staticDurationSeconds, 1e-9)
+        assertEquals(160.0, route.segments[1].staticDurationSeconds, 1e-9)
     }
 
     @Test

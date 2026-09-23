@@ -16,12 +16,24 @@ object ObdConnectionPolicy {
     const val CONNECT_TIMEOUT_MS = 15_000L
 
     /**
-     * Short read timeout applied to each ELM initialization command. A powered-off or silent
-     * dongle never answers, so aborting an init read after this window surfaces a specific error
-     * in well under a second instead of dragging through every command at the full socket
+     * Short read timeout applied to each non-reset ELM initialization command. A powered-off or
+     * silent dongle never answers, so aborting an init read after this window surfaces a specific
+     * error in well under a second instead of dragging through every command at the full socket
      * read-timeout (1.5 s each). The run-loop reads keep their normal timeout.
      */
     const val INIT_READ_TIMEOUT_MS = 600L
+
+    /**
+     * `ATZ` resets the whole adapter and takes noticeably longer than the other init commands
+     * (a real ELM327 answers in ~1 s, clones can be slower), so it gets its own window instead
+     * of being aborted by the short [INIT_READ_TIMEOUT_MS].
+     */
+    const val ATZ_READ_TIMEOUT_MS = 3_000L
+
+    /** Per-command init read window: [ATZ_READ_TIMEOUT_MS] for `ATZ`, else [INIT_READ_TIMEOUT_MS]. */
+    fun initReadTimeoutMs(command: String): Long =
+        if (command.trim().equals("ATZ", ignoreCase = true)) ATZ_READ_TIMEOUT_MS
+        else INIT_READ_TIMEOUT_MS
 
     /**
      * A freshly started logging service never stops itself during this window, so the engine
@@ -110,16 +122,48 @@ object ObdConnectionPolicy {
     const val LOW_BATTERY_VOLTS = 11.5
 
     /**
-     * True when the sample stream says the engine is off: either the battery has dropped below
-     * [LOW_BATTERY_VOLTS], or RPM has been missing for at least [IGNITION_OFF_RPM_TIMEOUT_MS].
+     * At/below this speed the vehicle is treated as stationary when deciding whether a missing
+     * RPM reply may be used as ignition-off evidence.
+     */
+    const val STATIONARY_SPEED_KMH = 1.0
+
+    /**
+     * True when an unavailable RPM reading may be accumulated toward the ignition-off timeout.
+     *
+     * Some clones simply do not answer PID 0C, so if RPM absence always armed the 60 s timer the
+     * engine would stop itself mid-drive. RPM absence is therefore only meaningful when the PID
+     * is actually supported (or negotiation failed and we fall back to the mandatory trio), or
+     * when the vehicle is stationary and a missing RPM is expected.
+     */
+    fun shouldTrackRpmAbsence(rpmPidSupported: Boolean, speedKmh: Double?): Boolean =
+        rpmPidSupported || (speedKmh ?: 0.0) < STATIONARY_SPEED_KMH
+
+    /**
+     * Plausible automotive battery voltage window. Readings outside it are adapter noise:
+     * cheap ELM327 clones answer `ATRV` with their internal logic rail (0 V / 3.3 V / 5 V)
+     * instead of the car's battery, so they must not be mistaken for a dead battery.
+     */
+    const val MIN_PLAUSIBLE_BATTERY_VOLTS = 8.0
+    const val MAX_PLAUSIBLE_BATTERY_VOLTS = 16.0
+
+    /**
+     * True when the sample stream says the engine is off. RPM is the authoritative signal: it
+     * must be missing for at least [IGNITION_OFF_RPM_TIMEOUT_MS]. Voltage is only a secondary
+     * signal, and only when the reading lies inside [MIN_PLAUSIBLE_BATTERY_VOLTS]..
+     * [MAX_PLAUSIBLE_BATTERY_VOLTS] and is below [LOW_BATTERY_VOLTS] — a clone reporting 0 V
+     * or 3.3 V is ignored rather than read as a dead battery.
      */
     fun shouldStopForIgnitionOff(
         rpmNullSinceMs: Long?,
         nowMs: Long,
         batteryVoltage: Double?,
     ): Boolean {
-        if (batteryVoltage != null && batteryVoltage < LOW_BATTERY_VOLTS) return true
-        return rpmNullSinceMs != null && nowMs - rpmNullSinceMs >= IGNITION_OFF_RPM_TIMEOUT_MS
+        val rpmMissingLongEnough =
+            rpmNullSinceMs != null && nowMs - rpmNullSinceMs >= IGNITION_OFF_RPM_TIMEOUT_MS
+        val plausibleLowVoltage = batteryVoltage != null &&
+            batteryVoltage in MIN_PLAUSIBLE_BATTERY_VOLTS..MAX_PLAUSIBLE_BATTERY_VOLTS &&
+            batteryVoltage < LOW_BATTERY_VOLTS
+        return rpmMissingLongEnough || plausibleLowVoltage
     }
 
     // --- Logging-service lifecycle ---------------------------------------------------------
@@ -162,6 +206,36 @@ object ObdConnectionPolicy {
      * so this returns the latch verbatim.
      */
     fun shouldSuppressAutoConnect(manualDisconnect: Boolean): Boolean = manualDisconnect
+
+    // --- Mid-session auto-reconnect --------------------------------------------------------
+
+    /**
+     * Upper bound on consecutive service-level reconnect re-arms after a terminal drop. Bounded
+     * so a genuinely absent/failing dongle (or a parked car with the ignition off) cannot spin
+     * the foreground service forever.
+     */
+    const val MAX_AUTO_RECONNECT_ATTEMPTS = 5
+
+    /**
+     * True when the logging service should re-arm the engine after a terminal drop instead of
+     * stopping itself. Requires all of:
+     *
+     *  - the user enabled auto-connect,
+     *  - the user did not explicitly disconnect (the sticky [shouldSuppressAutoConnect] latch),
+     *  - the dongle is still reachable (ACL-connected / a known last device address), and
+     *  - the bounded attempt budget has not been exhausted ([attempt] is 0-based).
+     *
+     * @param attempt number of automatic re-arms already made in this logging session.
+     */
+    fun shouldAutoReconnect(
+        attempt: Int,
+        autoConnect: Boolean,
+        manualDisconnect: Boolean,
+        deviceConnected: Boolean,
+    ): Boolean = autoConnect &&
+        !manualDisconnect &&
+        deviceConnected &&
+        attempt < MAX_AUTO_RECONNECT_ATTEMPTS
 
     // --- Machine error codes ---------------------------------------------------------------
 

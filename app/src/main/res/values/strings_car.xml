@@ -15,5 +15,6 @@
     <string name="settings_android_auto_verdict_connected">המכונית חוברה — לוח המחוונים מוכן להצגה ברכב.</string>
     <string name="settings_android_auto_verdict_not_connected">המכונית לא חוברה — הפעילו ״מקורות לא ידועים״ (Unknown sources) וחברו את הרכב מחדש.</string>
     <string name="settings_android_auto_release_warning">זו בניית RELEASE: אם הרכב לא מתחבר, התקינו בניית DEBUG — מאמת המארחים ב-DEBUG פתוח לכל המארחים, ואינו תלוי בטביעות האצבע המקודדות.</string>
+    <string name="settings_android_auto_trusted_store">אם האפליקציה עדיין לא מופיעה למרות כל הצעדים: Android Auto מציג ברכב רק אפליקציות מחנות מהימנה (Google Play / ONE store). התקנה ידנית (sideload) עלולה להיחסם גם כשמופעל ״מקורות לא ידועים״ — זו החלטה של Android Auto ולא תקלה במניפסט. לבדיקה במחשב השתמשו ב-Desktop Head Unit (DHU) ובבניית DEBUG.</string>
 
 </resources>

@@ -72,4 +72,57 @@ object Migrations {
             db.execSQL("ALTER TABLE trip ADD COLUMN source TEXT NOT NULL DEFAULT 'real'")
         }
     }
+
+    // v6 -> v7: adds the user's favorite OBD-II dongles (address-keyed) for the Stats picker.
+    val MIGRATION_6_7 = object : Migration(6, 7) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `favorite_obd_device` (`address` TEXT NOT NULL, " +
+                    "`name` TEXT NOT NULL, `sortOrder` INTEGER NOT NULL, `createdAtMs` INTEGER NOT NULL, " +
+                    "PRIMARY KEY(`address`))",
+            )
+        }
+    }
+
+    // v7 -> v8: manual post-drive cost entry on a trip (nullable, so existing rows are untouched).
+    val MIGRATION_7_8 = object : Migration(7, 8) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE trip ADD COLUMN manualCost REAL")
+            db.execSQL("ALTER TABLE trip ADD COLUMN manualDistanceKm REAL")
+            db.execSQL("ALTER TABLE trip ADD COLUMN manualLitersPer100Km REAL")
+            db.execSQL("ALTER TABLE trip ADD COLUMN manualEnteredAtMs INTEGER")
+        }
+    }
+
+    // v8 -> v9: indices on the hot lookup columns (sample retention, per-vehicle history, open-trip
+    // recovery, route-search linking). Non-destructive: only CREATE INDEX, matching the @Index
+    // declarations on the entities so Room's schema validation passes.
+    val MIGRATION_8_9 = object : Migration(8, 9) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_obd_sample_timestampMs` " +
+                    "ON `obd_sample` (`timestampMs`)",
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_route_search_timestampMs` " +
+                    "ON `route_search` (`timestampMs`)",
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_route_search_departureTimeMs` " +
+                    "ON `route_search` (`departureTimeMs`)",
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_trip_vehicleId` ON `trip` (`vehicleId`)",
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_trip_routeSearchId` ON `trip` (`routeSearchId`)",
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_trip_isOpen` ON `trip` (`isOpen`)",
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_refuel_vehicleId` ON `refuel` (`vehicleId`)",
+            )
+        }
+    }
 }

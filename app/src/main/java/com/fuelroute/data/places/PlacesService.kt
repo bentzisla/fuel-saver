@@ -6,6 +6,7 @@ import retrofit2.http.Header
 import retrofit2.http.Headers
 import retrofit2.http.POST
 import retrofit2.http.Path
+import retrofit2.http.Query
 
 interface PlacesService {
 
@@ -21,5 +22,6 @@ interface PlacesService {
     suspend fun details(
         @Header("X-Goog-Api-Key") apiKey: String,
         @Path("placeId") placeId: String,
+        @Query("sessionToken") sessionToken: String? = null,
     ): PlaceDetailsResponse
 }

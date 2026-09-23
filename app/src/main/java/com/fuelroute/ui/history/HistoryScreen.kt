@@ -12,25 +12,37 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -38,11 +50,15 @@ import com.fuelroute.R
 import com.fuelroute.data.history.DriveHistoryEntry
 import com.fuelroute.data.history.LinkableSearch
 import com.fuelroute.data.history.RideState
+import com.fuelroute.domain.history.ManualCostCalculator
+import com.fuelroute.domain.history.ManualCostInput
 import com.fuelroute.domain.history.PredictionAccuracy
+import com.fuelroute.domain.history.SplitAnchor
 import kotlinx.coroutines.delay
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.abs
 
 @Composable
 fun HistoryScreen(
@@ -55,6 +71,13 @@ fun HistoryScreen(
         LaunchedEffect(feedback) {
             delay(FEEDBACK_VISIBLE_MS)
             viewModel.clearLinkFeedback()
+        }
+    }
+
+    state.mergeSplitFeedback?.let { feedback ->
+        LaunchedEffect(feedback) {
+            delay(FEEDBACK_VISIBLE_MS)
+            viewModel.clearMergeSplitFeedback()
         }
     }
 
@@ -82,6 +105,51 @@ fun HistoryScreen(
         )
     }
 
+    if (state.manualEntryTripId != null) {
+        ManualCostDialog(
+            pricePerLiter = state.pricePerLiter,
+            onSave = viewModel::saveManualCost,
+            onDismiss = viewModel::dismissManualCost,
+        )
+    }
+
+    if (state.pendingBulkDelete) {
+        ConfirmActionDialog(
+            title = stringResource(R.string.history_bulk_delete_title),
+            message = stringResource(R.string.history_bulk_delete_message, state.selectedIds.size),
+            onConfirm = viewModel::confirmBulkDelete,
+            onDismiss = viewModel::cancelBulkDelete,
+        )
+    }
+
+    state.mergeSplitEntry?.let { entry ->
+        MergeSplitDialog(
+            entry = entry,
+            candidates = mergeCandidates(state.entries, entry),
+            onMerge = viewModel::requestMerge,
+            onSplit = { splitAtMs -> viewModel.requestSplit(entry.tripId!!, splitAtMs) },
+            onDismiss = viewModel::dismissMergeSplit,
+        )
+    }
+
+    if (state.pendingMerge != null) {
+        ConfirmActionDialog(
+            title = stringResource(R.string.history_merge_confirm_title),
+            message = stringResource(R.string.history_merge_confirm_message),
+            onConfirm = viewModel::confirmMerge,
+            onDismiss = viewModel::cancelMerge,
+        )
+    }
+
+    if (state.pendingSplit != null) {
+        ConfirmActionDialog(
+            title = stringResource(R.string.history_split_confirm_title),
+            message = stringResource(R.string.history_split_confirm_message),
+            onConfirm = viewModel::confirmSplit,
+            onDismiss = viewModel::cancelSplit,
+        )
+    }
+
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
@@ -89,10 +157,48 @@ fun HistoryScreen(
     ) {
         item {
             Column {
-                Text(
-                    text = stringResource(R.string.history_title),
-                    style = MaterialTheme.typography.headlineSmall,
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(R.string.history_title),
+                        style = MaterialTheme.typography.headlineSmall,
+                    )
+                    TextButton(onClick = viewModel::toggleSelectionMode) {
+                        Text(
+                            stringResource(
+                                if (state.selectionMode) {
+                                    R.string.history_select_done
+                                } else {
+                                    R.string.history_select
+                                },
+                            ),
+                        )
+                    }
+                }
+                if (state.selectionMode) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = stringResource(
+                                R.string.history_selected_count,
+                                state.selectedIds.size,
+                            ),
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        TextButton(
+                            onClick = viewModel::requestBulkDelete,
+                            enabled = state.selectedIds.isNotEmpty(),
+                        ) {
+                            Text(stringResource(R.string.history_bulk_delete_action))
+                        }
+                    }
+                }
                 state.accuracyPct?.let { accuracy ->
                     Text(
                         text = stringResource(R.string.history_accuracy, format(accuracy, 1)),
@@ -128,6 +234,26 @@ fun HistoryScreen(
             }
         }
 
+        state.mergeSplitFeedback?.let { feedback ->
+            item {
+                Text(
+                    text = stringResource(
+                        when (feedback) {
+                            MergeSplitFeedback.MERGED -> R.string.history_merge_split_merged
+                            MergeSplitFeedback.SPLIT -> R.string.history_merge_split_split
+                            MergeSplitFeedback.FAILED -> R.string.history_merge_split_failed
+                        },
+                    ),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (feedback == MergeSplitFeedback.FAILED) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    },
+                )
+            }
+        }
+
         if (state.isLoading) {
             item {
                 Row(
@@ -149,9 +275,20 @@ fun HistoryScreen(
             items(state.entries) { entry ->
                 HistoryRideCard(
                     entry = entry,
-                    onClick = { viewModel.openDetail(entry) },
+                    selectionMode = state.selectionMode,
+                    selected = entry.selectionId?.let { it in state.selectedIds } ?: false,
+                    onClick = {
+                        if (state.selectionMode) {
+                            viewModel.toggleSelection(entry)
+                        } else {
+                            viewModel.openDetail(entry)
+                        }
+                    },
+                    onToggleSelect = { viewModel.toggleSelection(entry) },
                     onLink = { viewModel.openManualLink(entry) },
                     onDelete = { viewModel.requestDelete(entry) },
+                    onManualCost = { viewModel.openManualCost(entry) },
+                    onMergeSplit = { viewModel.openMergeSplit(entry) },
                 )
             }
         }
@@ -165,14 +302,24 @@ fun HistoryScreen(
 @Composable
 private fun HistoryRideCard(
     entry: DriveHistoryEntry,
+    selectionMode: Boolean,
+    selected: Boolean,
     onClick: () -> Unit,
+    onToggleSelect: () -> Unit,
     onLink: () -> Unit,
     onDelete: () -> Unit,
+    onManualCost: () -> Unit,
+    onMergeSplit: () -> Unit,
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
+        colors = if (selected) {
+            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+        } else {
+            CardDefaults.cardColors()
+        },
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(
@@ -180,6 +327,12 @@ private fun HistoryRideCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                if (selectionMode) {
+                    Checkbox(
+                        checked = selected,
+                        onCheckedChange = { onToggleSelect() },
+                    )
+                }
                 Text(
                     text = routeTitle(entry).ifBlank { stringResource(R.string.history_unlinked_drive) },
                     style = MaterialTheme.typography.titleMedium,
@@ -191,12 +344,14 @@ private fun HistoryRideCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 // Own click handler so the delete tap never also opens the detail dialog.
-                IconButton(onClick = onDelete) {
-                    Icon(
-                        imageVector = Icons.Filled.Delete,
-                        contentDescription = stringResource(R.string.history_delete_title),
-                        tint = MaterialTheme.colorScheme.error,
-                    )
+                if (!selectionMode) {
+                    IconButton(onClick = onDelete) {
+                        Icon(
+                            imageVector = Icons.Filled.Delete,
+                            contentDescription = stringResource(R.string.history_delete_title),
+                            tint = MaterialTheme.colorScheme.error,
+                        )
+                    }
                 }
             }
 
@@ -208,6 +363,14 @@ private fun HistoryRideCard(
                 if (entry.isDemo) {
                     DemoBadge()
                 }
+            }
+
+            if (entry.hasManualEntry) {
+                Text(
+                    text = stringResource(R.string.history_manual_badge),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
             }
 
             if (entry.hasActual && entry.savedAmount > 0.0) {
@@ -292,6 +455,24 @@ private fun HistoryRideCard(
                 )
             }
 
+            if (!selectionMode && (entry.canEnterManualCost || entry.tripId != null)) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(top = 4.dp),
+                ) {
+                    if (entry.canEnterManualCost) {
+                        OutlinedButton(onClick = onManualCost) {
+                            Text(stringResource(R.string.history_manual_action))
+                        }
+                    }
+                    if (entry.tripId != null) {
+                        OutlinedButton(onClick = onMergeSplit) {
+                            Text(stringResource(R.string.history_merge_split_action))
+                        }
+                    }
+                }
+            }
+
             if (entry.canLinkManually) {
                 OutlinedButton(
                     onClick = onLink,
@@ -302,6 +483,278 @@ private fun HistoryRideCard(
             }
         }
     }
+}
+
+/**
+ * Manual post-drive cost entry. Two modes share one dialog: a direct ₪ amount, or distance +
+ * average consumption which is converted with the current fuel price (live preview).
+ */
+@Composable
+private fun ManualCostDialog(
+    pricePerLiter: Double,
+    onSave: (ManualCostInput) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var consumptionMode by remember { mutableStateOf(false) }
+    var costText by remember { mutableStateOf("") }
+    var distanceText by remember { mutableStateOf("") }
+    var consumptionText by remember { mutableStateOf("") }
+
+    val cost = costText.toDoubleOrNull()
+    val distance = distanceText.toDoubleOrNull()
+    val consumption = consumptionText.toDoubleOrNull()
+
+    val directInput = if (!consumptionMode) ManualCostCalculator.fromCost(cost ?: Double.NaN) else null
+    val consumptionInput = if (consumptionMode && distance != null && consumption != null) {
+        ManualCostCalculator.fromConsumption(distance, consumption, pricePerLiter)
+    } else {
+        null
+    }
+    val estimate = if (consumptionMode && distance != null && consumption != null) {
+        ManualCostCalculator.estimate(distance, consumption, pricePerLiter)
+    } else {
+        null
+    }
+    val hasInput = costText.isNotBlank() || distanceText.isNotBlank() || consumptionText.isNotBlank()
+    val canSave = directInput != null || consumptionInput != null
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.history_manual_title)) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 400.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.history_manual_price, format(pricePerLiter, 2)),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = !consumptionMode,
+                        onClick = { consumptionMode = false },
+                        label = { Text(stringResource(R.string.history_manual_mode_direct)) },
+                    )
+                    FilterChip(
+                        selected = consumptionMode,
+                        onClick = { consumptionMode = true },
+                        label = { Text(stringResource(R.string.history_manual_mode_consumption)) },
+                    )
+                }
+                if (!consumptionMode) {
+                    DecimalField(
+                        value = costText,
+                        onValueChange = { costText = it },
+                        label = stringResource(R.string.history_manual_cost_label),
+                    )
+                } else {
+                    DecimalField(
+                        value = distanceText,
+                        onValueChange = { distanceText = it },
+                        label = stringResource(R.string.history_manual_distance_label),
+                    )
+                    DecimalField(
+                        value = consumptionText,
+                        onValueChange = { consumptionText = it },
+                        label = stringResource(R.string.history_manual_consumption_label),
+                    )
+                    estimate?.let { preview ->
+                        Text(
+                            text = stringResource(
+                                R.string.history_manual_preview,
+                                format(preview.liters, 2),
+                                format(preview.cost, 2),
+                            ),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+                if (hasInput && !canSave) {
+                    Text(
+                        text = stringResource(R.string.history_manual_invalid),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { (directInput ?: consumptionInput)?.let(onSave) },
+                enabled = canSave,
+            ) {
+                Text(stringResource(R.string.history_manual_save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.history_manual_cancel))
+            }
+        },
+    )
+}
+
+@Composable
+private fun DecimalField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+    )
+}
+
+/**
+ * Merge/split picker for one drive: nearby trips to merge, and a slider that picks the split
+ * time between the drive's start and end. Both actions go through a confirmation dialog.
+ */
+@Composable
+private fun MergeSplitDialog(
+    entry: DriveHistoryEntry,
+    candidates: List<DriveHistoryEntry>,
+    onMerge: (List<Long>) -> Unit,
+    onSplit: (Long) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val selected = remember(entry.tripId) {
+        mutableStateListOf<Long>().apply { entry.tripId?.let { add(it) } }
+    }
+    var splitFraction by remember(entry.tripId) { mutableFloatStateOf(0.5f) }
+
+    val splitStartedAtMs = entry.tripStartedAtMs
+    val splitEndedAtMs = entry.tripEndedAtMs
+    val canSplit = SplitAnchor.canSplit(splitStartedAtMs, splitEndedAtMs)
+    val splitAtMs = SplitAnchor.splitAtMs(splitStartedAtMs, splitEndedAtMs, splitFraction)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.history_merge_split_action)) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.history_merge_hint),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (candidates.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.history_link_dialog_empty),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    candidates.forEach { candidate ->
+                        val candidateId = candidate.tripId ?: return@forEach
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = candidateId in selected,
+                                onCheckedChange = { checked ->
+                                    if (checked) selected.add(candidateId)
+                                    else selected.remove(candidateId)
+                                },
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = formatDate(candidate.timestampMs),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                                candidate.distanceKm?.let { distance ->
+                                    Text(
+                                        text = stringResource(R.string.history_km, format(distance, 1)),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                TextButton(
+                    onClick = { onMerge(selected.toList()) },
+                    enabled = selected.size >= 2,
+                ) {
+                    Text(stringResource(R.string.history_merge_action))
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                // The split anchor needs the real trip window; an undriven search has none.
+                if (canSplit && splitAtMs != null && splitStartedAtMs != null && splitEndedAtMs != null) {
+                    Text(
+                        text = stringResource(R.string.history_split_title),
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Text(
+                        text = stringResource(
+                            R.string.history_split_point,
+                            formatDate(splitAtMs),
+                        ),
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                    Slider(
+                        value = splitFraction,
+                        onValueChange = { splitFraction = it },
+                        valueRange = 0.05f..0.95f,
+                    )
+                    TextButton(onClick = { onSplit(splitAtMs) }) {
+                        Text(stringResource(R.string.history_split_action))
+                    }
+                } else {
+                    Text(
+                        text = stringResource(R.string.history_split_unavailable),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.history_merge_split_close))
+            }
+        },
+    )
+}
+
+/** Generic destructive-action confirmation used by bulk delete, merge and split. */
+@Composable
+private fun ConfirmActionDialog(
+    title: String,
+    message: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { Text(message) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(stringResource(R.string.history_confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.history_delete_cancel))
+            }
+        },
+    )
 }
 
 /** Marks a simulated "הדגמה" ride so it is never mistaken for a real one. */
@@ -367,6 +820,14 @@ private fun RideDetailDialog(entry: DriveHistoryEntry, onDismiss: () -> Unit) {
                     if (entry.isDemo) {
                         DemoBadge()
                     }
+                }
+
+                if (entry.hasManualEntry) {
+                    Text(
+                        text = stringResource(R.string.history_manual_badge),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
                 }
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
@@ -546,6 +1007,27 @@ private fun LinkRideDialog(
     )
 }
 
+/**
+ * Trips that can be merged with [anchor]: drives close enough in time that they are likely the
+ * same journey split by a pause/restart. Proximity uses the underlying trip start, not the display
+ * timestamp (which is the search time for a linked ride). Demo rides may only merge with demo
+ * rides and real drives only with real drives, so a simulated ride is never folded into real data.
+ */
+internal fun mergeCandidates(
+    entries: List<DriveHistoryEntry>,
+    anchor: DriveHistoryEntry,
+): List<DriveHistoryEntry> {
+    val anchorStartMs = anchor.tripStartedAtMs ?: return emptyList()
+    return entries.filter { candidate ->
+        val candidateStartMs = candidate.tripStartedAtMs
+        candidate.tripId != null &&
+            candidate.tripId != anchor.tripId &&
+            candidateStartMs != null &&
+            candidate.isDemo == anchor.isDemo &&
+            abs(candidateStartMs - anchorStartMs) <= MERGE_WINDOW_MS
+    }
+}
+
 private fun routeTitle(entry: DriveHistoryEntry): String = when {
     !entry.originLabel.isNullOrBlank() && !entry.destinationLabel.isNullOrBlank() ->
         "${entry.originLabel} → ${entry.destinationLabel}"
@@ -567,3 +1049,4 @@ private fun signed(value: Double): String =
 
 private const val DASH = "—"
 private const val FEEDBACK_VISIBLE_MS = 3_000L
+private const val MERGE_WINDOW_MS = 6L * 60 * 60 * 1000

@@ -1,13 +1,12 @@
 package com.fuelroute.ui.stats
 
 import android.annotation.SuppressLint
-import android.bluetooth.BluetoothDevice
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.fuelroute.data.obd.BluetoothDevicesRepository
 import com.fuelroute.data.obd.LearnedCurveRepository
 import com.fuelroute.data.obd.LiveObdState
+import com.fuelroute.data.obd.ObdDeviceRepository
 import com.fuelroute.data.obd.ObdEngine
 import com.fuelroute.data.obd.ObdStatus
 import com.fuelroute.data.obd.TripRepository
@@ -19,6 +18,7 @@ import com.fuelroute.domain.fuel.CurveBlender
 import com.fuelroute.domain.fuel.DefaultCurve
 import com.fuelroute.domain.model.Trip
 import com.fuelroute.domain.model.VehicleProfile
+import com.fuelroute.domain.obd.ObdDevice
 import com.fuelroute.service.ObdLoggingService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -28,7 +28,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -42,7 +41,7 @@ data class TripDisplay(
 class StatsViewModel @Inject constructor(
     @ApplicationContext private val appContext: Context,
     private val engine: ObdEngine,
-    private val bluetoothRepository: BluetoothDevicesRepository,
+    private val obdDeviceRepository: ObdDeviceRepository,
     private val tripRepository: TripRepository,
     private val settingsRepository: SettingsRepository,
     private val vehicleRepository: VehicleRepository,
@@ -54,8 +53,9 @@ class StatsViewModel @Inject constructor(
     val settings: StateFlow<AppSettings> = settingsRepository.settings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppSettings())
 
-    private val _bonded = MutableStateFlow<List<BluetoothDevice>>(emptyList())
-    val bonded: StateFlow<List<BluetoothDevice>> = _bonded.asStateFlow()
+    /** Enriched, sorted adapter list for the connect card (last used → favorites → name). */
+    val devices: StateFlow<List<ObdDevice>> = obdDeviceRepository.devices
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _connectingName = MutableStateFlow<String?>(null)
     val connectingName: StateFlow<String?> = _connectingName.asStateFlow()
@@ -113,7 +113,14 @@ class StatsViewModel @Inject constructor(
 
     fun refreshDevices() {
         viewModelScope.launch {
-            _bonded.value = bluetoothRepository.bondedDevices()
+            obdDeviceRepository.refresh()
+        }
+    }
+
+    /** Stars/unstars an adapter; the enriched [devices] flow re-sorts automatically. */
+    fun toggleFavorite(device: ObdDevice) {
+        viewModelScope.launch {
+            obdDeviceRepository.toggleFavorite(device.address, device.name)
         }
     }
 
@@ -189,9 +196,9 @@ class StatsViewModel @Inject constructor(
     }
 
     @SuppressLint("MissingPermission")
-    fun connect(device: BluetoothDevice) {
+    fun connect(device: ObdDevice) {
         lastAddress = device.address
-        lastName = device.name ?: device.address
+        lastName = device.name
         if (!engine.isRunning) engine.reset()
         _connectingName.value = lastName
         ObdLoggingService.start(appContext, device.address)
@@ -223,19 +230,25 @@ class StatsViewModel @Inject constructor(
     fun disconnect() {
         _connectingName.value = null
         // Sticky latch — must be persisted BEFORE stopping so a racing ACL/STATE broadcast
-        // (the dongle is often still connected at this instant) can't re-arm logging. The
-        // async launch below was racy: the receiver could read the old (false) value.
-        runBlocking { settingsRepository.saveManualDisconnect(true) }
-        engine.disconnect()
-        ObdLoggingService.stop(appContext)
+        // (the dongle is often still connected at this instant) can't re-arm logging. Keep the
+        // ordering (await the write, then stop) but do it off the main thread: viewModelScope
+        // runs on Dispatchers.Main.immediate, and the suspend `saveManualDisconnect` suspends
+        // without blocking the UI thread.
+        viewModelScope.launch {
+            settingsRepository.saveManualDisconnect(true)
+            engine.disconnect()
+            ObdLoggingService.stop(appContext)
+        }
     }
 
     /** Full reset: stops logging and wipes engine state so the next connect starts clean. */
     fun reset() {
         _connectingName.value = null
-        runBlocking { settingsRepository.saveManualDisconnect(true) }
-        engine.reset()
-        ObdLoggingService.stop(appContext)
+        viewModelScope.launch {
+            settingsRepository.saveManualDisconnect(true)
+            engine.reset()
+            ObdLoggingService.stop(appContext)
+        }
     }
 
     /**

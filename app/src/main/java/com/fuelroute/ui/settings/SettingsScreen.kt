@@ -54,6 +54,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fuelroute.BuildConfig
+import com.fuelroute.Changelog
 import com.fuelroute.R
 import com.fuelroute.data.price.FuelGrades
 import com.fuelroute.data.settings.AppSettings
@@ -163,6 +164,13 @@ fun SettingsScreen(
                     selected = state.navigationApp == NAV_WAZE,
                     onClick = { viewModel.onNavigationAppChange(NAV_WAZE) },
                     label = { Text(stringResource(R.string.settings_nav_waze)) },
+                )
+            }
+            if (state.navigationApp == NAV_WAZE) {
+                Text(
+                    text = stringResource(R.string.nav_waze_destination_only),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
                 )
             }
         }
@@ -314,6 +322,7 @@ fun SettingsScreen(
             initiallyExpanded = false,
         ) {
             VersionFooter()
+            ChangelogCard()
             Text(
                 text = stringResource(R.string.settings_autosaved),
                 style = MaterialTheme.typography.labelSmall,
@@ -421,14 +430,39 @@ private fun VersionFooter() {
                 ),
                 style = MaterialTheme.typography.bodySmall,
             )
+        }
+    }
+}
+
+/**
+ * In-app "מה חדש" changelog. Renders [Changelog.entries] newest-first so the user can see what
+ * changed in the installed build without opening a store page.
+ */
+@Composable
+private fun ChangelogCard() {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             Text(
-                text = stringResource(
-                    R.string.settings_build_date_label,
-                    formatTimestamp(BuildConfig.BUILD_TIME.toLong()),
-                ),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                text = stringResource(R.string.settings_changelog_title),
+                style = MaterialTheme.typography.titleSmall,
             )
+            Changelog.entries.forEach { entry ->
+                Text(
+                    text = "${entry.versionName} — ${entry.title}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                entry.changes.forEach { change ->
+                    Text(
+                        text = "• $change",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
     }
 }
@@ -535,6 +569,13 @@ private fun AndroidAutoHelpCard() {
                 text = stringResource(R.string.settings_android_auto_diagnostic_hint),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            // The 2026 trusted-source gate: a sideloaded APK can be filtered by Android Auto even
+            // with "Unknown sources" on, so the checklist above is not always sufficient.
+            Text(
+                text = stringResource(R.string.settings_android_auto_trusted_store),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
             )
         }
     }

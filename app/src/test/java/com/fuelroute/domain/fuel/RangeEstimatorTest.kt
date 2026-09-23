@@ -27,6 +27,9 @@ class RangeEstimatorTest {
         assertNull(RangeEstimator.remainingRangeKm(50.0, 50.0, null))
         assertNull(RangeEstimator.remainingRangeKm(0.0, 50.0, 8.0))
         assertNull(RangeEstimator.remainingRangeKm(50.0, 50.0, 0.0))
+        assertNull(RangeEstimator.remainingRangeKm(Double.NaN, 50.0, 8.0))
+        assertNull(RangeEstimator.remainingRangeKm(50.0, Double.NaN, 8.0))
+        assertNull(RangeEstimator.remainingRangeKm(50.0, 50.0, Double.POSITIVE_INFINITY))
     }
 
     @Test
@@ -37,5 +40,7 @@ class RangeEstimatorTest {
         assertFalse(RangeEstimator.exceedsTankCapacity(null, 50.0))
         assertFalse(RangeEstimator.exceedsTankCapacity(60.0, null))
         assertFalse(RangeEstimator.exceedsTankCapacity(60.0, 0.0))
+        assertFalse(RangeEstimator.exceedsTankCapacity(Double.NaN, 50.0))
+        assertFalse(RangeEstimator.exceedsTankCapacity(60.0, Double.NaN))
     }
 }

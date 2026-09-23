@@ -51,4 +51,28 @@ class CalibrationFitterTest {
         assertEquals(0.0, CalibrationFitter.suggestedMape(emptyList(), 1.0), 1e-9)
         assertEquals(0.0, CalibrationFitter.suggestedMape(listOf(0.0 to 1.0), 1.0), 1e-9)
     }
+
+    @Test
+    fun `fit does not double count the active correction`() {
+        // True uncorrected model output and the actual fuel it should have predicted.
+        val uncorrected = listOf(10.0 to 12.0, 20.0 to 24.0, 5.0 to 6.0)
+        // Persisted predictions already include the active correction 0.8.
+        val persisted = uncorrected.map { (predicted, actual) -> (predicted * 0.8) to actual }
+
+        // Fitting the raw persisted rows folds 0.8 in twice and overshoots.
+        assertEquals(1.5, CalibrationFitter.fitCorrection(persisted)!!, 1e-9)
+
+        // Undoing the active correction recovers the true absolute factor 1.2.
+        val refit = CalibrationFitter.fitCorrection(CalibrationFitter.uncorrectedPairs(persisted, 0.8))
+        assertEquals(1.2, refit!!, 1e-9)
+    }
+
+    @Test
+    fun `uncorrected pairs are unchanged for the identity correction`() {
+        val pairs = listOf(10.0 to 12.0, 20.0 to 24.0)
+
+        assertEquals(pairs, CalibrationFitter.uncorrectedPairs(pairs, 1.0))
+        assertEquals(pairs, CalibrationFitter.uncorrectedPairs(pairs, Double.NaN))
+        assertEquals(pairs, CalibrationFitter.uncorrectedPairs(pairs, 0.0))
+    }
 }

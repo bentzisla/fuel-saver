@@ -1,6 +1,7 @@
 package com.fuelroute.data.db
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 @Entity(tableName = "vehicle")
@@ -26,7 +27,7 @@ data class LearningExtrasEntity(
     val updatedAtMs: Long,
 )
 
-@Entity(tableName = "obd_sample")
+@Entity(tableName = "obd_sample", indices = [Index(value = ["timestampMs"])])
 data class ObdSampleEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val vehicleId: String,
@@ -58,7 +59,14 @@ object TripSource {
     const val DEMO = "demo"
 }
 
-@Entity(tableName = "trip")
+@Entity(
+    tableName = "trip",
+    indices = [
+        Index(value = ["vehicleId"]),
+        Index(value = ["routeSearchId"]),
+        Index(value = ["isOpen"]),
+    ],
+)
 data class TripEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val vehicleId: String,
@@ -76,9 +84,15 @@ data class TripEntity(
     val pricePerLiterAtTrip: Double = 0.0,
     val linkedAtMs: Long? = null,
     val source: String = TripSource.REAL,
+    // Manual post-drive entry recorded without OBD. When any of these is present the user's
+    // numbers win over the OBD measurement in History (a computed view, not a stored overwrite).
+    val manualCost: Double? = null,
+    val manualDistanceKm: Double? = null,
+    val manualLitersPer100Km: Double? = null,
+    val manualEnteredAtMs: Long? = null,
 )
 
-@Entity(tableName = "refuel")
+@Entity(tableName = "refuel", indices = [Index(value = ["vehicleId"])])
 data class RefuelEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val vehicleId: String,
@@ -90,7 +104,10 @@ data class RefuelEntity(
     val grade: String = "95",
 )
 
-@Entity(tableName = "route_search")
+@Entity(
+    tableName = "route_search",
+    indices = [Index(value = ["timestampMs"]), Index(value = ["departureTimeMs"])],
+)
 data class RouteSearchEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val originLabel: String,
@@ -121,6 +138,14 @@ data class FavoriteDestinationEntity(
     val placeId: String? = null,
     val latitude: Double? = null,
     val longitude: Double? = null,
+    val sortOrder: Int = 0,
+    val createdAtMs: Long,
+)
+
+@Entity(tableName = "favorite_obd_device")
+data class FavoriteObdDeviceEntity(
+    @PrimaryKey val address: String,
+    val name: String,
     val sortOrder: Int = 0,
     val createdAtMs: Long,
 )

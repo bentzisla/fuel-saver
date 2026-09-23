@@ -31,6 +31,36 @@ interface VehicleDao {
     @Query("DELETE FROM vehicle WHERE id = :id")
     suspend fun deleteById(id: String)
 
+    @Query("DELETE FROM obd_sample WHERE vehicleId = :vehicleId")
+    suspend fun deleteSamplesForVehicle(vehicleId: String)
+
+    @Query("DELETE FROM speed_bin_stats WHERE vehicleId = :vehicleId")
+    suspend fun deleteSpeedBinsForVehicle(vehicleId: String)
+
+    @Query("DELETE FROM trip WHERE vehicleId = :vehicleId")
+    suspend fun deleteTripsForVehicle(vehicleId: String)
+
+    @Query("DELETE FROM refuel WHERE vehicleId = :vehicleId")
+    suspend fun deleteRefuelsForVehicle(vehicleId: String)
+
+    @Query("DELETE FROM learning_extras WHERE vehicleId = :vehicleId")
+    suspend fun deleteLearningExtrasForVehicle(vehicleId: String)
+
+    /**
+     * Deletes a vehicle and every row that belongs to it, mirroring an `ON DELETE CASCADE` foreign
+     * key. The schema deliberately has no `@ForeignKey` (adding one would rewrite the tables), so
+     * the cascade is done explicitly here, in child-before-parent order, inside one transaction.
+     */
+    @Transaction
+    suspend fun deleteWithChildren(vehicleId: String) {
+        deleteSamplesForVehicle(vehicleId)
+        deleteSpeedBinsForVehicle(vehicleId)
+        deleteTripsForVehicle(vehicleId)
+        deleteRefuelsForVehicle(vehicleId)
+        deleteLearningExtrasForVehicle(vehicleId)
+        deleteById(vehicleId)
+    }
+
     @Query("SELECT COUNT(*) FROM vehicle")
     suspend fun count(): Int
 }
@@ -58,6 +88,10 @@ interface ObdSampleDao {
     @Insert
     suspend fun insert(sample: ObdSampleEntity)
 
+    /** Batch persist: the run loop buffers samples and flushes them on an interval. */
+    @Insert
+    suspend fun insertAll(samples: List<ObdSampleEntity>)
+
     @Query("SELECT COUNT(*) FROM obd_sample")
     suspend fun count(): Int
 
@@ -70,12 +104,6 @@ interface ObdSampleDao {
      */
     @Query("SELECT * FROM obd_sample WHERE vehicleId = :vehicleId AND id > :afterId ORDER BY id LIMIT :limit")
     suspend fun pageForVehicle(vehicleId: String, afterId: Long, limit: Int): List<ObdSampleEntity>
-
-    @Query(
-        "SELECT COUNT(*) FROM obd_sample WHERE vehicleId = :vehicleId " +
-            "AND timestampMs >= :fromMs AND timestampMs <= :toMs"
-    )
-    suspend fun countBetween(vehicleId: String, fromMs: Long, toMs: Long): Int
 }
 
 /**
@@ -184,8 +212,18 @@ interface TripDao {
     @Query("SELECT * FROM trip WHERE isOpen = 1 ORDER BY startedAtMs DESC")
     suspend fun recentOpenTrips(): List<TripEntity>
 
-    /** Closes every trip left open by a crash/kill so a new engine start is clean. */
-    @Query("UPDATE trip SET isOpen = 0, endedAtMs = :endedAtMs WHERE isOpen = 1")
+    /**
+     * Closes every trip left open by a crash/kill so a new engine start is clean. A checkpointed
+     * `endedAtMs` (one that no longer equals `startedAtMs`) is preserved; only a trip that never
+     * advanced past its start is stamped with [endedAtMs]. Mirrors
+     * [com.fuelroute.domain.history.TripCloseTime.preservedEndMs], so a stale recovery days later
+     * cannot inflate a trip's duration.
+     */
+    @Query(
+        "UPDATE trip SET isOpen = 0, " +
+            "endedAtMs = CASE WHEN endedAtMs = startedAtMs THEN :endedAtMs ELSE endedAtMs END " +
+            "WHERE isOpen = 1"
+    )
     suspend fun closeOpenTrips(endedAtMs: Long): Int
 
     /** Sum of trip fuel recorded inside the [fromMs, toMs] window (inclusive). */
@@ -230,6 +268,37 @@ interface TripDao {
     /** Deletes one trip; a search it was linked to simply reverts to an undriven search. */
     @Query("DELETE FROM trip WHERE id = :id")
     suspend fun deleteById(id: Long)
+
+    @Query("SELECT * FROM trip WHERE id = :id")
+    suspend fun findById(id: Long): TripEntity?
+
+    /** Bulk delete used by the History multi-select action. */
+    @Query("DELETE FROM trip WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<Long>)
+
+    /** Persists a manual post-drive entry (nullable fields clear a previous entry). */
+    @Query(
+        "UPDATE trip SET manualCost = :cost, manualDistanceKm = :distanceKm, " +
+            "manualLitersPer100Km = :litersPer100Km, manualEnteredAtMs = :enteredAtMs " +
+            "WHERE id = :tripId"
+    )
+    suspend fun updateManualCost(
+        tripId: Long,
+        cost: Double?,
+        distanceKm: Double?,
+        litersPer100Km: Double?,
+        enteredAtMs: Long,
+    )
+
+    /**
+     * Deletes [deleteIds] then inserts [trips] atomically. Used by merge/split so a crash can
+     * never leave the originals deleted but the replacement missing (or vice versa).
+     */
+    @Transaction
+    suspend fun replaceTrips(deleteIds: List<Long>, trips: List<TripEntity>): List<Long> {
+        if (deleteIds.isNotEmpty()) deleteByIds(deleteIds)
+        return trips.map { insert(it) }
+    }
 
     @Query("SELECT * FROM trip WHERE isOpen = 0 ORDER BY startedAtMs DESC LIMIT :limit")
     suspend fun recentClosed(limit: Int): List<TripEntity>
@@ -333,4 +402,17 @@ interface FavoriteDestinationDao {
 
     @Query("UPDATE favorite_destination SET sortOrder = :sortOrder WHERE id = :id")
     suspend fun updateSortOrder(id: Long, sortOrder: Int)
+}
+
+@Dao
+interface FavoriteObdDeviceDao {
+
+    @Query("SELECT * FROM favorite_obd_device ORDER BY sortOrder, createdAtMs")
+    fun observeAll(): Flow<List<FavoriteObdDeviceEntity>>
+
+    @Upsert
+    suspend fun upsert(entity: FavoriteObdDeviceEntity)
+
+    @Query("DELETE FROM favorite_obd_device WHERE address = :address")
+    suspend fun deleteByAddress(address: String)
 }

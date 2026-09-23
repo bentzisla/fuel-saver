@@ -2,6 +2,7 @@ package com.fuelroute.ui.debug
 
 import androidx.annotation.StringRes
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -72,6 +73,11 @@ fun CalibrationScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
+        if (state.error) {
+            CalibrationLoadErrorCard(onRetry = viewModel::load)
+            return@Column
+        }
+
         if (!state.isLoaded) return@Column
 
         GuidedFlowCard(state = state, viewModel = viewModel)
@@ -91,6 +97,26 @@ fun CalibrationScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
             )
+        }
+    }
+}
+
+/** Shown when the initial calibration load fails, so the screen never blanks on a throw. */
+@Composable
+private fun CalibrationLoadErrorCard(onRetry: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.calibration_error_load),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+            )
+            Button(onClick = onRetry, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.calibration_retry))
+            }
         }
     }
 }
@@ -480,11 +506,15 @@ private fun accuracyLabel(accuracy: CalibrationAccuracy): String = stringResourc
     },
 )
 
-private fun accuracyColor(accuracy: CalibrationAccuracy): Color = when (accuracy) {
-    CalibrationAccuracy.NONE -> Color(0xFF9E9E9E)
-    CalibrationAccuracy.LOW -> Color(0xFFD9534F)
-    CalibrationAccuracy.MEDIUM -> Color(0xFFE0A800)
-    CalibrationAccuracy.HIGH -> Color(0xFF1B6B4A)
+@Composable
+private fun accuracyColor(accuracy: CalibrationAccuracy): Color {
+    val dark = isSystemInDarkTheme()
+    return when (accuracy) {
+        CalibrationAccuracy.NONE -> Color(0xFF9E9E9E)
+        CalibrationAccuracy.LOW -> if (dark) Color(0xFFEF5350) else Color(0xFFD9534F)
+        CalibrationAccuracy.MEDIUM -> if (dark) Color(0xFFFFCA28) else Color(0xFFE0A800)
+        CalibrationAccuracy.HIGH -> if (dark) Color(0xFF66BB6A) else Color(0xFF1B6B4A)
+    }
 }
 
 private data class OverrideRowSpec(
