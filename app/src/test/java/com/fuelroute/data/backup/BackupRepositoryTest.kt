@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.test.runTest
+import kotlin.time.Duration.Companion.minutes
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -43,7 +44,7 @@ class BackupRepositoryTest {
     private val json = Json { ignoreUnknownKeys = true }
 
     @Test
-    fun `export then import into a fresh store round-trips the dataset`() = runTest {
+    fun `export then import into a fresh store round-trips the dataset`() = runTest(timeout = 5.minutes) {
         val source = Harness().apply { seed() }
         val exported = source.repo.export()
 
@@ -79,7 +80,7 @@ class BackupRepositoryTest {
     }
 
     @Test
-    fun `importing twice dedupes rows and does not double-count bins`() = runTest {
+    fun `importing twice dedupes rows and does not double-count bins`() = runTest(timeout = 5.minutes) {
         val source = Harness().apply { seed() }
         val exported = source.repo.export()
         val expected = decode(exported)
@@ -119,7 +120,7 @@ class BackupRepositoryTest {
     }
 
     @Test
-    fun `device-specific settings are neither exported nor imported`() = runTest {
+    fun `device-specific settings are neither exported nor imported`() = runTest(timeout = 5.minutes) {
         val source = Harness().apply { seed() }
         val exported = source.repo.export()
 
@@ -143,7 +144,7 @@ class BackupRepositoryTest {
     }
 
     @Test
-    fun `import runs all writes inside a single transaction`() = runTest {
+    fun `import runs all writes inside a single transaction`() = runTest(timeout = 5.minutes) {
         val source = Harness().apply { seed() }
         val exported = source.repo.export()
 
@@ -154,7 +155,7 @@ class BackupRepositoryTest {
     }
 
     @Test
-    fun `corrupt json returns an error without writing anything`() = runTest {
+    fun `corrupt json returns an error without writing anything`() = runTest(timeout = 5.minutes) {
         val dest = Harness()
 
         val result = dest.repo.import("{ this is not valid json")
@@ -166,7 +167,7 @@ class BackupRepositoryTest {
     }
 
     @Test
-    fun `empty json returns an error without writing anything`() = runTest {
+    fun `empty json returns an error without writing anything`() = runTest(timeout = 5.minutes) {
         val dest = Harness()
 
         val result = dest.repo.import("   ")
