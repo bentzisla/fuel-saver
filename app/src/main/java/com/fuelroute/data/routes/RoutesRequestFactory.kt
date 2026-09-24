@@ -32,6 +32,10 @@ object RoutesRequestFactory {
             origin = origin.toDto(),
             destination = destination.toDto(),
             departureTime = departureTime,
+            computeAlternativeRoutes = options.via.isEmpty(),
+            intermediates = options.via.map { (lat, lng) ->
+                WaypointDto(location = LocationDto(LatLngDto(lat, lng)))
+            },
             routeModifiers = routeModifiers,
             // FUEL_EFFICIENT is unsupported in the origin country (IL) and returns HTTP 400.
             // Kept behind an explicit, default-OFF flag; production never enables it.

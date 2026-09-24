@@ -158,4 +158,25 @@ class NavigationUrisTest {
         assertFalse(url.contains("enc"))
         assertFalse(url.contains("q="))
     }
+
+    @Test
+    fun `direct google navigation uri has coordinates and driving mode and no stops`() {
+        val dest = NavDestination(label = "Home", latitude = 32.0853, longitude = 34.7818)
+        assertEquals("google.navigation:q=32.0853,34.7818&mode=d", NavigationUris.googleNavigation(dest))
+    }
+
+    @Test
+    fun `direct google navigation falls back to the label`() {
+        val dest = NavDestination(label = "Herzliya")
+        assertEquals("google.navigation:q=Herzliya&mode=d", NavigationUris.googleNavigation(dest))
+    }
+
+    @Test
+    fun `omitting the origin lets maps start navigating from the current location`() {
+        val dest = NavDestination(label = "x", latitude = 32.0, longitude = 34.0)
+        val url = NavigationUris.googleMaps(dest, origin = null, waypoints = listOf(32.01 to 34.01))
+        assertEquals(null, queryValue(url, "origin"))
+        assertEquals("navigate", queryValue(url, "dir_action"))
+        assertEquals("32.01,34.01", queryValue(url, "waypoints"))
+    }
 }

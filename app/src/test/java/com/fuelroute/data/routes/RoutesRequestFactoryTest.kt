@@ -71,4 +71,19 @@ class RoutesRequestFactoryTest {
         assertTrue(encoded.contains("\"placeId\":\"origin\""))
         assertTrue(encoded.contains("\"placeId\":\"destination\""))
     }
+
+    @Test
+    fun `via points become intermediates and disable alternatives`() {
+        val encoded = encode(RouteRequestOptions(via = listOf(32.01 to 34.85, 32.02 to 34.87)))
+        assertTrue(encoded.contains("\"intermediates\""))
+        assertTrue(encoded.contains("\"latitude\":32.01"))
+        assertTrue(encoded.contains("\"computeAlternativeRoutes\":false"))
+    }
+
+    @Test
+    fun `without via points alternatives stay on and no intermediates are sent`() {
+        val encoded = encode(RouteRequestOptions())
+        assertFalse(encoded.contains("intermediates"))
+        assertTrue(encoded.contains("\"computeAlternativeRoutes\":true"))
+    }
 }

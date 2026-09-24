@@ -15,6 +15,15 @@ object Changelog {
 
     val entries: List<Entry> = listOf(
         Entry(
+            versionName = "0.7.2",
+            title = "ניווט חלק יותר במסלול שבחרת",
+            changes = listOf(
+                "המסלול המומלץ נפתח ב-Google Maps ישר לניווט, בלי תצוגה מקדימה ובלי עצירות",
+                "מסלול חלופי: רק נקודת ביניים אחת או שתיים במקום ארבע, לפי אימות מול Google, במקום עצירות מרובות",
+                "Waze מקבל יעד בלבד ולא מסלול: האפליקציה שואלת אם לנווט ב-Google Maps במסלול המדויק",
+            ),
+        ),
+        Entry(
             versionName = "0.7.1",
             title = "הכנה ל-Google Play",
             changes = listOf(

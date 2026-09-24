@@ -88,6 +88,7 @@ class RouteViewModelSearchTest {
             routeSearchRepository = routeSearchRepository,
             tripLinker = mockk<TripLinker>(relaxed = true),
             coldStartRepository = coldStart,
+            navigationPlanner = mockk(relaxed = true),
         )
     }
 

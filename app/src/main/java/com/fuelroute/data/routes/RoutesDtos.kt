@@ -33,6 +33,9 @@ data class ComputeRoutesRequest(
     // via RouteRequestOptions.requestFuelEfficient (default OFF). No region gate is applied,
     // so production never turns this on.
     val requestedReferenceRoutes: List<String> = emptyList(),
+    // Stops the route must pass through (navigation planning). Empty = omitted. The API does not
+    // return alternatives when intermediates are present, so the factory turns those off.
+    val intermediates: List<WaypointDto> = emptyList(),
     val departureTime: String? = null, // NB: no @EncodeDefault — null must be omitted (past times → 400)
     // Null = omitted. The API applies the vehicle modifiers (emissionType) to the returned
     // routes and toll estimates; tollPasses/avoidTolls stay at their API defaults unless set.

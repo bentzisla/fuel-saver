@@ -533,4 +533,11 @@
     <!-- obd-data: notification while crawling/idle shows L/h instead of L/100 km -->
     <string name="notification_live_lph">מהירות %1$d קמ״ש • צריכה %2$s ל׳/שעה</string>
     <string name="settings_privacy_policy">מדיניות פרטיות</string>
+    <string name="route_nav_preparing">מכין את המסלול הנבחר לניווט…</string>
+    <string name="route_nav_approx">לא הצלחנו להתאים את המסלול במדויק ל-Google Maps; ייתכן שינווט במסלול מעט שונה.</string>
+    <string name="route_nav_via_points">Google Maps יציג %1$d נקודות ביניים כדי לשמור על המסלול שבחרת — אין צורך לעצור בהן.</string>
+    <string name="route_waze_prompt_title">Waze לא יכול לקבל מסלול</string>
+    <string name="route_waze_prompt_body">Waze מקבל רק יעד ובוחר מסלול בעצמו, שעשוי להיות שונה מהמסלול הזול שבחרת. לנווט ב-Google Maps במסלול המדויק?</string>
+    <string name="route_waze_prompt_google">Google Maps (מסלול מדויק)</string>
+    <string name="route_waze_prompt_waze">Waze בכל זאת</string>
 </resources>

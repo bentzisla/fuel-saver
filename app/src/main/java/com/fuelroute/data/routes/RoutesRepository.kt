@@ -23,6 +23,8 @@ data class RouteRequestOptions(
     val departureTimeMs: Long? = null,
     val emissionType: String? = null,
     val requestFuelEfficient: Boolean = false,
+    /** Coordinates the route must pass through, as (lat, lng). Used to verify a navigation plan. */
+    val via: List<Pair<Double, Double>> = emptyList(),
 )
 
 interface RoutesRepository {

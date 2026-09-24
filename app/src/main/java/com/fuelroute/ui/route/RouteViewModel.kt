@@ -20,7 +20,9 @@ import com.fuelroute.data.price.FuelPriceRepository
 import com.fuelroute.data.routes.RouteRequestOptions
 import com.fuelroute.data.routes.RouteSearch
 import com.fuelroute.data.routes.RouteSearchRepository
+import com.fuelroute.data.routes.NavigationPlanner
 import com.fuelroute.data.routes.RouteWaypoint
+import com.fuelroute.domain.nav.NavPlan
 import com.fuelroute.data.routes.RoutesError
 import com.fuelroute.data.routes.RoutesRepository
 import com.fuelroute.data.routes.toEmissionType
@@ -51,6 +53,9 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 private const val AUTOCOMPLETE_DEBOUNCE_MS = 300L
+
+/** `RoutesMapper` ids routes by response order; the first is what Maps navigates by default. */
+const val DEFAULT_ROUTE_ID = "route-0"
 
 data class RouteUiState(
     val origin: String = "",
@@ -93,6 +98,7 @@ class RouteViewModel @Inject constructor(
     private val routeSearchRepository: RouteSearchRepository,
     private val tripLinker: TripLinker,
     private val coldStartRepository: ColdStartRepository,
+    private val navigationPlanner: NavigationPlanner,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(RouteUiState())
@@ -502,18 +508,8 @@ class RouteViewModel @Inject constructor(
                     overrides = overrides,
                 )
 
-                val originWaypoint = when {
-                    state.originIsCurrentLocation && state.originLocation != null ->
-                        RouteWaypoint(latitude = state.originLocation.latitude, longitude = state.originLocation.longitude)
-                    state.originPlaceId != null -> RouteWaypoint(placeId = state.originPlaceId)
-                    else -> RouteWaypoint(address = origin)
-                }
-                val destinationWaypoint = when {
-                    state.destinationPlaceId != null -> RouteWaypoint(placeId = state.destinationPlaceId)
-                    state.destinationLocation != null ->
-                        RouteWaypoint(latitude = state.destinationLocation.latitude, longitude = state.destinationLocation.longitude)
-                    else -> RouteWaypoint(address = destination)
-                }
+                val originWaypoint = originWaypoint(state)
+                val destinationWaypoint = destinationWaypoint(state)
 
                 val options = RouteRequestOptions(
                     departureTimeMs = state.departureTimeMs,
@@ -591,6 +587,47 @@ class RouteViewModel @Inject constructor(
                 Log.w("FuelRoute", "route search failed: ${mapped.javaClass.simpleName}", e)
                 _uiState.update { it.copy(isLoading = false, error = mapped) }
             }
+        }
+    }
+
+    private fun originWaypoint(state: RouteUiState): RouteWaypoint = when {
+        state.originIsCurrentLocation && state.originLocation != null ->
+            RouteWaypoint(latitude = state.originLocation.latitude, longitude = state.originLocation.longitude)
+        state.originPlaceId != null -> RouteWaypoint(placeId = state.originPlaceId)
+        else -> RouteWaypoint(address = state.origin.trim())
+    }
+
+    private fun destinationWaypoint(state: RouteUiState): RouteWaypoint = when {
+        state.destinationPlaceId != null -> RouteWaypoint(placeId = state.destinationPlaceId)
+        state.destinationLocation != null ->
+            RouteWaypoint(latitude = state.destinationLocation.latitude, longitude = state.destinationLocation.longitude)
+        else -> RouteWaypoint(address = state.destination.trim())
+    }
+
+    /**
+     * How to hand [cost] to a navigation app with the fewest stops (none for the API's default
+     * route). Only alternatives need network calls; failures degrade to an inexact plan.
+     */
+    suspend fun planNavigation(cost: RouteCost): NavPlan {
+        val state = _uiState.value
+        val default = state.results.firstOrNull { it.route.id == DEFAULT_ROUTE_ID }?.route
+        return try {
+            val vehicle = vehicleRepository.active()
+            navigationPlanner.plan(
+                origin = originWaypoint(state),
+                destination = destinationWaypoint(state),
+                options = RouteRequestOptions(
+                    departureTimeMs = state.departureTimeMs,
+                    emissionType = vehicle.fuelType.toEmissionType(),
+                ),
+                chosen = cost.route,
+                default = default,
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w("FuelRoute", "navigation planning failed: ${e.javaClass.simpleName}")
+            NavPlan(emptyList(), exact = false)
         }
     }
 

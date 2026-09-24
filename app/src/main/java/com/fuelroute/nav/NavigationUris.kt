@@ -46,6 +46,14 @@ object NavigationUris {
         return MAPS_BASE + "?" + encodeParams(params)
     }
 
+    /**
+     * `google.navigation:` intent URI: starts turn-by-turn straight away on the route Maps picks
+     * itself, from the current location, with no preview screen and no stops. Only usable when
+     * the chosen route is Maps' default and the trip starts from the current location.
+     */
+    fun googleNavigation(destination: NavDestination): String =
+        "google.navigation:q=" + enc(mapsEndpoint(destination)) + "&mode=d"
+
     fun waze(destination: NavDestination): String {
         val params = mutableListOf<Pair<String, String>>()
         if (destination.latitude != null && destination.longitude != null) {

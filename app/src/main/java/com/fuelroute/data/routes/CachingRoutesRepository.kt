@@ -22,6 +22,7 @@ class CachingRoutesRepository @Inject constructor(
         val destination: String,
         val departureBucket: Long,
         val emissionType: String?,
+        val via: List<Pair<Double, Double>>,
     )
 
     private data class Entry(val routes: List<Route>, val storedAtMs: Long)
@@ -41,6 +42,7 @@ class CachingRoutesRepository @Inject constructor(
             destination = destination.cacheKey(),
             departureBucket = (options.departureTimeMs ?: now) / BUCKET_MS,
             emissionType = options.emissionType,
+            via = options.via,
         )
 
         if (!forceRefresh) {

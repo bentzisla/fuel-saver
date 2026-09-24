@@ -52,6 +52,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -85,9 +86,11 @@ import com.fuelroute.data.places.FavoritesRepository
 import com.fuelroute.data.places.PlaceSuggestion
 import com.fuelroute.data.places.RecentPlace
 import com.fuelroute.data.routes.RoutesError
+import com.fuelroute.data.settings.NAV_GOOGLE
 import com.fuelroute.data.settings.NAV_WAZE
 import com.fuelroute.domain.model.Route
 import com.fuelroute.domain.model.RouteCost
+import com.fuelroute.domain.nav.NavPlan
 import com.fuelroute.nav.NavDestination
 import com.fuelroute.nav.NavigationLauncher
 import com.fuelroute.ui.components.Dimens
@@ -184,11 +187,52 @@ fun RouteScreen(
         }
     }
 
-    val navigate: (Int) -> Unit = { index ->
-        state.results.getOrNull(index)?.let { cost ->
-            if (index != state.selectedIndex) viewModel.selectResult(index)
-            launchNavigation(context, state, cost)
+    val navScope = rememberCoroutineScope()
+    var navPreparing by remember { mutableStateOf(false) }
+    var wazePrompt by remember { mutableStateOf<PendingWazeHandOff?>(null) }
+
+    val navigate: (Int) -> Unit = navigate@{ index ->
+        if (navPreparing) return@navigate
+        val cost = state.results.getOrNull(index) ?: return@navigate
+        if (index != state.selectedIndex) viewModel.selectResult(index)
+        // The API's default route needs no planning; an alternative asks the Routes API which few
+        // waypoints make Maps follow it, which takes a moment.
+        val needsPlanning = cost.route.id != DEFAULT_ROUTE_ID
+        if (needsPlanning) {
+            navPreparing = true
+            Toast.makeText(context, R.string.route_nav_preparing, Toast.LENGTH_SHORT).show()
         }
+        navScope.launch {
+            val plan = if (needsPlanning) viewModel.planNavigation(cost) else NavPlan(emptyList(), exact = true)
+            navPreparing = false
+            if (state.navigationApp == NAV_WAZE && plan.waypoints.isNotEmpty()) {
+                // Waze cannot follow a chosen route: let the driver decide instead of silently
+                // navigating a different route than the one that was recommended.
+                wazePrompt = PendingWazeHandOff(state, plan)
+            } else {
+                launchNavigation(context, state, plan)
+            }
+        }
+    }
+
+    wazePrompt?.let { pending ->
+        AlertDialog(
+            onDismissRequest = { wazePrompt = null },
+            title = { Text(stringResource(R.string.route_waze_prompt_title)) },
+            text = { Text(stringResource(R.string.route_waze_prompt_body)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    wazePrompt = null
+                    launchNavigation(context, pending.state.copy(navigationApp = NAV_GOOGLE), pending.plan)
+                }) { Text(stringResource(R.string.route_waze_prompt_google)) }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    wazePrompt = null
+                    launchNavigation(context, pending.state, NavPlan(emptyList(), exact = true))
+                }) { Text(stringResource(R.string.route_waze_prompt_waze)) }
+            },
+        )
     }
 
     Column(
@@ -332,8 +376,14 @@ private fun Context.hasFineLocation(): Boolean =
     ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
         PackageManager.PERMISSION_GRANTED
 
-/** Hands the chosen route to Google Maps (with waypoints) or Waze (destination only). */
-private fun launchNavigation(context: Context, state: RouteUiState, cost: RouteCost) {
+/** State captured when the driver has to choose between Waze and an exact Google Maps route. */
+private data class PendingWazeHandOff(val state: RouteUiState, val plan: NavPlan)
+
+/**
+ * Hands the chosen route to Google Maps (the planned waypoints, usually none or one) or Waze
+ * (destination only, Waze picks its own route).
+ */
+private fun launchNavigation(context: Context, state: RouteUiState, plan: NavPlan) {
     val originLocation = state.originLocation
     val origin = if (state.originIsCurrentLocation && originLocation != null) {
         NavDestination(
@@ -355,10 +405,25 @@ private fun launchNavigation(context: Context, state: RouteUiState, cost: RouteC
         latitude = state.destinationLocation?.latitude,
         longitude = state.destinationLocation?.longitude,
     )
+    val fromHere = state.originIsCurrentLocation && originLocation != null
     if (state.navigationApp == NAV_WAZE) {
-        NavigationLauncher.openWaze(context, destination, origin)
+        NavigationLauncher.openWaze(context, destination, origin, fromHere)
     } else {
-        NavigationLauncher.openGoogleMaps(context, destination, origin, cost.route.encodedPolyline)
+        NavigationLauncher.openGoogleMaps(
+            context = context,
+            destination = destination,
+            origin = origin,
+            startsFromCurrentLocation = fromHere,
+            waypoints = plan.waypoints.map { it.lat to it.lng },
+        )
+        when {
+            !plan.exact -> Toast.makeText(context, R.string.route_nav_approx, Toast.LENGTH_LONG).show()
+            plan.waypoints.isNotEmpty() -> Toast.makeText(
+                context,
+                context.getString(R.string.route_nav_via_points, plan.waypoints.size),
+                Toast.LENGTH_LONG,
+            ).show()
+        }
     }
 }
 
