@@ -36,7 +36,7 @@ class GoogleElevationRepository @Inject constructor(
             val response = service.elevation(
                 path = "enc:$encodedPolyline",
                 samples = samples,
-                apiKey = BuildConfig.MAPS_API_KEY,
+                apiKey = BuildConfig.ELEVATION_API_KEY,
             )
             if (response.status != "OK") {
                 logFailureOnce("elevation API status=${response.status} ${response.errorMessage.orEmpty()}")
