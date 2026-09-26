@@ -40,12 +40,21 @@ object ManualCurveValidator {
     /** A curve needs at least this many points to be usable. */
     const val MIN_POINTS = 2
 
+    /**
+     * Floor for a manually entered point's L/100km. A manual curve becomes the fallback that
+     * every other guard (learned-curve plausibility, [CurveBlender]) is compared *against*, so a
+     * typo (e.g. "0.65" meant as "6.5") here is otherwise invisible to the rest of the pipeline
+     * and prices every route at a fraction of its real cost. No passenger car sustains under
+     * ~1 L/100km at any speed.
+     */
+    const val MIN_PLAUSIBLE_L100 = 1.0
+
     /** Cleans [points]; see the object docs for the exact rules. */
     fun normalize(points: List<SpeedPoint>): List<SpeedPoint> {
         val cleaned = points
             .filter { point ->
                 point.speedKmh.isFinite() && point.speedKmh > 0.0 &&
-                    point.litersPer100Km.isFinite() && point.litersPer100Km > 0.0
+                    point.litersPer100Km.isFinite() && point.litersPer100Km >= MIN_PLAUSIBLE_L100
             }
             .map { point ->
                 point.copy(speedKmh = point.speedKmh.coerceIn(MIN_SPEED_KMH, MAX_SPEED_KMH))

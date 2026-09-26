@@ -18,17 +18,49 @@ import kotlin.math.abs
  */
 object CalibrationFitter {
 
-    /** Least-squares correction `Σ(p·a) / Σ(p²)`; null when there is nothing to fit. */
+    /**
+     * Plausibility band for a fitted global correction (bug report investigation: an unclamped
+     * fit over a bad/short drive history could push the correction arbitrarily low and silently
+     * halve every predicted route cost). A single tank-to-tank drive can genuinely be off by
+     * this much, but the model should never trust a fit further than this without more data.
+     */
+    const val MIN_CORRECTION = 0.75
+    const val MAX_CORRECTION = 1.5
+
+    /**
+     * Per-pair outlier band on `actual / predicted` (bug report investigation: a mis-linked
+     * drive - e.g. a demo/simulated ride, or a short real trip linked to a long searched route -
+     * can carry an `actual` far smaller than any real calibration error would produce; one such
+     * pair among otherwise-good data must not drag the whole fit down with it).
+     */
+    const val MIN_PLAUSIBLE_RATIO = 0.4
+    const val MAX_PLAUSIBLE_RATIO = 2.5
+
+    /** Below this many *plausible* pairs, a fit is too noisy to trust at all. */
+    const val MIN_PAIRS = 3
+
+    /**
+     * Least-squares correction `Σ(p·a) / Σ(p²)` over the pairs whose `actual/predicted` ratio
+     * falls inside [MIN_PLAUSIBLE_RATIO]..[MAX_PLAUSIBLE_RATIO], clamped to
+     * [MIN_CORRECTION]..[MAX_CORRECTION]; null when fewer than [MIN_PAIRS] pairs remain.
+     */
     fun fitCorrection(pairs: List<Pair<Double, Double>>): Double? {
+        val usable = pairs.filter { (predicted, actual) ->
+            predicted.isFinite() && predicted > 0.0 && actual.isFinite() && actual > 0.0 &&
+                (actual / predicted) in MIN_PLAUSIBLE_RATIO..MAX_PLAUSIBLE_RATIO
+        }
+        if (usable.size < MIN_PAIRS) return null
+
         var numerator = 0.0
         var denominator = 0.0
-        for ((predicted, actual) in pairs) {
-            if (predicted <= 0.0) continue
+        for ((predicted, actual) in usable) {
             numerator += predicted * actual
             denominator += predicted * predicted
         }
         if (denominator <= 0.0) return null
-        return numerator / denominator
+        val raw = numerator / denominator
+        if (!raw.isFinite()) return null
+        return raw.coerceIn(MIN_CORRECTION, MAX_CORRECTION)
     }
 
     /**

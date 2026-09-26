@@ -32,6 +32,20 @@ object ModelConstants {
     const val DEFAULT_FUEL_PRICE = 7.0
     const val DEFAULT_VALUE_PER_MINUTE = 0.5
 
+    /**
+     * Plausibility band for a stored/manually entered fuel price per liter (regression: a
+     * corrupted or mistyped price - e.g. off by a factor of 10, or a stray near-zero value -
+     * would otherwise silently make every route look absurdly cheap regardless of the fuel
+     * model). A price outside this band is treated as unusable and [DEFAULT_FUEL_PRICE] is used
+     * instead, rather than trusting it.
+     */
+    const val MIN_FUEL_PRICE = 3.0
+    const val MAX_FUEL_PRICE = 20.0
+
+    /** [price] if it is finite and within [MIN_FUEL_PRICE]..[MAX_FUEL_PRICE], else [DEFAULT_FUEL_PRICE]. */
+    fun plausibleFuelPrice(price: Double): Double =
+        price.takeIf { it.isFinite() && it in MIN_FUEL_PRICE..MAX_FUEL_PRICE } ?: DEFAULT_FUEL_PRICE
+
     // Provenance: card 15 — 1 Hz car-screen display. EMA weight for a new sample;
     // lower = smoother/less flicker, higher = more responsive. ~0.35 settles in a
     // few seconds at 1 Hz without hiding real acceleration changes.
@@ -65,7 +79,18 @@ data class FuelModelOverrides(
     val effectiveColdStartDefaultL: Double
         get() = coldStartDefaultL ?: ModelConstants.COLD_START_DEFAULT_L
     val effectiveIdleLphDefault: Double get() = idleLphDefault ?: ModelConstants.IDLE_LPH_DEFAULT
-    val effectiveFuelCorrection: Double get() = fuelCorrection ?: 1.0
+
+    /**
+     * Clamped to [CalibrationFitter.MIN_CORRECTION]..[CalibrationFitter.MAX_CORRECTION] as a
+     * defense-in-depth guard: a fitted factor is already clamped by [CalibrationFitter], but a
+     * manually typed override (debug calibration screen) is not, and an unclamped value far
+     * below 1.0 can silently halve every predicted route cost.
+     */
+    val effectiveFuelCorrection: Double
+        get() = (fuelCorrection ?: 1.0)
+            .takeIf { it.isFinite() }
+            ?.coerceIn(CalibrationFitter.MIN_CORRECTION, CalibrationFitter.MAX_CORRECTION)
+            ?: 1.0
 
     companion object {
         val DEFAULT = FuelModelOverrides()

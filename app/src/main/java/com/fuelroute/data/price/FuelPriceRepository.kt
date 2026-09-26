@@ -62,12 +62,12 @@ class DefaultFuelPriceRepository @Inject constructor(
     }
 
     override suspend fun saveManualPrice(grade: String, pricePerLiter: Double) {
-        dataStore.edit { it[Keys.price(grade)] = pricePerLiter }
+        dataStore.edit { it[Keys.price(grade)] = ModelConstants.plausibleFuelPrice(pricePerLiter) }
     }
 
     override suspend fun onFullRefuel(grade: String, pricePerLiter: Double): FuelPrice {
         val before = current(grade)
-        val after = PricePinning.applyFullRefuel(before, pricePerLiter)
+        val after = PricePinning.applyFullRefuel(before, ModelConstants.plausibleFuelPrice(pricePerLiter))
         if (after.pricePerLiter != before.pricePerLiter) {
             dataStore.edit { it[Keys.price(grade)] = after.pricePerLiter }
         }
@@ -75,7 +75,9 @@ class DefaultFuelPriceRepository @Inject constructor(
     }
 
     private fun Preferences.toFuelPrice(grade: String) = FuelPrice(
-        pricePerLiter = this[Keys.price(grade)] ?: ModelConstants.DEFAULT_FUEL_PRICE,
+        pricePerLiter = ModelConstants.plausibleFuelPrice(
+            this[Keys.price(grade)] ?: ModelConstants.DEFAULT_FUEL_PRICE,
+        ),
         grade = grade,
         manuallyPinned = this[Keys.pinned(grade)] ?: false,
     )
