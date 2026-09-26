@@ -190,6 +190,33 @@ class ObdEngineLifecycleTest {
     }
 
     @Test
+    fun `sustained NO DATA (ignition off) never triggers a reconnect`() = runBlocking {
+        // Bus is up (the adapter answers every command) but the ECU is asleep: every mode 01
+        // poll comes back NO DATA, exactly like a real car with the ignition off and the
+        // dongle powered from the always-on OBD port. This must stay Connected on the SAME
+        // socket — reconnecting cannot make a sleeping ECU answer, and used to also reset the
+        // ignition-off RPM-absence timer on every such reconnect, so the loop never stopped.
+        val ecuAsleep = AtomicBoolean(false)
+        val device = FakeElmDevice(responder = { cmd ->
+            if (ecuAsleep.get() && cmd.startsWith("01")) "NO DATA" else FakeElmDevice.healthy(cmd)
+        })
+        val transport = StreamObdTransport(device)
+        val engine = newEngine()
+
+        engine.start(transport, vehicle)
+        engine.awaitStatus(ObdStatus.Connected, 10_000)
+        ecuAsleep.set(true)
+
+        // RECONNECT_AFTER_FAILURES is 5 and the poll interval is 250ms, so 3s of NO DATA
+        // covers many multiples of the old (buggy) reconnect threshold.
+        delay(3_000)
+
+        assertEquals(ObdStatus.Connected, engine.live.value.status)
+        assertEquals("must never have reconnected", 1, transport.connectCount.get())
+        assertEquals("NO DATA", engine.live.value.lastError)
+    }
+
+    @Test
     fun `stop returns promptly while a read is hung on a silent adapter`() = runBlocking {
         val silent = AtomicBoolean(false)
         val device = FakeElmDevice(responder = { cmd -> if (silent.get()) null else FakeElmDevice.healthy(cmd) })

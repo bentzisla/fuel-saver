@@ -615,6 +615,8 @@ class ObdEngine @Inject constructor(
         var batteryVoltage: Double? = null
         var rpmNullSinceMs: Long? = null
         var consecutiveBad = 0
+        // NO DATA (ECU quiet, bus up) tracked separately — see the comment at its use below.
+        var consecutiveNoData = 0
         var pidNegotiationFailed = false
         var supportedPids: Set<Int> = emptySet()
         // Samples buffered since the last flush; the run loop inserts them in one batch instead
@@ -798,16 +800,37 @@ class ObdEngine @Inject constructor(
                 val instantL100 = processed.live.litersPer100Km
                 val displayBins = mergeSpeedBins(binSnapshot, binDeltas.values)
 
+                // "NO DATA" means the bus answered but the ECU stayed quiet — the classic
+                // signature of the ignition being off while the dongle stays powered from the
+                // OBD port. That is NOT a link failure: reconnecting cannot make a sleeping ECU
+                // answer, and doing it anyway used to (a) tear down/rebuild the RFCOMM link
+                // every ~1.25 s, draining the battery and hammering a single-link clone, and
+                // (b) reset `rpmNullSinceMs` on every such reconnect, so the 60 s ignition-off
+                // timeout could never accumulate and the loop never stopped itself. It is
+                // tracked with its own counter so it can still surface to the UI, just without
+                // ever counting toward `consecutiveBad` / [ObdConnectionPolicy.shouldReconnect].
+                val noDataNow = rawSpeed.contains("NO DATA", ignoreCase = true) ||
+                    rawSpeed.contains("NODATA", ignoreCase = true) ||
+                    rawSpeed.contains("UNABLE TO CONNECT", ignoreCase = true)
                 val badReason = when {
+                    noDataNow -> "NO DATA"
                     rawSpeed.contains("SEARCHING", ignoreCase = true) -> ObdConnectionPolicy.ERROR_SEARCHING
-                    rawSpeed.contains("NO DATA", ignoreCase = true) ||
-                        rawSpeed.contains("NODATA", ignoreCase = true) -> "NO DATA"
                     rawSample.speedKmh == null && rawSpeed.isNotBlank() -> "PARSE"
                     rawSpeed.isBlank() -> "TIMEOUT"
                     else -> null
                 }
-                if (badReason != null) consecutiveBad++ else consecutiveBad = 0
-                val diagError = if (consecutiveBad >= CONSECUTIVE_ERROR_THRESHOLD) badReason else null
+                if (noDataNow) {
+                    consecutiveBad = 0
+                    consecutiveNoData++
+                } else {
+                    consecutiveNoData = 0
+                    if (badReason != null) consecutiveBad++ else consecutiveBad = 0
+                }
+                val diagError = when {
+                    consecutiveBad >= CONSECUTIVE_ERROR_THRESHOLD -> badReason
+                    consecutiveNoData >= CONSECUTIVE_ERROR_THRESHOLD -> "NO DATA"
+                    else -> null
+                }
 
                 val elapsedSec = ((now - loopStartMs) / 1000.0).coerceAtLeast(0.001)
                 val sampleRateHz = sampleCount / elapsedSec
@@ -881,6 +904,7 @@ class ObdEngine @Inject constructor(
                         )
                     }
                     consecutiveBad = 0
+                    consecutiveNoData = 0
                     rpmNullSinceMs = null
                     lastSample = null
                     processor.resetTiming()
