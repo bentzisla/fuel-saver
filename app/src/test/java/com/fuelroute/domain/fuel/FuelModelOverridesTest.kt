@@ -42,6 +42,17 @@ class FuelModelOverridesTest {
     }
 
     @Test
+    fun `a manually typed correction far below rated is clamped, not trusted`() {
+        // Regression: an unclamped low correction (e.g. mistyped, or fit over one bad drive)
+        // could silently halve every predicted route cost.
+        val tooLow = FuelModelOverrides(fuelCorrection = 0.3)
+        val tooHigh = FuelModelOverrides(fuelCorrection = 5.0)
+
+        assertEquals(CalibrationFitter.MIN_CORRECTION, tooLow.effectiveFuelCorrection, 1e-9)
+        assertEquals(CalibrationFitter.MAX_CORRECTION, tooHigh.effectiveFuelCorrection, 1e-9)
+    }
+
+    @Test
     fun `stop-go weight override changes the route cost`() {
         val route = congestedRoute()
         val withoutStopGo = FuelModel(

@@ -41,13 +41,26 @@ object DefaultCurve {
         SpeedPoint(130.0, 1.48),
     )
 
+    /**
+     * Plausibility band for a vehicle's rated combined consumption. Covers everything from a
+     * tiny hybrid to a large SUV/van; a value outside it (corrupted storage, a mistyped profile,
+     * a units mixup) is clamped rather than trusted, since it is the base every curve factor -
+     * and therefore every route's fuel liters - multiplies.
+     */
+    const val MIN_RATED_L100 = 2.0
+    const val MAX_RATED_L100 = 25.0
+
     fun forVehicle(
         ratedCombinedL100: Double,
         fuelType: FuelType = FuelType.GASOLINE,
     ): ConsumptionCurve {
+        val rated = ratedCombinedL100
+            .takeIf { it.isFinite() }
+            ?.coerceIn(MIN_RATED_L100, MAX_RATED_L100)
+            ?: MIN_RATED_L100
         val factors = if (fuelType == FuelType.HYBRID) hybridFactors else gasolineFactors
         return ConsumptionCurve(
-            factors.map { SpeedPoint(it.speedKmh, ratedCombinedL100 * it.litersPer100Km) },
+            factors.map { SpeedPoint(it.speedKmh, rated * it.litersPer100Km) },
         )
     }
 }

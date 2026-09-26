@@ -43,6 +43,47 @@ class CurveBlenderTest {
     }
 
     @Test
+    fun `an implausibly low learned bin is excluded, not blended in`() {
+        val fallback = DefaultCurve.forVehicle(7.0)
+        // 70-75 km/h fallback is ~6.4 L/100km; 2.0 L/100km (under 0.5x) would mean absurdly good
+        // consumption - e.g. an underestimated MAF/speed-density reading - and must be rejected.
+        val learned = LearnedCurve(
+            listOf(
+                SpeedBinStats(
+                    vehicleId = "v",
+                    binIndex = 15,
+                    distanceKm = 500.0,
+                    fuelL = 10.0, // 2.0 L/100km
+                    seconds = 20_000.0,
+                    samples = 1_000,
+                ),
+            ),
+        )
+        val blended = CurveBlender.blend(learned, fallback)
+        assertEquals(fallback.litersPer100Km(72.5), blended.litersPer100Km(72.5), 1e-9)
+    }
+
+    @Test
+    fun `an implausibly high learned bin is excluded, not blended in`() {
+        val fallback = DefaultCurve.forVehicle(7.0)
+        // Fallback is ~6.4 L/100km; 30 L/100km (over 3x) points at corrupted stored data.
+        val learned = LearnedCurve(
+            listOf(
+                SpeedBinStats(
+                    vehicleId = "v",
+                    binIndex = 15,
+                    distanceKm = 500.0,
+                    fuelL = 150.0, // 30 L/100km
+                    seconds = 20_000.0,
+                    samples = 1_000,
+                ),
+            ),
+        )
+        val blended = CurveBlender.blend(learned, fallback)
+        assertEquals(fallback.litersPer100Km(72.5), blended.litersPer100Km(72.5), 1e-9)
+    }
+
+    @Test
     fun `speeds without data keep the fallback value`() {
         val fallback = DefaultCurve.forVehicle(7.0)
         val learned = LearnedCurve(

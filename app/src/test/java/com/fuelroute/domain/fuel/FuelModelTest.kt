@@ -187,6 +187,71 @@ class FuelModelTest {
     }
 
     @Test
+    fun `uphill segment costs more than an identical flat segment`() {
+        val flat = Route(
+            id = "flat",
+            distanceMeters = 10_000.0,
+            staticDurationSeconds = 600.0,
+            durationSeconds = 600.0,
+            segments = listOf(RouteSegment(10_000.0, 600.0, elevationDeltaM = 0.0)),
+        )
+        val uphill = flat.copy(id = "uphill", segments = listOf(RouteSegment(10_000.0, 600.0, elevationDeltaM = 500.0)))
+
+        val flatCost = model.cost(flat, 7.0)
+        val uphillCost = model.cost(uphill, 7.0)
+
+        assertTrue(uphillCost.fuelLiters > flatCost.fuelLiters)
+        assertEquals(flatCost.fuelLiters + GradeModel.extraLiters(500.0), uphillCost.fuelLiters, 1e-9)
+    }
+
+    @Test
+    fun `a steep descent never makes a segment cost negative fuel`() {
+        val route = Route(
+            id = "steep-descent",
+            distanceMeters = 100.0,
+            staticDurationSeconds = 60.0,
+            durationSeconds = 60.0,
+            // A tiny distance with a huge elevation drop: the grade credit alone would be a much
+            // larger negative number than the segment's own base liters.
+            segments = listOf(RouteSegment(distanceMeters = 100.0, staticDurationSeconds = 60.0, elevationDeltaM = -2000.0)),
+        )
+
+        val cost = model.cost(route, 7.0)
+
+        assertTrue(cost.fuelLiters >= 0.0)
+        assertTrue(cost.totalCost >= 0.0)
+    }
+
+    @Test
+    fun `mass passed to FuelModel scales the grade term`() {
+        val route = Route(
+            id = "grade-mass",
+            distanceMeters = 10_000.0,
+            staticDurationSeconds = 600.0,
+            durationSeconds = 600.0,
+            segments = listOf(RouteSegment(10_000.0, 600.0, elevationDeltaM = 500.0)),
+        )
+        val light = FuelModel(curve = curve, idleLitersPerHour = 0.8, massKg = 1000.0).cost(route, 7.0)
+        val heavy = FuelModel(curve = curve, idleLitersPerHour = 0.8, massKg = 2000.0).cost(route, 7.0)
+
+        assertTrue(heavy.fuelLiters > light.fuelLiters)
+    }
+
+    @Test
+    fun `missing elevation data costs the route exactly as before (no grade term)`() {
+        val withoutGrade = Route(
+            id = "no-grade",
+            distanceMeters = 10_000.0,
+            staticDurationSeconds = 600.0,
+            durationSeconds = 600.0,
+            segments = listOf(RouteSegment(10_000.0, 600.0, elevationDeltaM = null)),
+        )
+        val flat = withoutGrade.copy(segments = listOf(RouteSegment(10_000.0, 600.0, elevationDeltaM = 0.0)))
+
+        assertEquals(model.cost(flat, 7.0).fuelLiters, model.cost(withoutGrade, 7.0).fuelLiters, 1e-9)
+    }
+
+    @Test
     fun `toll is added to the total`() {
         val route = Route(
             id = "t",
