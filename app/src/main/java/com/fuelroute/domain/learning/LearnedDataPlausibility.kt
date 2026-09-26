@@ -20,6 +20,17 @@ object LearnedDataPlausibility {
     const val MAX_BIN_L100 = 60.0
 
     /**
+     * Floor for a moving bin's average L/100 km. Regression case: a scale/unit bug anywhere in
+     * the OBD fuel-rate path (a PID 5E/MAF/speed-density parse or formula error, or a corrupted
+     * `fuelRateCorrection`) can produce a curve that is near-zero instead of merely wrong, and a
+     * near-zero learned curve with enough distance (`w` near 1 in [com.fuelroute.domain.fuel.CurveBlender])
+     * then prices a real drive at a tiny fraction of its true cost (e.g. a ~73km drive costing
+     * ~1 NIS instead of ~35). No passenger car - hybrid included - sustains under ~2 L/100km
+     * for a whole 5 km/h speed bin.
+     */
+    const val MIN_BIN_L100 = 2.0
+
+    /**
      * At crawl speeds L/100 km legitimately explodes (fuel/tiny distance); the bound there is
      * "average fuel rate of [MAX_CRAWL_LPH] at the bin speed", e.g. 80 L/100 km at 7.5 km/h.
      */
@@ -59,6 +70,7 @@ object LearnedDataPlausibility {
         if (!bin.isIdleBin && bin.distanceKm >= MIN_BIN_DISTANCE_KM) {
             val l100 = bin.fuelL / bin.distanceKm * 100.0
             if (l100 > maxBinL100(bin.binIndex)) return false
+            if (l100 < MIN_BIN_L100) return false
         }
         return true
     }

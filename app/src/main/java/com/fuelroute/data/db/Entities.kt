@@ -16,6 +16,8 @@ data class VehicleEntity(
     val manualCurve: String?,
     val vin: String?,
     val grade: String = "95",
+    /** Curb weight for the elevation/grade fuel term; see [com.fuelroute.domain.model.VehicleProfile.massKg]. */
+    val massKg: Double = com.fuelroute.domain.fuel.GradeModel.DEFAULT_VEHICLE_MASS_KG,
     val createdAtMs: Long,
 )
 

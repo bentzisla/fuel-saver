@@ -25,8 +25,11 @@ import com.fuelroute.data.price.DefaultFuelPriceRepository
 import com.fuelroute.data.price.FuelPriceRepository
 import com.fuelroute.data.refuel.DefaultRefuelRepository
 import com.fuelroute.data.refuel.RefuelRepository
+import com.fuelroute.data.routes.CachingElevationRepository
 import com.fuelroute.data.routes.CachingRoutesRepository
 import com.fuelroute.data.routes.DefaultRouteSearchRepository
+import com.fuelroute.data.routes.ElevationRepository
+import com.fuelroute.data.routes.GradeEnrichedRoutesRepository
 import com.fuelroute.data.routes.RouteSearchRepository
 import com.fuelroute.data.routes.RoutesRepository
 import com.fuelroute.data.settings.DataStoreSettingsRepository
@@ -96,7 +99,11 @@ abstract class RepositoryModule {
 
     @Binds
     @Singleton
-    abstract fun bindRoutesRepository(impl: CachingRoutesRepository): RoutesRepository
+    abstract fun bindRoutesRepository(impl: GradeEnrichedRoutesRepository): RoutesRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindElevationRepository(impl: CachingElevationRepository): ElevationRepository
 
     @Binds
     @Singleton

@@ -19,6 +19,50 @@ class CalibrationFitterTest {
     }
 
     @Test
+    fun `fit clamps a consistently-low-but-plausible ratio instead of trusting it fully`() {
+        // Ratio 0.6 is inside the per-pair outlier band (not a mis-link), but a real car's
+        // accuracy should never be trusted past MIN_CORRECTION without more data.
+        val pairs = listOf(10.0 to 6.0, 20.0 to 12.0, 5.0 to 3.0)
+
+        val factor = CalibrationFitter.fitCorrection(pairs)!!
+
+        assertEquals(CalibrationFitter.MIN_CORRECTION, factor, 1e-9)
+    }
+
+    @Test
+    fun `fit clamps a consistently-high-but-plausible ratio instead of trusting it fully`() {
+        val pairs = listOf(10.0 to 18.0, 20.0 to 36.0, 5.0 to 9.0)
+
+        val factor = CalibrationFitter.fitCorrection(pairs)!!
+
+        assertEquals(CalibrationFitter.MAX_CORRECTION, factor, 1e-9)
+    }
+
+    @Test
+    fun `a single mis-linked pair is dropped as an outlier, not fit`() {
+        // Regression: a demo/simulated ride, or a short real trip linked to a long searched
+        // route, can carry an actual liters far below the predicted - e.g. ratio ~0.02 - and
+        // must never single-handedly drag the correction down with it.
+        val pairs = listOf(
+            10.0 to 11.0,
+            20.0 to 22.0,
+            5.0 to 5.5,
+            34.0 to 0.7, // ratio ~0.02: the mis-linked/demo outlier
+        )
+
+        val factor = CalibrationFitter.fitCorrection(pairs)!!
+
+        assertEquals(1.1, factor, 1e-9)
+    }
+
+    @Test
+    fun `fewer than 3 plausible pairs yields no fit`() {
+        assertNull(CalibrationFitter.fitCorrection(listOf(10.0 to 11.0, 20.0 to 22.0)))
+        // Two plausible + one outlier still leaves only 2 plausible pairs.
+        assertNull(CalibrationFitter.fitCorrection(listOf(10.0 to 11.0, 20.0 to 22.0, 34.0 to 0.7)))
+    }
+
+    @Test
     fun `fit returns null for empty input`() {
         assertNull(CalibrationFitter.fitCorrection(emptyList()))
     }

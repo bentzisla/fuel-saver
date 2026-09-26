@@ -52,6 +52,8 @@ data class VehicleSnapshot(
     val manualCurve: String? = null,
     val vin: String? = null,
     val grade: String = "95",
+    /** Absent in a backup predating this field; import then falls back to the model default. */
+    val massKg: Double = com.fuelroute.domain.fuel.GradeModel.DEFAULT_VEHICLE_MASS_KG,
     val createdAtMs: Long,
 )
 
@@ -174,6 +176,7 @@ fun VehicleEntity.toSnapshot() = VehicleSnapshot(
     manualCurve = manualCurve,
     vin = vin,
     grade = grade,
+    massKg = massKg,
     createdAtMs = createdAtMs,
 )
 
@@ -188,6 +191,7 @@ fun VehicleSnapshot.toEntity() = VehicleEntity(
     manualCurve = manualCurve,
     vin = vin,
     grade = grade,
+    massKg = massKg,
     createdAtMs = createdAtMs,
 )
 

@@ -13,6 +13,10 @@ class FuelModel(
     private val curve: ConsumptionCurve,
     private val idleLitersPerHour: Double,
     private val overrides: FuelModelOverrides = FuelModelOverrides.DEFAULT,
+    /** Vehicle curb weight for the grade term ([GradeModel]); see [VehicleProfile.massKg]. */
+    private val massKg: Double = GradeModel.DEFAULT_VEHICLE_MASS_KG,
+    /** Fuel energy density for the grade term; pass [GradeModel.DIESEL_MJ_PER_L] for diesel. */
+    private val energyDensityMjPerL: Double = GradeModel.GASOLINE_MJ_PER_L,
 ) {
 
     private val stopGoWeight: Double get() = overrides.effectiveStopGoWeight
@@ -67,7 +71,12 @@ class FuelModel(
             } else {
                 0.0
             }
-            val segmentLiters = (baseLiters + stopGoLiters) * correction
+            val gradeLiters = segment.elevationDeltaM?.let {
+                GradeModel.extraLiters(it, massKg, energyDensityMjPerL)
+            } ?: 0.0
+            // A descent's grade credit may exceed this segment's own base+stop-go liters, but it
+            // must never make the *segment* cheaper than free (PLAN.md §4.4 / GradeModel).
+            val segmentLiters = max(0.0, baseLiters + stopGoLiters + gradeLiters) * correction
             fuelLiters += segmentLiters
             segmentCosts += SegmentCost(
                 distanceKm = distanceKm,

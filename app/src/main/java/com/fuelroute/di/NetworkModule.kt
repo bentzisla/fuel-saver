@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import com.fuelroute.data.places.PlacesService
+import com.fuelroute.data.routes.ElevationService
 import com.fuelroute.data.routes.RoutesService
 import dagger.Module
 import dagger.Provides
@@ -146,6 +147,12 @@ object NetworkModule {
     fun providePlacesService(client: OkHttpClient, json: Json): PlacesService =
         provideRetrofit(client, json, "https://places.googleapis.com/")
             .create(PlacesService::class.java)
+
+    @Provides
+    @Singleton
+    fun provideElevationService(client: OkHttpClient, json: Json): ElevationService =
+        provideRetrofit(client, json, "https://maps.googleapis.com/")
+            .create(ElevationService::class.java)
 
     private fun provideRetrofit(client: OkHttpClient, json: Json, baseUrl: String): Retrofit =
         Retrofit.Builder()
