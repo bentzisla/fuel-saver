@@ -28,6 +28,8 @@ Add `--console=plain` to gradle commands for cleaner output. First build downloa
 
 A pre-push hook is installed (`.git/hooks/pre-push`) that runs `.\gradlew.bat testSideloadDebugUnitTest testPlayDebugUnitTest lintSideloadDebug lintPlayDebug` before every push (install script: `scripts/install-pre-push-hook.ps1`; skip with `git push --no-verify`).
 
+No AI attribution in git history: commit messages and PR descriptions must not contain `Co-Authored-By: Claude ...`, `Claude-Session: ...`, "Generated with Claude Code" or similar, and commits must not be authored or committed as `Claude <noreply@anthropic.com>`. `.claude/settings.json` turns Claude Code's attribution off; the `commit-msg` hook strips such trailers and the `pre-push` hook rejects them (same install script).
+
 ## Project conventions
 - Package: `com.fuelroute`. Layers: `ui/` (Compose + ViewModels), `domain/` (pure Kotlin, no Android imports), `data/` (Retrofit, DataStore, Room), `nav/`, `di/`, `car/` (Android Auto Car App Library templates).
 - `domain/` must stay free of Android dependencies so it is unit-testable on the JVM.
