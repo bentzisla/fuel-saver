@@ -222,17 +222,47 @@ class HistoryViewModelTest {
         coEvery { vehicleRepository.active() } returns vehicle("v1")
         coEvery { fuelPriceRepository.current(any()) } returns FuelPrice(7.0, "95", false)
         coEvery { repository.recent("v1", any()) } returns DriveHistory(emptyList(), null)
-        coJustRun { repository.setManualCost(any(), any(), any(), any(), any()) }
+        coEvery { repository.recordManualCost(any(), any(), any(), any(), any(), any(), any()) } returns 7L
 
         val viewModel = HistoryViewModel(repository, vehicleRepository, fuelPriceRepository)
         advanceUntilIdle()
 
-        viewModel.openManualCost(entry(7))
+        val driveEntry = entry(7)
+        viewModel.openManualCost(driveEntry)
         viewModel.saveManualCost(ManualCostInput(cost = 42.0))
         advanceUntilIdle()
 
-        coVerify(exactly = 1) { repository.setManualCost(7, 42.0, null, null, any()) }
-        assertEquals(null, viewModel.state.value.manualEntryTripId)
+        coVerify(exactly = 1) {
+            repository.recordManualCost(
+                vehicleId = "v1",
+                entry = driveEntry,
+                cost = 42.0,
+                distanceKm = null,
+                litersPer100Km = null,
+                fallbackPricePerLiter = 7.0,
+                enteredAtMs = any(),
+            )
+        }
+        assertEquals(null, viewModel.state.value.manualEntryEntry)
+    }
+
+    @Test
+    fun `openManualCost opens the dialog for an undriven search with no trip yet`() = runTest(dispatcher) {
+        val repository = mockk<DriveHistoryRepository>()
+        val vehicleRepository = mockk<VehicleRepository>()
+        val fuelPriceRepository = mockk<FuelPriceRepository>()
+        every { vehicleRepository.vehicles() } returns MutableStateFlow(listOf(vehicle("v1")))
+        coEvery { vehicleRepository.active() } returns vehicle("v1")
+        coEvery { fuelPriceRepository.current(any()) } returns FuelPrice(7.0, "95", false)
+        coEvery { repository.recent("v1", any()) } returns DriveHistory(emptyList(), null)
+
+        val viewModel = HistoryViewModel(repository, vehicleRepository, fuelPriceRepository)
+        advanceUntilIdle()
+
+        val undrivenSearch = entry(7).copy(tripId = null, searchId = 3)
+        viewModel.openManualCost(undrivenSearch)
+
+        assertEquals(undrivenSearch, viewModel.state.value.manualEntryEntry)
     }
 
     private fun vehicle(id: String) = VehicleProfile(id = id, name = id)

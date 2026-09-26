@@ -46,8 +46,8 @@ data class HistoryUiState(
     val selectedIds: Set<Long> = emptySet(),
     /** True while the bulk-delete confirmation is shown. */
     val pendingBulkDelete: Boolean = false,
-    /** The trip whose manual-cost dialog is open, or null. */
-    val manualEntryTripId: Long? = null,
+    /** The ride whose manual-cost dialog is open, or null. */
+    val manualEntryEntry: DriveHistoryEntry? = null,
     /** The ride whose merge/split dialog is open, or null. */
     val mergeSplitEntry: DriveHistoryEntry? = null,
     /** Trip ids awaiting the merge confirmation, or null. */
@@ -209,27 +209,38 @@ class HistoryViewModel @Inject constructor(
 
     // --- Manual post-drive cost entry ---------------------------------------
 
-    /** Opens the manual-cost dialog for [entry]. */
+    /**
+     * Opens the manual-cost dialog for [entry]. Works for any ride ([DriveHistoryEntry.canEnterManualCost]),
+     * including an undriven search (no trip yet) and a driven ride whose OBD cost the user wants
+     * to correct.
+     */
     fun openManualCost(entry: DriveHistoryEntry) {
-        val tripId = entry.tripId ?: return
-        _state.value = _state.value.copy(manualEntryTripId = tripId, selectedEntry = null)
+        if (!entry.canEnterManualCost) return
+        _state.value = _state.value.copy(manualEntryEntry = entry, selectedEntry = null)
     }
 
     fun dismissManualCost() {
-        _state.value = _state.value.copy(manualEntryTripId = null)
+        _state.value = _state.value.copy(manualEntryEntry = null)
     }
 
-    /** Saves the manual entry (validated by the dialog via [ManualCostCalculator]) and reloads. */
+    /**
+     * Saves the manual entry (validated by the dialog via [ManualCostCalculator]) and reloads.
+     * See [DriveHistoryRepository.recordManualCost] for how an undriven search gets a trip of
+     * its own to hold the entry.
+     */
     fun saveManualCost(input: ManualCostInput) {
-        val tripId = _state.value.manualEntryTripId ?: return
+        val entry = _state.value.manualEntryEntry ?: return
+        val vehicleId = activeVehicleId.value ?: return
         viewModelScope.launch {
-            repository.setManualCost(
-                tripId = tripId,
+            repository.recordManualCost(
+                vehicleId = vehicleId,
+                entry = entry,
                 cost = input.cost,
                 distanceKm = input.distanceKm,
                 litersPer100Km = input.litersPer100Km,
+                fallbackPricePerLiter = _state.value.pricePerLiter,
             )
-            _state.value = _state.value.copy(manualEntryTripId = null)
+            _state.value = _state.value.copy(manualEntryEntry = null)
             load()
         }
     }
