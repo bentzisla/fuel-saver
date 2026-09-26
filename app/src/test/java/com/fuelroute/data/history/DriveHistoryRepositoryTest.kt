@@ -191,6 +191,81 @@ class DriveHistoryRepositoryTest {
     }
 
     @Test
+    fun `recordManualCost updates the existing trip when one already exists`() = runTest {
+        coJustRun { tripDao.updateManualCost(any(), any(), any(), any(), any()) }
+
+        val tripId = repository.recordManualCost(
+            vehicleId = "v1",
+            entry = historyEntry(searchId = 1, tripId = 10),
+            cost = 42.0,
+            enteredAtMs = 999,
+        )
+
+        assertEquals(10L, tripId)
+        coVerify(exactly = 1) { tripDao.updateManualCost(10, 42.0, null, null, 999) }
+        coVerify(exactly = 0) { tripDao.insert(any()) }
+    }
+
+    @Test
+    fun `recordManualCost creates a manual trip linked to the search when the ride was never driven`() = runTest {
+        coEvery { routeSearchDao.findById(1) } returns search(id = 1, ts = 1_000).copy(
+            departureTimeMs = 100_000,
+            durationMin = 30.0,
+            distanceKm = 40.0,
+            pricePerLiterAtSearch = 7.0,
+        )
+        val inserted = slot<TripEntity>()
+        coEvery { tripDao.insert(capture(inserted)) } returns 55L
+
+        val tripId = repository.recordManualCost(
+            vehicleId = "v1",
+            entry = historyEntry(searchId = 1, tripId = null),
+            cost = 42.0,
+            enteredAtMs = 999,
+        )
+
+        assertEquals(55L, tripId)
+        val trip = inserted.captured
+        assertEquals("v1", trip.vehicleId)
+        assertEquals(1, trip.routeSearchId)
+        assertEquals(100_000L, trip.startedAtMs)
+        assertEquals(100_000L + 30 * 60_000L, trip.endedAtMs)
+        assertEquals(40.0, trip.distanceKm, 1e-9)
+        assertEquals(7.0, trip.pricePerLiterAtTrip, 1e-9)
+        assertEquals(TripSource.MANUAL, trip.source)
+        assertEquals(42.0, trip.manualCost!!, 1e-9)
+        assertEquals(0, trip.isOpen)
+    }
+
+    @Test
+    fun `recordManualCost falls back to the live price when the search never recorded one`() = runTest {
+        coEvery { routeSearchDao.findById(1) } returns search(id = 1, ts = 1_000).copy(
+            pricePerLiterAtSearch = 0.0,
+        )
+        val inserted = slot<TripEntity>()
+        coEvery { tripDao.insert(capture(inserted)) } returns 55L
+
+        repository.recordManualCost(
+            vehicleId = "v1",
+            entry = historyEntry(searchId = 1, tripId = null),
+            cost = 42.0,
+            fallbackPricePerLiter = 6.5,
+        )
+
+        assertEquals(6.5, inserted.captured.pricePerLiterAtTrip, 1e-9)
+    }
+
+    @Test
+    fun `a manual trip already owns its search so linkCandidates never offers it again`() = runTest {
+        coEvery { tripDao.recentClosedForVehicle("v1", any()) } returns listOf(
+            trip(id = 55, vehicleId = "v1", routeSearchId = 1, ts = 100_000, source = TripSource.MANUAL),
+        )
+        coEvery { routeSearchDao.recent(any()) } returns listOf(search(id = 1, ts = 100_000))
+
+        assertTrue(repository.linkCandidates("v1").isEmpty())
+    }
+
+    @Test
     fun `deleteMany removes trips and unlinks undriven searches`() = runTest {
         coJustRun { tripDao.deleteByIds(any()) }
         coJustRun { tripDao.unlinkTripsForSearch(any()) }
@@ -371,6 +446,23 @@ class DriveHistoryRepositoryTest {
         val buggySplitAtMs = (1_800_000L * 0.95f).toLong()
         assertNull(repository.splitTrip(10, buggySplitAtMs))
         coVerify(exactly = 0) { tripDao.replaceTrips(any(), any()) }
+    }
+
+    @Test
+    fun `canEnterManualCost is true for an undriven search with no trip yet`() {
+        assertTrue(historyEntry(searchId = 1, tripId = null).canEnterManualCost)
+    }
+
+    @Test
+    fun `canEnterManualCost is true for a driven ride even when an OBD cost already exists`() {
+        // historyEntry() always sets a positive actualCost; overriding it must still be offered.
+        assertTrue(historyEntry(searchId = 1, tripId = 10).canEnterManualCost)
+        assertTrue(historyEntry(searchId = null, tripId = 10).canEnterManualCost)
+    }
+
+    @Test
+    fun `canEnterManualCost is false only when the entry has neither id`() {
+        assertTrue(!historyEntry(searchId = null, tripId = null).canEnterManualCost)
     }
 
     private fun historyEntry(searchId: Long?, tripId: Long?) = DriveHistoryEntry(

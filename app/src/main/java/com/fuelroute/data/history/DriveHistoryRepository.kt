@@ -77,11 +77,13 @@ data class DriveHistoryEntry(
     val hasManualEntry: Boolean get() = manualCost != null
 
     /**
-     * True when a manual cost can be (re)recorded: the drive exists and either has no usable
-     * OBD cost yet, or already has a manual entry the user may edit.
+     * True whenever there is a ride to attach a manual cost to: a driven trip (with or without
+     * a usable OBD cost — an existing OBD/manual value can always be overridden), or a search
+     * that was never driven with OBD at all. The only entries this excludes are ones with
+     * neither id, which [rideState] never actually produces.
      */
     val canEnterManualCost: Boolean
-        get() = tripId != null && (manualCost != null || (actualCost ?: 0.0) <= 0.0)
+        get() = tripId != null || searchId != null
 
     /**
      * Stable key for multi-select: the trip id, or a negated search id for an undriven search
@@ -203,7 +205,8 @@ class DriveHistoryRepository @Inject constructor(
 
     /**
      * Persists a manual post-drive entry for [tripId]. Pass null distance/consumption for
-     * direct-cost mode; the derived cost is what the UI already previewed.
+     * direct-cost mode; the derived cost is what the UI already previewed. Overwrites any
+     * previous manual entry on the trip, so this also serves as "edit" for one already set.
      */
     suspend fun setManualCost(
         tripId: Long,
@@ -219,6 +222,91 @@ class DriveHistoryRepository @Inject constructor(
             litersPer100Km = litersPer100Km,
             enteredAtMs = enteredAtMs,
         )
+    }
+
+    /**
+     * Records a manual post-drive cost for [entry], the common entry point the History UI uses
+     * (it covers both "enter" and "edit"). When the ride already has a trip — OBD-recorded or a
+     * previously created manual one — the entry is written onto it with [setManualCost]. When it
+     * is an undriven search (the everyday case this feature was missing for: a search the user
+     * drove without OBD logging running), a manual [TripEntity] is created and linked to the
+     * search directly, so History's existing search<->trip join, the savings total and the
+     * accuracy % all pick it up with no further changes.
+     *
+     * The manual trip's window is the search's departure time (falling back to when it was
+     * searched) plus its predicted duration; its distance is the search's predicted distance.
+     * [fallbackPricePerLiter] (normally the live price the dialog already previewed with) is used
+     * as the trip's `pricePerLiterAtTrip` only when the search itself never recorded a price, so
+     * a direct-cost entry can still resolve to liters for [DriveHistoryEntry.actualLiters]
+     * (used by prediction accuracy and calibration).
+     *
+     * Double-count note: a manual trip is created already linked (`routeSearchId` set), so both
+     * [TripLinker.autoLink] and [linkCandidates] treat that search as already taken — an OBD trip
+     * recorded afterwards for the same drive will NOT silently attach to it. It stays an orphan
+     * the user can link by hand (which will, in turn, replace this manual entry as the search's
+     * linked trip); nothing here merges the two automatically.
+     *
+     * Returns the id of the trip the entry was written to (existing or newly created).
+     */
+    suspend fun recordManualCost(
+        vehicleId: String,
+        entry: DriveHistoryEntry,
+        cost: Double,
+        distanceKm: Double? = null,
+        litersPer100Km: Double? = null,
+        fallbackPricePerLiter: Double = 0.0,
+        enteredAtMs: Long = System.currentTimeMillis(),
+    ): Long {
+        val tripId = entry.tripId
+        if (tripId != null) {
+            setManualCost(tripId, cost, distanceKm, litersPer100Km, enteredAtMs)
+            return tripId
+        }
+        val searchId = requireNotNull(entry.searchId) {
+            "Manual cost entry needs a trip or a search to attach to"
+        }
+        return createManualTrip(vehicleId, searchId, cost, distanceKm, litersPer100Km, fallbackPricePerLiter, enteredAtMs)
+    }
+
+    /** Builds and inserts the manual [TripEntity] described in [recordManualCost]. */
+    private suspend fun createManualTrip(
+        vehicleId: String,
+        searchId: Long,
+        cost: Double,
+        distanceKm: Double?,
+        litersPer100Km: Double?,
+        fallbackPricePerLiter: Double,
+        enteredAtMs: Long,
+    ): Long {
+        val search = requireNotNull(routeSearchDao.findById(searchId)) {
+            "Manual cost entry: route search $searchId not found"
+        }
+        val startedAtMs = search.departureTimeMs ?: search.timestampMs
+        val minutes = (search.selectedPredictedMinutes.takeIf { it > 0.0 } ?: search.durationMin)
+            .takeIf { it > 0.0 } ?: DEFAULT_MANUAL_TRIP_MINUTES
+        val endedAtMs = startedAtMs + (minutes * 60_000.0).toLong()
+        val price = search.pricePerLiterAtSearch.takeIf { it > 0.0 } ?: fallbackPricePerLiter
+        val trip = TripEntity(
+            vehicleId = vehicleId,
+            startedAtMs = startedAtMs,
+            endedAtMs = endedAtMs,
+            distanceKm = search.distanceKm,
+            fuelL = 0.0,
+            avgSpeedKmh = search.distanceKm / (minutes / 60.0),
+            maxSpeedKmh = 0.0,
+            idleSeconds = 0.0,
+            isOpen = 0,
+            routeSearchId = searchId.toInt(),
+            actualCost = 0.0,
+            pricePerLiterAtTrip = price,
+            linkedAtMs = enteredAtMs,
+            source = TripSource.MANUAL,
+            manualCost = cost,
+            manualDistanceKm = distanceKm,
+            manualLitersPer100Km = litersPer100Km,
+            manualEnteredAtMs = enteredAtMs,
+        )
+        return tripDao.insert(trip)
     }
 
     /**
@@ -470,5 +558,8 @@ class DriveHistoryRepository @Inject constructor(
         const val ACCURACY_WINDOW = 20
         const val LINK_CANDIDATE_LIMIT = 30
         private const val LINKED_SCAN_LIMIT = 500
+
+        /** Fallback trip duration for a manual entry whose search has no usable predicted minutes. */
+        private const val DEFAULT_MANUAL_TRIP_MINUTES = 20.0
     }
 }
