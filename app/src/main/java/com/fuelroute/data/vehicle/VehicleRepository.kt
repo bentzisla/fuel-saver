@@ -190,6 +190,7 @@ class DefaultVehicleRepository @Inject constructor(
         tankCapacityL = tankCapacityL,
         vin = vin,
         grade = grade,
+        massKg = massKg,
     )
 
     private fun VehicleProfile.toEntity(createdAtMs: Long) = VehicleEntity(
@@ -204,6 +205,7 @@ class DefaultVehicleRepository @Inject constructor(
         manualCurve = encodeManualCurve(manualCurve),
         vin = vin,
         grade = grade,
+        massKg = massKg,
         createdAtMs = createdAtMs,
     )
 

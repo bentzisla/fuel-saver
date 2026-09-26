@@ -208,11 +208,19 @@ class CalibrationViewModel @Inject constructor(
         }
     }
 
+    /**
+     * (predicted, actual) liters for real, plausible, linked drives. Excludes:
+     *  - simulated "הדגמה" rides ([com.fuelroute.data.history.DriveHistoryEntry.isDemo]) - a demo
+     *    drive-cycle's fuel has nothing to do with the searched route's real distance, and fitting
+     *    against one can produce an absurd correction (root cause of a reported ~0.02 factor);
+     *  - any pair a real drive could still not plausibly be (see [CalibrationFitter.fitCorrection],
+     *    which also drops per-pair outliers and requires a minimum sample size).
+     */
     private suspend fun linkedPairs(): List<Pair<Double, Double>> =
         driveHistoryRepository.recent(vehicleRepository.active().id).entries.mapNotNull { entry ->
             val predicted = entry.predictedLiters
             val actual = entry.actualLiters
-            if (predicted != null && actual != null && predicted > 0.0 && actual > 0.0) {
+            if (!entry.isDemo && predicted != null && actual != null && predicted > 0.0 && actual > 0.0) {
                 predicted to actual
             } else {
                 null
@@ -248,7 +256,13 @@ class CalibrationViewModel @Inject constructor(
         stopGoWeight = _state.value.stopGoWeight.toDoubleOrNull(),
         coldStartDefaultL = _state.value.coldStartDefaultL.toDoubleOrNull(),
         idleLphDefault = _state.value.idleLphDefault.toDoubleOrNull(),
-        fuelCorrection = _state.value.fuelCorrection.toDoubleOrNull(),
+        // Clamped here too (FuelModelOverrides.effectiveFuelCorrection also clamps on read): a
+        // manually typed value outside the plausible band is never persisted verbatim, so a
+        // typo (missing a digit, an extra decimal point, ...) cannot silently price every route
+        // at a fraction of - or far above - its real cost.
+        fuelCorrection = _state.value.fuelCorrection.toDoubleOrNull()
+            ?.takeIf { it.isFinite() }
+            ?.coerceIn(CalibrationFitter.MIN_CORRECTION, CalibrationFitter.MAX_CORRECTION),
     )
 
     /** Encodes only the explicit overrides; unset fields stay blank so defaults apply. */

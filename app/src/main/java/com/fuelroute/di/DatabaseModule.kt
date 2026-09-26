@@ -37,6 +37,7 @@ object DatabaseModule {
                 Migrations.MIGRATION_6_7,
                 Migrations.MIGRATION_7_8,
                 Migrations.MIGRATION_8_9,
+                Migrations.MIGRATION_9_10,
             )
             // DATA-SAFETY GUARD: destructive migration is intentionally NOT enabled.
             //
@@ -48,7 +49,7 @@ object DatabaseModule {
             //   With no destructive fallback, a version mismatch instead throws a loud
             //   `IllegalStateException` on open — the app force-closes rather than silently
             //   destroying data, and the mismatch can be diagnosed and fixed (or recovered from
-            //   backup) without loss. Every supported version (4..9) is covered by the
+            //   backup) without loss. Every supported version (4..10) is covered by the
             //   non-destructive chain above, so this only triggers on an unsupported/hand-edited
             //   database, which must NEVER be silently thrown away.
             //

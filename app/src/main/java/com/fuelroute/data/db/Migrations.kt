@@ -125,4 +125,15 @@ object Migrations {
             )
         }
     }
+
+    // v9 -> v10: vehicle curb weight for the elevation/grade fuel term (PLAN.md §4.4). Existing
+    // vehicles default to a typical private car so an upgrade never leaves this term unset.
+    val MIGRATION_9_10 = object : Migration(9, 10) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE vehicle ADD COLUMN massKg REAL NOT NULL DEFAULT " +
+                    "${com.fuelroute.domain.fuel.GradeModel.DEFAULT_VEHICLE_MASS_KG}",
+            )
+        }
+    }
 }

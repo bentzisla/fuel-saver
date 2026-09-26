@@ -50,6 +50,9 @@ internal fun RouteDetailSheet(
     onNavigate: () -> Unit,
     onDeparted: () -> Unit,
     onDismiss: () -> Unit,
+    learnedKm: Double = 0.0,
+    hasManualCurve: Boolean = false,
+    fuelCorrectionFactor: Double = 1.0,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val pricePerLiter = if (cost.fuelLiters > 0.0) cost.fuelCost / cost.fuelLiters else 0.0
@@ -101,6 +104,41 @@ internal fun RouteDetailSheet(
                         ),
                         value = money(cost.fuelCost),
                     )
+                    // Self-diagnosing breakdown (bug report investigation: an absurd cost is
+                    // otherwise invisible until someone reads the source). Shows what the curve
+                    // is based on and, only when it differs from 1.0, the calibration factor
+                    // that is the most likely source of a wildly wrong number.
+                    KeyValueRow(
+                        label = stringResource(R.string.route_detail_consumption_label),
+                        value = stringResource(
+                            R.string.route_detail_consumption_value,
+                            fmt(if (cost.distanceKm > 0.0) cost.fuelLiters / cost.distanceKm * 100.0 else 0.0, 1),
+                        ),
+                    )
+                    KeyValueRow(
+                        label = stringResource(R.string.route_detail_curve_source_label),
+                        value = when {
+                            learnedKm > 0.0 && hasManualCurve ->
+                                stringResource(R.string.route_detail_curve_source_learned_manual, fmt(learnedKm, 0))
+                            learnedKm > 0.0 ->
+                                stringResource(R.string.route_detail_curve_source_learned, fmt(learnedKm, 0))
+                            hasManualCurve -> stringResource(R.string.route_detail_curve_source_manual)
+                            else -> stringResource(R.string.route_detail_curve_source_default)
+                        },
+                    )
+                    if (kotlin.math.abs(fuelCorrectionFactor - 1.0) > 0.005) {
+                        KeyValueRow(
+                            label = stringResource(R.string.route_detail_correction_label),
+                            value = stringResource(R.string.route_detail_correction_value, fmt(fuelCorrectionFactor, 2)),
+                        )
+                    }
+                    if (cost.route.gradeDataMissing) {
+                        Text(
+                            text = stringResource(R.string.route_grade_missing_hint),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     KeyValueRow(
                         label = stringResource(R.string.route_toll_label),
                         value = when {

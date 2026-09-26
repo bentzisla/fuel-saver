@@ -35,7 +35,18 @@ class ObdSampleProcessor(
     private val consumption: LiveConsumptionWindow = LiveConsumptionWindow(),
 ) {
     private val displacementL: Double? = EngineDisplacement.normalizeLiters(engineDisplacementL)
-    private val correction: Double = fuelRateCorrection.takeIf { it.isFinite() && it > 0.0 } ?: 1.0
+
+    /**
+     * Clamped to [RefuelCalibrator.MIN_FACTOR]..[RefuelCalibrator.MAX_FACTOR]: this correction is
+     * applied to *every* raw OBD fuel-rate reading before it is learned, so an implausible value
+     * here (corrupted storage, a bad backup import, ...) would otherwise scale the whole learned
+     * curve down (or up) at the source - exactly the kind of gross, silent multiplicative error
+     * that made a real ~73km uphill drive price at ~1 NIS instead of ~35.
+     */
+    private val correction: Double = fuelRateCorrection
+        .takeIf { it.isFinite() && it > 0.0 }
+        ?.coerceIn(RefuelCalibrator.MIN_FACTOR, RefuelCalibrator.MAX_FACTOR)
+        ?: 1.0
     val maxFuelRateLph: Double = SampleSanitizer.maxFuelRateLph(displacementL)
     private val aggregator = SpeedBinAggregator(maxFuelRateLph = maxFuelRateLph * correction)
 

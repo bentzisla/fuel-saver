@@ -33,7 +33,9 @@ import com.fuelroute.domain.fuel.ConsumptionCurve
 import com.fuelroute.domain.fuel.CurveBlender
 import com.fuelroute.domain.fuel.DefaultCurve
 import com.fuelroute.domain.fuel.FuelModel
+import com.fuelroute.domain.fuel.GradeModel
 import com.fuelroute.domain.fuel.ModelConstants
+import com.fuelroute.domain.model.FuelType
 import com.fuelroute.domain.model.RouteCost
 import com.fuelroute.domain.model.SpeedPoint
 import com.fuelroute.domain.ranking.RouteRanker
@@ -78,6 +80,9 @@ data class RouteUiState(
     val departureTimeMs: Long? = null,
     val fuelPricePerLiter: Double = ModelConstants.DEFAULT_FUEL_PRICE,
     val learnedKm: Double = 0.0,
+    val hasManualCurve: Boolean = false,
+    /** [com.fuelroute.domain.fuel.FuelModelOverrides.effectiveFuelCorrection] used for this search. */
+    val fuelCorrectionFactor: Double = 1.0,
     val navigationApp: String = NAV_GOOGLE,
     val departLinkFeedback: Int? = null,
 )
@@ -506,6 +511,11 @@ class RouteViewModel @Inject constructor(
                     curve = curve,
                     idleLitersPerHour = learned.idleLitersPerHour ?: overrides.effectiveIdleLphDefault,
                     overrides = overrides,
+                    massKg = vehicle.massKg,
+                    energyDensityMjPerL = when (vehicle.fuelType) {
+                        FuelType.DIESEL -> GradeModel.DIESEL_MJ_PER_L
+                        FuelType.GASOLINE, FuelType.HYBRID -> GradeModel.GASOLINE_MJ_PER_L
+                    },
                 )
 
                 val originWaypoint = originWaypoint(state)
@@ -537,6 +547,8 @@ class RouteViewModel @Inject constructor(
                         selectedIndex = 0,
                         departureTimeMs = state.departureTimeMs,
                         learnedKm = learned.totalDistanceKm,
+                        hasManualCurve = vehicle.manualCurve?.size?.let { it >= 2 } ?: false,
+                        fuelCorrectionFactor = overrides.effectiveFuelCorrection,
                         fuelPricePerLiter = fuelPrice,
                         error = notice,
                     )

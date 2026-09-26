@@ -50,6 +50,22 @@ class ConsumptionCurveTest {
     }
 
     @Test
+    fun `an implausibly tiny rated consumption is clamped, not trusted`() {
+        // Regression: a corrupted/mistyped ratedCombinedL100 (e.g. 0.05) would otherwise make
+        // every route's fuel liters - and therefore its cost - near zero.
+        val clamped = DefaultCurve.forVehicle(0.05)
+        val floor = DefaultCurve.forVehicle(DefaultCurve.MIN_RATED_L100)
+        assertEquals(floor.litersPer100Km(70.0), clamped.litersPer100Km(70.0), 1e-9)
+    }
+
+    @Test
+    fun `an implausibly huge rated consumption is clamped, not trusted`() {
+        val clamped = DefaultCurve.forVehicle(500.0)
+        val ceiling = DefaultCurve.forVehicle(DefaultCurve.MAX_RATED_L100)
+        assertEquals(ceiling.litersPer100Km(70.0), clamped.litersPer100Km(70.0), 1e-9)
+    }
+
+    @Test
     fun `hybrid curve is flatter in traffic`() {
         val gasoline = DefaultCurve.forVehicle(7.0)
         val hybrid = DefaultCurve.forVehicle(7.0, com.fuelroute.domain.model.FuelType.HYBRID)

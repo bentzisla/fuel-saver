@@ -464,6 +464,16 @@
     <string name="route_delta_cost_short">+₪%1$s</string>
     <string name="route_delta_time_short">+%1$s דק׳</string>
     <string name="route_detail_fuel_label">דלק (%1$s ל׳ × ₪%2$s)</string>
+    <string name="route_detail_consumption_label">צריכה ממוצעת</string>
+    <string name="route_detail_consumption_value">%1$s ל׳/100 ק״מ</string>
+    <string name="route_detail_curve_source_label">מקור עקומת הצריכה</string>
+    <string name="route_detail_curve_source_learned">נלמד (%1$s ק״מ) + ברירת מחדל</string>
+    <string name="route_detail_curve_source_learned_manual">נלמד (%1$s ק״מ) + עקומה ידנית</string>
+    <string name="route_detail_curve_source_manual">עקומה ידנית</string>
+    <string name="route_detail_curve_source_default">ברירת מחדל</string>
+    <string name="route_detail_correction_label">מקדם כיול</string>
+    <string name="route_detail_correction_value">×%1$s</string>
+    <string name="route_grade_missing_hint">העלייה בגובה לאורך המסלול לא נכללה בחישוב הדלק</string>
     <string name="route_detail_trip_title">נתוני הנסיעה</string>
     <string name="route_traffic_title">נתוני תנועה</string>
     <string name="favorites_tap_to_rename">הקישו לשינוי השם</string>
