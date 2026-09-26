@@ -89,6 +89,11 @@ data class TripSnapshot(
     val actualCost: Double = 0.0,
     val pricePerLiterAtTrip: Double = 0.0,
     val linkedAtMs: Long? = null,
+    val source: String = "real",
+    val manualCost: Double? = null,
+    val manualDistanceKm: Double? = null,
+    val manualLitersPer100Km: Double? = null,
+    val manualEnteredAtMs: Long? = null,
 )
 
 @Serializable
@@ -224,6 +229,11 @@ fun TripEntity.toSnapshot() = TripSnapshot(
     actualCost = actualCost,
     pricePerLiterAtTrip = pricePerLiterAtTrip,
     linkedAtMs = linkedAtMs,
+    source = source,
+    manualCost = manualCost,
+    manualDistanceKm = manualDistanceKm,
+    manualLitersPer100Km = manualLitersPer100Km,
+    manualEnteredAtMs = manualEnteredAtMs,
 )
 
 /** Imported rows always get a fresh auto-generated id to avoid clashing with local rows. */
@@ -243,6 +253,11 @@ fun TripSnapshot.toEntity() = TripEntity(
     actualCost = actualCost,
     pricePerLiterAtTrip = pricePerLiterAtTrip,
     linkedAtMs = linkedAtMs,
+    source = source,
+    manualCost = manualCost,
+    manualDistanceKm = manualDistanceKm,
+    manualLitersPer100Km = manualLitersPer100Km,
+    manualEnteredAtMs = manualEnteredAtMs,
 )
 
 fun RefuelEntity.toSnapshot() = RefuelSnapshot(
