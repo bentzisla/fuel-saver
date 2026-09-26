@@ -217,6 +217,37 @@ class ObdEngineLifecycleTest {
     }
 
     @Test
+    fun `persistent garbage rides out a soft resync before the escalation ladder reconnects`() = runBlocking {
+        // Every speed poll comes back as unparseable garbage — NOT a hang: the adapter answers
+        // promptly, so the link never times out and never closes on its own. Before the
+        // escalation ladder existed, 5 such replies (~1.25s) tore the RFCOMM socket down; now it
+        // must ride out a soft, non-destructive resync first and only actually reconnect once
+        // the bad streak has run the full escalation window.
+        val garbled = AtomicBoolean(false)
+        val device = FakeElmDevice(responder = { cmd ->
+            if (garbled.get() && cmd == "010D") "GARBAGE" else FakeElmDevice.healthy(cmd)
+        })
+        val transport = StreamObdTransport(device)
+        val engine = newEngine()
+
+        engine.start(transport, vehicle)
+        engine.awaitStatus(ObdStatus.Connected, 10_000)
+        garbled.set(true)
+
+        // Comfortably past the old 5-reply trigger and past SOFT_RESYNC_AFTER_BAD_MS (3s), but
+        // short of RECONNECT_AFTER_BAD_MS (9s): must still be Connected on the ORIGINAL socket —
+        // the soft resync (drain + ATPC) must never touch it.
+        delay(6_000)
+        assertEquals("still connected on the original socket", ObdStatus.Connected, engine.live.value.status)
+        assertEquals("soft resync must never reconnect the socket", 1, transport.connectCount.get())
+
+        // Past the escalation window: the ladder must now have given up on this socket.
+        engine.awaitStatus(ObdStatus.Connecting, 6_000)
+        withTimeout(10_000) { while (transport.connectCount.get() < 2) delay(20) }
+        assertEquals(2, transport.connectCount.get())
+    }
+
+    @Test
     fun `stop returns promptly while a read is hung on a silent adapter`() = runBlocking {
         val silent = AtomicBoolean(false)
         val device = FakeElmDevice(responder = { cmd -> if (silent.get()) null else FakeElmDevice.healthy(cmd) })

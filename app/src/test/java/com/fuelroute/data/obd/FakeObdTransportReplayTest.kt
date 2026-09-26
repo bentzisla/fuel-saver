@@ -45,7 +45,7 @@ class FakeObdTransportReplayTest {
         assertTrue(transport.connect().isSuccess)
         assertTrue(transport.isConnected)
 
-        listOf("ATZ", "ATE0", "ATL0", "ATS1", "ATH0", "ATSP0", "ATST64", "0100", "0120", "0140", "0160")
+        listOf("ATZ", "ATE0", "ATL0", "ATS1", "ATH0", "ATSP0", "ATSTFA", "0100", "0120", "0140", "0160")
             .forEach { transport.sendCommand(it) }
 
         val vinReply = transport.sendCommand("0902")
