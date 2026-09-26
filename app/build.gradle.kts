@@ -15,6 +15,9 @@ val localProperties = Properties().apply {
     if (f.exists()) f.inputStream().use { load(it) }
 }
 val mapsApiKey: String = localProperties.getProperty("MAPS_API_KEY") ?: ""
+// Optional separate key for the Elevation web service (it does not honour Android-app key
+// restrictions); falls back to the Maps key when unset.
+val elevationApiKey: String = localProperties.getProperty("ELEVATION_API_KEY")?.takeIf { it.isNotBlank() } ?: mapsApiKey
 
 val privacyPolicyUrl: String = localProperties.getProperty("PRIVACY_POLICY_URL")
     ?: "https://github.com/bentzisla/fuel-saver/blob/master/docs/play/privacy-policy.md"
@@ -38,6 +41,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField("String", "MAPS_API_KEY", "\"$mapsApiKey\"")
+        buildConfigField("String", "ELEVATION_API_KEY", "\"$elevationApiKey\"")
         // Public URL of the privacy policy (docs/play/privacy-policy.md). Override with
         // `PRIVACY_POLICY_URL=...` in local.properties once it is hosted (e.g. GitHub Pages).
         buildConfigField("String", "PRIVACY_POLICY_URL", "\"$privacyPolicyUrl\"")

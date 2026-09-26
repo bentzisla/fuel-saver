@@ -32,6 +32,7 @@ A pre-push hook is installed (`.git/hooks/pre-push`) that runs `.\gradlew.bat te
 - Package: `com.fuelroute`. Layers: `ui/` (Compose + ViewModels), `domain/` (pure Kotlin, no Android imports), `data/` (Retrofit, DataStore, Room), `nav/`, `di/`, `car/` (Android Auto Car App Library templates).
 - `domain/` must stay free of Android dependencies so it is unit-testable on the JVM.
 - Kotlin DSL (`*.gradle.kts`) + version catalog `gradle/libs.versions.toml`.
+- Optional `ELEVATION_API_KEY=...` in `local.properties` for the Elevation API (grade term); falls back to `MAPS_API_KEY`.
 - API key lives in `local.properties` as `MAPS_API_KEY=...` and is read in `app/build.gradle.kts` as a
   `BuildConfig` field + manifest placeholder (no secrets plugin). Never commit it; never hardcode it.
 - Log tag: `FuelRoute`.
