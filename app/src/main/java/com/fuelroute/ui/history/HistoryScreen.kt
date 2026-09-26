@@ -20,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -235,9 +236,12 @@ private fun HistoryDialogs(state: HistoryUiState, viewModel: HistoryViewModel) {
         )
     }
 
-    if (state.manualEntryTripId != null) {
+    state.manualEntryEntry?.let { entry ->
         ManualCostDialog(
             pricePerLiter = state.pricePerLiter,
+            initialCost = entry.manualCost ?: entry.actualCost?.takeIf { entry.hasActual },
+            initialDistanceKm = entry.manualDistanceKm,
+            initialLitersPer100Km = entry.manualLitersPer100Km,
             onSave = viewModel::saveManualCost,
             onDismiss = viewModel::dismissManualCost,
         )
@@ -465,6 +469,19 @@ private fun RideDetailSheet(
                 if (entry.hasManualEntry) StatusPill(stringResource(R.string.history_manual_badge), tone = PillTone.Accent)
             }
 
+            // A search still waiting on a real drive is the everyday case for this action, so it
+            // gets a prominent, dedicated call to action instead of living only in the actions
+            // list below (see AGENTS.md card: manual cost must be discoverable, not buried).
+            if (entry.rideState == RideState.WAITING_OBD) {
+                Button(onClick = onManualCost, modifier = Modifier.fillMaxWidth()) {
+                    Icon(painterResource(R.drawable.ic_gas_station), contentDescription = null)
+                    Text(
+                        text = stringResource(R.string.history_manual_prompt_waiting),
+                        modifier = Modifier.padding(start = Dimens.xs),
+                    )
+                }
+            }
+
             SectionTitle(stringResource(R.string.history_detail_title))
             KeyValueRow(
                 label = stringResource(R.string.history_predicted_label),
@@ -520,9 +537,17 @@ private fun RideDetailSheet(
 
             SectionTitle(stringResource(R.string.history_actions_title))
             Column {
-                if (entry.canEnterManualCost) {
+                // Already offered above as the prominent call to action for a ride still
+                // waiting on OBD; showing it again here would just be noise.
+                if (entry.canEnterManualCost && entry.rideState != RideState.WAITING_OBD) {
                     ListRow(
-                        title = stringResource(R.string.history_manual_action),
+                        title = stringResource(
+                            if (entry.actualCost != null) {
+                                R.string.history_manual_edit_action
+                            } else {
+                                R.string.history_manual_action
+                            },
+                        ),
                         leading = { Icon(painterResource(R.drawable.ic_gas_station), contentDescription = null) },
                         onClick = onManualCost,
                     )
@@ -561,13 +586,18 @@ private fun RideDetailSheet(
 @Composable
 private fun ManualCostDialog(
     pricePerLiter: Double,
+    initialCost: Double? = null,
+    initialDistanceKm: Double? = null,
+    initialLitersPer100Km: Double? = null,
     onSave: (ManualCostInput) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var consumptionMode by remember { mutableStateOf(false) }
-    var costText by remember { mutableStateOf("") }
-    var distanceText by remember { mutableStateOf("") }
-    var consumptionText by remember { mutableStateOf("") }
+    // Prefilling in consumption mode only makes sense when both fields it needs were actually
+    // recorded; a bare direct-mode cost (or an OBD-derived one with neither) opens in direct mode.
+    var consumptionMode by remember { mutableStateOf(initialDistanceKm != null && initialLitersPer100Km != null) }
+    var costText by remember { mutableStateOf(initialCost?.let { fmt(it, 2) } ?: "") }
+    var distanceText by remember { mutableStateOf(initialDistanceKm?.let { fmt(it, 1) } ?: "") }
+    var consumptionText by remember { mutableStateOf(initialLitersPer100Km?.let { fmt(it, 1) } ?: "") }
 
     val cost = costText.toDoubleOrNull()
     val distance = distanceText.toDoubleOrNull()

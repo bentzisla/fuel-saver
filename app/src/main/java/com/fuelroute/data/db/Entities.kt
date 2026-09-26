@@ -53,10 +53,15 @@ data class SpeedBinStatsEntity(
     val samples: Int,
 )
 
-/** Values of [TripEntity.source]: a real OBD drive vs. a simulated "הדגמה" ride. */
+/**
+ * Values of [TripEntity.source]: a real OBD drive, a simulated "הדגמה" ride, or a trip that
+ * exists only to hold a manual post-drive cost entry for a search that was never OBD-logged
+ * (see [com.fuelroute.data.history.DriveHistoryRepository.recordManualCost]).
+ */
 object TripSource {
     const val REAL = "real"
     const val DEMO = "demo"
+    const val MANUAL = "manual"
 }
 
 @Entity(
