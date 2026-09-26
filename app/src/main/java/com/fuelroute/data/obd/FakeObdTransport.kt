@@ -86,7 +86,7 @@ class FakeObdTransport(
             "ATH0" to "OK",
             "ATSP0" to "OK",
             "ATAT1" to "OK",
-            "ATST64" to "OK",
+            "ATSTFA" to "OK",
             "ATWS" to "ELM327 v1.5",
             "ATD" to "OK",
             "ATPC" to "OK",
