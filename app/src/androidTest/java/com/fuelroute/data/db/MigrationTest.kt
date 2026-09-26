@@ -47,8 +47,15 @@ class MigrationTest {
         }
     }
 
+    @Test
+    fun migrate9To10AddsVehicleMass() {
+        helper.createDatabase(DB_9_TO_10, 9).close()
+        helper.runMigrationsAndValidate(DB_9_TO_10, 10, true, Migrations.MIGRATION_9_10)
+    }
+
     private companion object {
         const val DB_6_TO_9 = "migration-test-6-9"
+        const val DB_9_TO_10 = "migration-test-9-10"
         const val DB_8_TO_9 = "migration-test-8-9"
 
         val EXPECTED_INDICES = listOf(
