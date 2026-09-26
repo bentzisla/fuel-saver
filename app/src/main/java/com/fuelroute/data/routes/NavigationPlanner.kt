@@ -15,7 +15,9 @@ import javax.inject.Singleton
  */
 @Singleton
 class NavigationPlanner @Inject constructor(
-    private val routes: RoutesRepository,
+    // Plain cached routes, not the grade-enriched binding: verifying waypoints only compares
+    // geometry, so an Elevation API call per verification would be wasted quota.
+    private val routes: CachingRoutesRepository,
 ) {
 
     private val planner = WaypointPlanner()
