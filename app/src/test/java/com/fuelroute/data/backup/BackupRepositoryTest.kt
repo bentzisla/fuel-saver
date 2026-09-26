@@ -178,6 +178,46 @@ class BackupRepositoryTest {
         assertEquals(0, dest.runner.invocations)
     }
 
+    @Test
+    fun `export and import preserves trip source and manual cost fields`() = runTest(timeout = 5.minutes) {
+        val source = Harness().apply {
+            seed()
+            // Add a trip with manual cost fields
+            trips += TripEntity(
+                vehicleId = "v1",
+                startedAtMs = 10_000L,
+                endedAtMs = 11_000L,
+                distanceKm = 22.0,
+                fuelL = 1.6,
+                avgSpeedKmh = 65.0,
+                maxSpeedKmh = 115.0,
+                idleSeconds = 7.0,
+                source = "manual",
+                manualCost = 12.5,
+                manualDistanceKm = 23.0,
+                manualLitersPer100Km = 6.96,
+                manualEnteredAtMs = 10_500L,
+            )
+        }
+        val exported = source.repo.export()
+
+        val dest = Harness()
+        val result = dest.repo.import(exported)
+
+        assertTrue(result.success)
+        assertEquals(source.trips.size, dest.trips.size)
+
+        // Find the manual trip in both source and destination
+        val sourceManualTrip = source.trips.first { it.source == "manual" }
+        val destManualTrip = dest.trips.first { it.source == "manual" }
+
+        assertEquals(sourceManualTrip.source, destManualTrip.source)
+        assertEquals(sourceManualTrip.manualCost, destManualTrip.manualCost, 1e-9)
+        assertEquals(sourceManualTrip.manualDistanceKm, destManualTrip.manualDistanceKm, 1e-9)
+        assertEquals(sourceManualTrip.manualLitersPer100Km, destManualTrip.manualLitersPer100Km, 1e-9)
+        assertEquals(sourceManualTrip.manualEnteredAtMs, destManualTrip.manualEnteredAtMs)
+    }
+
     private fun assertNothingWritten(harness: Harness) {
         assertTrue(harness.vehicles.isEmpty())
         assertTrue(harness.bins.isEmpty())
