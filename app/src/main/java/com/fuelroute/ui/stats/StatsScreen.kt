@@ -299,11 +299,17 @@ private fun ConnectionCard(
             }
 
             state.status == ObdStatus.Connected -> {
+                // The link itself is fine here — a persistent `lastError` in this branch is
+                // only ever "NO DATA" (see ObdEngine): the RFCOMM link is up but the ECU stays
+                // quiet, most commonly because the ignition is off while the dongle keeps
+                // itself powered from the OBD port. Surfacing it (instead of staying silent)
+                // tells the user why the live numbers stopped moving without implying the
+                // connection dropped.
                 StatusLine(
                     dotColor = FuelTheme.colors.positive,
                     title = state.deviceName?.let { stringResource(R.string.stats_status_connected, it) }
                         ?: stringResource(R.string.stats_status_connected_plain),
-                    subtitle = null,
+                    subtitle = state.lastError?.let { obdErrorText(it) },
                     trailing = {
                         TextButton(onClick = onDisconnect) { Text(stringResource(R.string.stats_disconnect)) }
                     },

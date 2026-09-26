@@ -27,7 +27,16 @@ object PidParser {
         "ACT ALERT",
         "LVP RESET",
         "RTR TIMEOUT",
+        // Frame-corruption markers (see [CORRUPT_REPLY_MARKERS]) that do not contain the
+        // substring "ERROR": without these, `isAcceptedAdapterBanner` used to treat a
+        // "BUFFER FULL"/"BUS BUSY" reset reply as a valid adapter banner and let init
+        // proceed against a link that had just told us its last frame was garbage.
+        "BUFFER FULL",
+        "BUS BUSY",
     )
+
+    /** `ERRnn` adapter self-diagnostic codes; also treated as a no-answer marker by [isError]. */
+    private val ELM_ERROR_CODE = Regex("ERR\\d{2}")
 
     fun clean(raw: String): String = raw
         .replace('\r', ' ')
@@ -38,7 +47,7 @@ object PidParser {
     fun isError(raw: String): Boolean {
         val cleaned = clean(raw).uppercase()
         if (cleaned.isEmpty()) return true
-        return ERROR_MARKERS.any { cleaned.contains(it) }
+        return ERROR_MARKERS.any { cleaned.contains(it) } || ELM_ERROR_CODE.containsMatchIn(cleaned)
     }
 
     /**
@@ -56,7 +65,6 @@ object PidParser {
         "BUS BUSY",
         "FB ERROR",
     )
-    private val ELM_ERROR_CODE = Regex("ERR\\d{2}")
 
     /** `0:` / `1:` ... prefix of a CAN ISO-TP multi-frame line (ATH0, ATCAF1). */
     private val ISO_TP_INDEX = Regex("^([0-9A-F]):\\s*(.*)$")
