@@ -185,7 +185,7 @@
     <string name="stats_error_init">שגיאת אתחול מתאם</string>
     <string name="stats_error_atz">שגיאת ATZ — הדונגל לא זוהה</string>
     <string name="stats_error_searching">בדיקת פרוטוקול…</string>
-    <string name="stats_error_no_data">אין נתונים מהדונגל</string>
+    <string name="stats_error_no_data">מחשב הרכב לא מגיב (המנוע כבוי?)</string>
     <string name="stats_error_parse">תשובה לא מזוהה מהדונגל</string>
     <string name="stats_error_timeout">פסק זמן בתקשורת עם הדונגל</string>
     <string name="stats_error_reconnect">מנסה להתחבר מחדש…</string>

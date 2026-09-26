@@ -29,6 +29,18 @@ class ElmProtocolBannerTest {
     }
 
     @Test
+    fun `rejects frame-corruption replies that do not contain the word ERROR`() {
+        // These used to slip past isAcceptedAdapterBanner (which only ever called
+        // PidParser.isError, and its ERROR_MARKERS list was missing exactly these two), so a
+        // reset that landed on a corrupted/backed-up link was mistaken for a fresh, healthy
+        // banner and init proceeded against a socket that had just told us it was garbled.
+        assertFalse(ElmProtocol.isAcceptedAdapterBanner("BUFFER FULL"))
+        assertFalse(ElmProtocol.isAcceptedAdapterBanner("BUS BUSY"))
+        // Adapter self-diagnostic codes (ELM327 datasheet ERR91/ERR92/...) are also not a banner.
+        assertFalse(ElmProtocol.isAcceptedAdapterBanner("ERR91"))
+    }
+
+    @Test
     fun `atz gets a longer read window than the other init commands`() {
         assertTrue(ObdConnectionPolicy.initReadTimeoutMs("ATZ") >= 2_000L)
         assertTrue(
