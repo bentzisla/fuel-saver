@@ -50,7 +50,7 @@ class SimulatedObdTransport(
             "ATRV" -> String.format(Locale.US, "%.1fV", 12.4)
             "ATZ", "ATWS" -> "ELM327 v1.5"
             "ATDPN" -> "A6"
-            "ATE0", "ATL0", "ATS0", "ATS1", "ATH0", "ATSP0", "ATAT1", "ATST64", "ATD", "ATPC" -> "OK"
+            "ATE0", "ATL0", "ATS0", "ATS1", "ATH0", "ATSP0", "ATAT1", "ATSTFA", "ATD", "ATPC" -> "OK"
             else -> "NO DATA"
         }
     }
