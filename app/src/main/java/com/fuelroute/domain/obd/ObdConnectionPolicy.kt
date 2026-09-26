@@ -172,6 +172,82 @@ object ObdConnectionPolicy {
     fun shouldReconnect(consecutiveFailures: Int): Boolean =
         consecutiveFailures >= RECONNECT_AFTER_FAILURES
 
+    // --- Mid-drive bad-reply escalation ladder ----------------------------------------------
+    //
+    // [shouldReconnect] alone used to be the whole story: 5 consecutive bad replies and the
+    // run loop tore the RFCOMM socket down and reconnected. On a cheap single-channel clone on
+    // a slow bus (K-line/ISO9141/KWP2000, ~300-500ms per PID) that is trigger-happy — and once
+    // any ONE command truly times out, [com.fuelroute.data.obd.ElmLink]'s own watchdog has
+    // *already* closed the socket to unblock the parked read (that is the one reliable way to
+    // free a thread stuck in a non-cancellable `BluetoothSocket.read()`), so every subsequent
+    // command in the same streak returns instantly, and the socket is dead well before the
+    // engine "decides" to reconnect. There was no cheaper recovery in between a single bad
+    // reply and a full teardown.
+    //
+    // This ladder adds a real middle step and switches the final decision from a raw count to
+    // an elapsed-time window, so a short run of bad replies (a couple of genuinely slow PIDs,
+    // a late/mis-synced reply) gets time to clear on its own, or a chance at a cheap
+    // non-destructive resync, before the RFCOMM link is torn down.
+
+    /**
+     * Minimum duration of an unbroken bad-reply streak, with the transport link still reporting
+     * open, before trying a non-destructive resync (drain + soft `ATPC`) instead of jumping to
+     * a full reconnect. Below this the streak is treated as a transient blip.
+     */
+    const val SOFT_RESYNC_AFTER_BAD_MS = 3_000L
+
+    /**
+     * Deadline for the non-destructive resync command itself (`ATPC` via the soft, non-blocking
+     * exchange): short, because it must not itself burn into the reconnect budget below.
+     */
+    const val SOFT_RESYNC_TIMEOUT_MS = 500L
+
+    /**
+     * Only once a bad streak has lasted this long — with no valid reply in all that time — is a
+     * full RFCOMM teardown + reconnect worth its cost. Chosen at the low end of the requested
+     * 8-10s window: long enough that a slow-but-alive bus (or the one-shot soft resync above)
+     * has a real chance to recover, short enough that a genuinely dead link is not mistaken for
+     * a merely slow one for too long.
+     */
+    const val RECONNECT_AFTER_BAD_MS = 9_000L
+
+    /** Next step of the mid-drive bad-reply escalation ladder (see [nextBadStreakAction]). */
+    enum class BadStreakAction {
+        /** Keep polling; the streak has not lasted long enough to act on yet. */
+        WAIT,
+
+        /** Try a one-shot non-destructive resync (drain + soft `ATPC`) on the SAME socket. */
+        SOFT_RESYNC,
+
+        /** Give up on this socket: tear it down and reconnect. */
+        RECONNECT,
+    }
+
+    /**
+     * Decides the next escalation step for an unbroken bad-reply streak.
+     *
+     * @param badStreakMs how long the current streak has run (`nowMs - streakStartedMs`).
+     * @param linkOpen whether the transport still reports its link open. When false, the
+     *   per-command watchdog already tore the socket down chasing a genuine timeout — there is
+     *   no cheaper option left, so this returns [BadStreakAction.RECONNECT] immediately no
+     *   matter how short the streak, instead of waiting out the rest of [RECONNECT_AFTER_BAD_MS]
+     *   against a socket that no longer exists.
+     * @param softResyncAttempted whether [BadStreakAction.SOFT_RESYNC] was already acted on once
+     *   for this streak — it is a one-shot try, not repeated every poll.
+     */
+    fun nextBadStreakAction(
+        badStreakMs: Long,
+        linkOpen: Boolean,
+        softResyncAttempted: Boolean,
+    ): BadStreakAction {
+        if (!linkOpen) return BadStreakAction.RECONNECT
+        return when {
+            badStreakMs >= RECONNECT_AFTER_BAD_MS -> BadStreakAction.RECONNECT
+            badStreakMs >= SOFT_RESYNC_AFTER_BAD_MS && !softResyncAttempted -> BadStreakAction.SOFT_RESYNC
+            else -> BadStreakAction.WAIT
+        }
+    }
+
     /**
      * True while a dropped link should still be re-established: reconnect attempts remain
      * AND the dongle is still ACL-connected. Hammering an absent dongle is pointless.

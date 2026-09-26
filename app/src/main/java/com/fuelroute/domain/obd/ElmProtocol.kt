@@ -65,9 +65,23 @@ object ElmProtocol {
         "ATL0",  // linefeeds off
         "ATS1", // spaces ON — PidParser tokenizes space-delimited hex; ATS0 would break parsing
         "ATH0",  // headers off
-        "ATAT1", // adaptive timing on (reduces clone timeouts)
+        "ATAT1", // adaptive timing on: AT1 (not the more aggressive AT2 — AT2 shortens the
+                 // adapter's own per-request wait further, which is the wrong direction for a
+                 // flaky clone) lets the adapter grow its internal wait, up to the ATST ceiling
+                 // below, when it observes slow replies.
         "ATSP0", // auto-detect protocol
-        "ATST64", // set 64 ms timeout (clone-friendly)
+        // ATST is the ELM327's own bus-response timeout ceiling (each unit is ~4 ms), i.e. the
+        // longest the ADAPTER itself will wait for the ECU before it gives up and answers
+        // "NO DATA" — separate from, and much shorter than, our own COMMAND_TIMEOUT_MS socket
+        // deadline. 0x64 (~400ms) left almost no headroom for a slow K-line/ISO9141/KWP2000
+        // bus, where a legitimate reply can take 300-500ms per PID: the adapter would declare
+        // "NO DATA" for a perfectly healthy but slow ECU before adaptive timing (ATAT1) got a
+        // chance to widen its own estimate. 0xFA (~1000ms) gives real headroom while staying
+        // well under our 10s software deadline, so a slow-but-alive bus gets an honest
+        // "NO DATA" from the adapter (harmless — see ObdEngine's NO-DATA handling) instead of
+        // us hard-timing-out and tearing the RFCOMM socket down for a reply that was still on
+        // its way.
+        "ATSTFA",
     )
 
     /** The nominal full init sequence: one reset followed by [configurationCommands]. */

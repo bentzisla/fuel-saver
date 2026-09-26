@@ -617,6 +617,12 @@ class ObdEngine @Inject constructor(
         var consecutiveBad = 0
         // NO DATA (ECU quiet, bus up) tracked separately — see the comment at its use below.
         var consecutiveNoData = 0
+        // Mid-drive bad-reply escalation ladder (ObdConnectionPolicy.nextBadStreakAction): when
+        // the current unbroken bad streak started, and whether its one-shot soft resync (drain
+        // + ATPC, no socket teardown) has already been tried. Both reset the moment a good
+        // reply — or a NO-DATA reply, which is not a link problem — arrives.
+        var badStreakStartedMs: Long? = null
+        var softResyncAttemptedForStreak = false
         var pidNegotiationFailed = false
         var supportedPids: Set<Int> = emptySet()
         // Samples buffered since the last flush; the run loop inserts them in one batch instead
@@ -808,23 +814,66 @@ class ObdEngine @Inject constructor(
                 // (b) reset `rpmNullSinceMs` on every such reconnect, so the 60 s ignition-off
                 // timeout could never accumulate and the loop never stopped itself. It is
                 // tracked with its own counter so it can still surface to the UI, just without
-                // ever counting toward `consecutiveBad` / [ObdConnectionPolicy.shouldReconnect].
+                // ever counting toward `consecutiveBad` / the [ObdConnectionPolicy.
+                // nextBadStreakAction] escalation ladder below.
                 val noDataNow = rawSpeed.contains("NO DATA", ignoreCase = true) ||
                     rawSpeed.contains("NODATA", ignoreCase = true) ||
                     rawSpeed.contains("UNABLE TO CONNECT", ignoreCase = true)
+                // Read once and reused below: a HARD timeout on ANY of this iteration's polls —
+                // not just the speed poll classified here — already closed the link via
+                // ElmLink's watchdog by the time we get here (speed is only sent first; a later
+                // PID, e.g. RPM or MAF, timing out is just as real a link death, and rawSpeed
+                // alone would otherwise miss it for a whole extra 250ms poll). That case is
+                // unambiguous and takes priority over anything the speed reply itself said.
+                val linkOpen = transport.isConnected
                 val badReason = when {
+                    !linkOpen -> "TIMEOUT"
                     noDataNow -> "NO DATA"
                     rawSpeed.contains("SEARCHING", ignoreCase = true) -> ObdConnectionPolicy.ERROR_SEARCHING
                     rawSample.speedKmh == null && rawSpeed.isNotBlank() -> "PARSE"
-                    rawSpeed.isBlank() -> "TIMEOUT"
                     else -> null
                 }
-                if (noDataNow) {
+                if (!linkOpen) {
+                    consecutiveNoData = 0
+                    consecutiveBad++
+                    if (badStreakStartedMs == null) {
+                        badStreakStartedMs = now
+                        softResyncAttemptedForStreak = false
+                        Log.w(
+                            TAG,
+                            "bad-reply streak started: link already closed this poll " +
+                                "(last speed raw=${ElmLink.printable(rawSpeed)}, " +
+                                "rpm raw=${ElmLink.printable(rawRpm)})",
+                        )
+                    }
+                } else if (noDataNow) {
                     consecutiveBad = 0
                     consecutiveNoData++
+                    if (badStreakStartedMs != null) {
+                        Log.i(TAG, "bad-reply streak cleared by a NO DATA reply (not a link problem)")
+                    }
+                    badStreakStartedMs = null
+                    softResyncAttemptedForStreak = false
+                } else if (badReason != null) {
+                    consecutiveNoData = 0
+                    consecutiveBad++
+                    if (badStreakStartedMs == null) {
+                        badStreakStartedMs = now
+                        softResyncAttemptedForStreak = false
+                        Log.w(
+                            TAG,
+                            "bad-reply streak started: $badReason on speed poll " +
+                                "(raw=${ElmLink.printable(rawSpeed)}, linkOpen=$linkOpen)",
+                        )
+                    }
                 } else {
                     consecutiveNoData = 0
-                    if (badReason != null) consecutiveBad++ else consecutiveBad = 0
+                    consecutiveBad = 0
+                    if (badStreakStartedMs != null) {
+                        Log.i(TAG, "bad-reply streak cleared after ${now - badStreakStartedMs!!}ms by a good reply")
+                    }
+                    badStreakStartedMs = null
+                    softResyncAttemptedForStreak = false
                 }
                 val diagError = when {
                     consecutiveBad >= CONSECUTIVE_ERROR_THRESHOLD -> badReason
@@ -859,55 +908,111 @@ class ObdEngine @Inject constructor(
 
                 lastSample = sample
 
-                if (ObdConnectionPolicy.shouldReconnect(consecutiveBad)) {
-                    Log.w(TAG, "reconnecting after $consecutiveBad consecutive bad speed replies")
-                    transport.disconnect()
-                    publish(runId) {
-                        it.copy(
-                            status = ObdStatus.Connecting,
-                            lastError = "RECONNECT",
-                            connectionStage = ObdConnectStage.ConnectingSocket,
-                            connectingSinceMs = System.currentTimeMillis(),
+                // Mid-drive bad-reply escalation ladder — see ObdConnectionPolicy.
+                // nextBadStreakAction for the full rationale. A streak only exists while
+                // `badStreakStartedMs != null` (set above whenever `badReason` is a real link
+                // problem, i.e. never for NO DATA).
+                badStreakStartedMs?.let { streakStartedMs ->
+                    val badStreakMs = now - streakStartedMs
+                    when (
+                        ObdConnectionPolicy.nextBadStreakAction(
+                            badStreakMs = badStreakMs,
+                            linkOpen = linkOpen,
+                            softResyncAttempted = softResyncAttemptedForStreak,
                         )
-                    }
-                    if (!reconnectWithBackoff(transport)) {
-                        if (stopRequested || !runGeneration.isCurrent(runId)) return
-                        publish(runId) {
-                            it.copy(
-                                status = ObdStatus.Error,
-                                lastError = "RECONNECT FAILED",
-                                connectionStage = null,
-                                connectingSinceMs = null,
+                    ) {
+                        ObdConnectionPolicy.BadStreakAction.WAIT -> Unit
+
+                        ObdConnectionPolicy.BadStreakAction.SOFT_RESYNC -> {
+                            softResyncAttemptedForStreak = true
+                            Log.w(
+                                TAG,
+                                "bad-reply streak ${badStreakMs}ms ($badReason, last raw=" +
+                                    "${ElmLink.printable(rawSpeed)}) — soft resync (drain + ATPC), " +
+                                    "socket kept open",
+                            )
+                            // Non-destructive: a bare CR resyncs to the next `>` prompt (exactly
+                            // the line-clear used on init), then ATPC idles the adapter's
+                            // protocol state — neither ever closes the RFCOMM socket, even if it
+                            // times out itself (`sendSoft`, unlike `sendCommand`, never does).
+                            transport.sendSoft("", ObdConnectionPolicy.SOFT_RESYNC_TIMEOUT_MS)
+                            transport.sendSoft(
+                                ElmProtocol.CMD_PROTOCOL_CLOSE,
+                                ObdConnectionPolicy.SOFT_RESYNC_TIMEOUT_MS,
                             )
                         }
-                        return
+
+                        ObdConnectionPolicy.BadStreakAction.RECONNECT -> {
+                            Log.w(
+                                TAG,
+                                "reconnecting: bad-reply streak ${badStreakMs}ms, linkOpen=$linkOpen, " +
+                                    "reason=$badReason, consecutiveBad=$consecutiveBad, " +
+                                    "softResyncTried=$softResyncAttemptedForStreak, " +
+                                    "last raw speed=${ElmLink.printable(rawSpeed)} rpm=" +
+                                    "${ElmLink.printable(rawRpm)} coolant=${ElmLink.printable(rawCoolant)}",
+                            )
+                            transport.disconnect()
+                            publish(runId) {
+                                it.copy(
+                                    status = ObdStatus.Connecting,
+                                    lastError = "RECONNECT",
+                                    connectionStage = ObdConnectStage.ConnectingSocket,
+                                    connectingSinceMs = System.currentTimeMillis(),
+                                )
+                            }
+                            val reconnectStartedMs = System.currentTimeMillis()
+                            if (!reconnectWithBackoff(transport)) {
+                                if (stopRequested || !runGeneration.isCurrent(runId)) return
+                                Log.e(
+                                    TAG,
+                                    "reconnect failed after ${System.currentTimeMillis() - reconnectStartedMs}ms " +
+                                        "of retries — giving up",
+                                )
+                                publish(runId) {
+                                    it.copy(
+                                        status = ObdStatus.Error,
+                                        lastError = "RECONNECT FAILED",
+                                        connectionStage = null,
+                                        connectingSinceMs = null,
+                                    )
+                                }
+                                return
+                            }
+                            Log.i(
+                                TAG,
+                                "socket reconnected after ${System.currentTimeMillis() - reconnectStartedMs}ms " +
+                                    "— re-initializing",
+                            )
+                            // A fresh socket must be re-initialized exactly like a first connect;
+                            // an adapter that no longer answers ATZ is a real failure, not a retry.
+                            val initError = initializeWithReopen(transport, runId)
+                            if (initError != null) {
+                                if (!isStale(runId)) publishError(runId, initError)
+                                return
+                            }
+                            settleProtocol(transport, runId)
+                            // Re-negotiate once on reconnect so a stale bitmap (or a failed initial
+                            // negotiation) is refreshed against the live socket.
+                            val renegotiation = negotiatePids(transport, runId)
+                            supportedPids = renegotiation.pids
+                            pidNegotiationFailed = renegotiation.negotiationFailed
+                            publish(runId) {
+                                it.copy(
+                                    status = ObdStatus.Connected,
+                                    supportedPids = supportedPids,
+                                    connectionStage = null,
+                                    connectingSinceMs = null,
+                                )
+                            }
+                            consecutiveBad = 0
+                            consecutiveNoData = 0
+                            badStreakStartedMs = null
+                            softResyncAttemptedForStreak = false
+                            rpmNullSinceMs = null
+                            lastSample = null
+                            processor.resetTiming()
+                        }
                     }
-                    // A fresh socket must be re-initialized exactly like a first connect;
-                    // an adapter that no longer answers ATZ is a real failure, not a retry.
-                    val initError = initializeWithReopen(transport, runId)
-                    if (initError != null) {
-                        if (!isStale(runId)) publishError(runId, initError)
-                        return
-                    }
-                    settleProtocol(transport, runId)
-                    // Re-negotiate once on reconnect so a stale bitmap (or a failed initial
-                    // negotiation) is refreshed against the live socket.
-                    val renegotiation = negotiatePids(transport, runId)
-                    supportedPids = renegotiation.pids
-                    pidNegotiationFailed = renegotiation.negotiationFailed
-                    publish(runId) {
-                        it.copy(
-                            status = ObdStatus.Connected,
-                            supportedPids = supportedPids,
-                            connectionStage = null,
-                            connectingSinceMs = null,
-                        )
-                    }
-                    consecutiveBad = 0
-                    consecutiveNoData = 0
-                    rpmNullSinceMs = null
-                    lastSample = null
-                    processor.resetTiming()
                 }
 
                 if (ObdConnectionPolicy.shouldStopForIgnitionOff(rpmNullSinceMs, now, batteryVoltage)) {
