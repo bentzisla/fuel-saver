@@ -11,6 +11,8 @@
 
     <!-- Manual post-drive cost entry (no OBD) -->
     <string name="history_manual_action">הזן עלות בפועל</string>
+    <string name="history_manual_edit_action">עריכת עלות בפועל</string>
+    <string name="history_manual_prompt_waiting">כמה עלתה הנסיעה בפועל?</string>
     <string name="history_manual_title">עלות בפועל</string>
     <string name="history_manual_mode_direct">עלות ישירה (₪)</string>
     <string name="history_manual_mode_consumption">מרחק + צריכה</string>
