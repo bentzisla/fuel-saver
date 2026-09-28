@@ -44,13 +44,21 @@ object TripSplitCalculator {
      * duration), so callers can reject an invalid picker position.
      */
     fun split(trip: TripTotals, splitAtMs: Long): Pair<TripTotals, TripTotals>? {
-        val totalMs = trip.endedAtMs - trip.startedAtMs
-        if (totalMs <= 0L) return null
-        if (splitAtMs <= trip.startedAtMs || splitAtMs >= trip.endedAtMs) return null
-        val firstFraction = (splitAtMs - trip.startedAtMs).toDouble() / totalMs
+        val firstFraction = splitFraction(trip.startedAtMs, trip.endedAtMs, splitAtMs) ?: return null
         val secondFraction = 1.0 - firstFraction
         return part(trip, trip.startedAtMs, splitAtMs, firstFraction) to
             part(trip, splitAtMs, trip.endedAtMs, secondFraction)
+    }
+
+    /**
+     * Share of the drive's elapsed time before [splitAtMs] (the first part's share of everything
+     * [split] apportions), or null when [splitAtMs] is not strictly inside the drive.
+     */
+    fun splitFraction(startedAtMs: Long, endedAtMs: Long, splitAtMs: Long): Double? {
+        val totalMs = endedAtMs - startedAtMs
+        if (totalMs <= 0L) return null
+        if (splitAtMs <= startedAtMs || splitAtMs >= endedAtMs) return null
+        return (splitAtMs - startedAtMs).toDouble() / totalMs
     }
 
     private fun part(trip: TripTotals, startMs: Long, endMs: Long, fraction: Double) = TripTotals(

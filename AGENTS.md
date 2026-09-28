@@ -40,6 +40,7 @@ No AI attribution in git history: commit messages and PR descriptions must not c
 - Log tag: `FuelRoute`.
 - UI strings in `res/values/strings.xml` (Hebrew primary, RTL supported).
 - Prefer `StateFlow` + `collectAsStateWithLifecycle` for UI state; coroutines for async; no RxJava.
+- History is one row per ride: record route searches via `RouteSearchRepository.record` (`domain/history/SearchRecordPolicy`), not `add`. Read trips through `data/history/TripReadout` (manual entry wins, raw OBD columns untouched).
 - Tests: JUnit4 + MockK. Real Routes API JSON responses are saved under `app/src/test/resources/fixtures/` and used for parser + fuel-model tests.
 - WARNING: the project dir must remain **ASCII-only** (currently `C:\dev\fuel`).
   `AGP` refuses non-ASCII paths and Gradle's test worker classpath argfile drops non-ASCII bytes, causing

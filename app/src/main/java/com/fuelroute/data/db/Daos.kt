@@ -226,10 +226,13 @@ interface TripDao {
     )
     suspend fun closeOpenTrips(endedAtMs: Long): Int
 
-    /** Sum of trip fuel recorded inside the [fromMs, toMs] window (inclusive). */
+    /**
+     * Sum of OBD-measured trip fuel inside the [fromMs, toMs] window (inclusive). Only real drives
+     * count: a simulated demo ride burned no fuel, and a manual entry was never measured.
+     */
     @Query(
         "SELECT COALESCE(SUM(fuelL), 0.0) FROM trip WHERE vehicleId = :vehicleId " +
-            "AND endedAtMs >= :fromMs AND startedAtMs <= :toMs"
+            "AND source = 'real' AND endedAtMs >= :fromMs AND startedAtMs <= :toMs"
     )
     suspend fun fuelBetween(vehicleId: String, fromMs: Long, toMs: Long): Double
 
@@ -367,8 +370,19 @@ interface RouteSearchDao {
         lng: Double?,
     )
 
+    /** Overwrites an existing search in place (a refresh of the same ride keeps its id). */
+    @Update
+    suspend fun update(search: RouteSearchEntity)
+
     @Query("SELECT * FROM route_search ORDER BY timestampMs DESC LIMIT :limit")
     suspend fun recent(limit: Int): List<RouteSearchEntity>
+
+    @Query("SELECT * FROM route_search ORDER BY timestampMs DESC LIMIT 1")
+    suspend fun latest(): RouteSearchEntity?
+
+    /** True when some trip already owns [id] (the search was driven). */
+    @Query("SELECT EXISTS(SELECT 1 FROM trip WHERE routeSearchId = :id)")
+    suspend fun isLinked(id: Long): Boolean
 
     @Query("SELECT * FROM route_search WHERE id = :id")
     suspend fun findById(id: Long): RouteSearchEntity?

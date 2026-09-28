@@ -6,8 +6,9 @@ import com.fuelroute.data.db.TripDao
 import com.fuelroute.data.db.TripEntity
 import com.fuelroute.data.db.TripSource
 import com.fuelroute.domain.history.DriveOutcome
-import com.fuelroute.domain.history.ManualCostCalculator
 import com.fuelroute.domain.history.PredictionAccuracy
+import com.fuelroute.domain.history.SearchKey
+import com.fuelroute.domain.history.SearchRecordPolicy
 import com.fuelroute.domain.history.TripSplitCalculator
 import com.fuelroute.domain.history.TripTotals
 import com.fuelroute.domain.learning.LearnedDataPlausibility
@@ -70,8 +71,21 @@ data class DriveHistoryEntry(
     val manualCost: Double? = null,
     val manualDistanceKm: Double? = null,
     val manualLitersPer100Km: Double? = null,
+    /** Average speed of the driven trip; null for an undriven search. */
+    val avgSpeedKmh: Double? = null,
 ) {
     val hasActual: Boolean get() = tripId != null && actualCost != null
+
+    /**
+     * Actual average consumption, or null when it is not meaningful (no drive, or a drive too
+     * short for fuel/distance to mean anything).
+     */
+    val actualLitersPer100Km: Double?
+        get() {
+            val liters = actualLiters?.takeIf { hasActual } ?: return null
+            val distance = distanceKm?.takeIf { it >= LearnedDataPlausibility.MIN_TRIP_DISTANCE_KM } ?: return null
+            return liters / distance * 100.0
+        }
 
     /** True when the user recorded this drive's cost by hand (no OBD). */
     val hasManualEntry: Boolean get() = manualCost != null
@@ -129,11 +143,11 @@ class DriveHistoryRepository @Inject constructor(
      * it is actually driven.
      */
     suspend fun recent(vehicleId: String, limit: Int = DEFAULT_LIMIT): DriveHistory {
-        val searches = routeSearchDao.recent(limit)
         val trips = tripDao.recentClosedForVehicle(vehicleId, limit)
         val tripBySearchId = trips
             .filter { it.routeSearchId != null }
             .associateBy { it.routeSearchId!!.toLong() }
+        val searches = visibleSearches(routeSearchDao.recent(limit), tripBySearchId)
 
         val fromSearches = searches.map { it.toEntry(tripBySearchId[it.id]) }
         val orphanTrips = trips.filter { it.routeSearchId == null }.map { it.toOrphanEntry() }
@@ -158,11 +172,11 @@ class DriveHistoryRepository @Inject constructor(
      * "קשר נסיעה" picker. The linked-set scan is scoped to the active vehicle.
      */
     suspend fun linkCandidates(vehicleId: String, limit: Int = LINK_CANDIDATE_LIMIT): List<LinkableSearch> {
-        val linked = tripDao.recentClosedForVehicle(vehicleId, LINKED_SCAN_LIMIT)
-            .mapNotNull { it.routeSearchId?.toLong() }
-            .toSet()
-        return routeSearchDao.recent(limit)
-            .filter { it.id !in linked }
+        val tripBySearchId = tripDao.recentClosedForVehicle(vehicleId, LINKED_SCAN_LIMIT)
+            .filter { it.routeSearchId != null }
+            .associateBy { it.routeSearchId!!.toLong() }
+        return visibleSearches(routeSearchDao.recent(limit), tripBySearchId)
+            .filter { it.id !in tripBySearchId }
             .map {
                 LinkableSearch(
                     id = it.id,
@@ -171,6 +185,33 @@ class DriveHistoryRepository @Inject constructor(
                     timestampMs = it.timestampMs,
                 )
             }
+    }
+
+    /**
+     * [searches] minus the duplicates of another search for the same ride (see
+     * [SearchRecordPolicy.hiddenDuplicates]): refreshes recorded before searches were deduplicated
+     * on write would otherwise linger as "waiting for OBD" twins of a ride that was already driven.
+     */
+    private fun visibleSearches(
+        searches: List<RouteSearchEntity>,
+        tripBySearchId: Map<Long, TripEntity>,
+    ): List<RouteSearchEntity> {
+        val hidden = SearchRecordPolicy.hiddenDuplicates(
+            searches.map {
+                val trip = tripBySearchId[it.id]
+                SearchKey(
+                    id = it.id,
+                    timestampMs = it.timestampMs,
+                    originLabel = it.originLabel,
+                    destinationLabel = it.destinationLabel,
+                    destinationPlaceId = it.destinationPlaceId,
+                    distanceKm = it.distanceKm,
+                    linked = trip != null,
+                    tripEndedAtMs = trip?.endedAtMs,
+                )
+            },
+        )
+        return searches.filter { it.id !in hidden }
     }
 
     /** Manual pairing: links an orphan drive to the chosen search. */
@@ -327,65 +368,88 @@ class DriveHistoryRepository @Inject constructor(
 
     /**
      * Merges 2+ trips of the same vehicle into one long drive and deletes the originals.
-     * Distance/fuel/idle are summed, the time span is min-start..max-end, and avg speed is
-     * recomputed. `actualCost` is recomputed from the latest trip's price (falling back to the
-     * sum of the originals when no price is known). Returns the new trip id, or null when the
-     * ids are not a valid same-vehicle set.
+     *
+     * - **Measured columns** (distance/fuel/idle) are the sums of the originals' OBD columns; a
+     *   manual-only part contributes its window but no "measured" numbers, so refuel calibration
+     *   and data repair never see a typed-in figure as an OBD measurement. `actualCost` is the sum
+     *   of the parts' own OBD costs, so parts driven at different prices stay exact.
+     * - **Manual entries survive**: when any part carries one (or is a manual-only ride), the
+     *   merged drive's manual cost is the sum of every part's displayed cost (manual where the
+     *   user entered one, OBD otherwise), so the total History showed before the merge is kept.
+     * - **The route-search link survives**: the merged drive keeps the link of its earliest linked
+     *   part (the ride the user searched for before setting off; a stop mid-way is what splits one
+     *   drive into several). Links of later parts revert to undriven searches.
+     *
+     * Returns the new trip id, or null when the ids are not a valid same-vehicle set.
      */
     suspend fun mergeTrips(ids: List<Long>): Long? {
         val uniqueIds = ids.distinct()
         if (uniqueIds.size < 2) return null
-        val trips = uniqueIds.mapNotNull { tripDao.findById(it) }
+        val trips = uniqueIds.mapNotNull { tripDao.findById(it) }.sortedBy { it.startedAtMs }
         if (trips.size < 2) return null
         val vehicleId = trips.first().vehicleId
         if (trips.any { it.vehicleId != vehicleId }) return null
         // Never mix simulated ("הדגמה") rides with real drives: all inputs must agree.
         val demoCount = trips.count { it.source == TripSource.DEMO }
         if (demoCount != 0 && demoCount != trips.size) return null
-        val totals = TripSplitCalculator.merge(trips.map { it.toTotals() }) ?: return null
 
-        val latest = trips.maxByOrNull { it.startedAtMs }
-        val price = latest?.pricePerLiterAtTrip?.takeIf { it > 0.0 }
+        val window = TripSplitCalculator.merge(trips.map { it.toRawTotals() }) ?: return null
+        val measuredParts = trips.filter { it.source != TripSource.MANUAL }.ifEmpty { trips }
+        val measured = TripSplitCalculator.merge(measuredParts.map { it.toRawTotals() }) ?: return null
+
+        val price = trips.last().pricePerLiterAtTrip.takeIf { it > 0.0 }
             ?: trips.mapNotNull { it.pricePerLiterAtTrip.takeIf { p -> p > 0.0 } }.maxOrNull()
             ?: 0.0
-        val cost = if (price > 0.0) totals.fuelL * price else trips.sumOf { it.actualCost }
+        val linkedPart = trips.firstOrNull { it.routeSearchId != null }
+        val hasManual = trips.any { it.manualCost != null || it.source == TripSource.MANUAL }
+        val hasManualDistance = trips.any { it.manualDistanceKm != null || it.source == TripSource.MANUAL }
 
         val merged = TripEntity(
             vehicleId = vehicleId,
-            startedAtMs = totals.startedAtMs,
-            endedAtMs = totals.endedAtMs,
-            distanceKm = totals.distanceKm,
-            fuelL = totals.fuelL,
-            avgSpeedKmh = TripSplitCalculator.avgSpeedKmh(
-                totals.distanceKm,
-                totals.startedAtMs,
-                totals.endedAtMs,
-            ),
-            maxSpeedKmh = totals.maxSpeedKmh,
-            idleSeconds = totals.idleSeconds,
+            startedAtMs = window.startedAtMs,
+            endedAtMs = window.endedAtMs,
+            distanceKm = measured.distanceKm,
+            fuelL = measured.fuelL,
+            avgSpeedKmh = TripSplitCalculator.avgSpeedKmh(measured.distanceKm, window.startedAtMs, window.endedAtMs),
+            maxSpeedKmh = measured.maxSpeedKmh,
+            idleSeconds = measured.idleSeconds,
             isOpen = 0,
-            // The merged span covers 2+ drives, so no single route search fully describes it.
-            // Clearing the link leaves the originals' searches as undriven (they are not deleted),
-            // and the merge deletes the originals via replaceTrips, so none double-appear.
-            routeSearchId = null,
+            routeSearchId = linkedPart?.routeSearchId,
+            linkedAtMs = linkedPart?.linkedAtMs,
             coldStartFuelL = trips.sumOf { it.coldStartFuelL },
-            actualCost = cost,
+            actualCost = measuredParts.sumOf { it.obdCost() },
             pricePerLiterAtTrip = price,
-            source = if (trips.all { it.source == TripSource.DEMO }) TripSource.DEMO else TripSource.REAL,
+            source = when {
+                trips.all { it.source == TripSource.DEMO } -> TripSource.DEMO
+                trips.all { it.source == TripSource.MANUAL } -> TripSource.MANUAL
+                else -> TripSource.REAL
+            },
+            manualCost = if (hasManual) trips.sumOf { it.displayActualCost() ?: 0.0 } else null,
+            manualDistanceKm = if (hasManualDistance) trips.sumOf { it.effectiveDistanceKm() } else null,
+            // Parts had different (or no) consumption entries; the merged liters come from cost/price.
+            manualLitersPer100Km = null,
+            manualEnteredAtMs = if (hasManual) {
+                trips.mapNotNull { it.manualEnteredAtMs }.maxOrNull() ?: System.currentTimeMillis()
+            } else {
+                null
+            },
         )
         return tripDao.replaceTrips(uniqueIds, listOf(merged)).firstOrNull()
     }
 
     /**
      * Splits one trip at [splitAtMs] into two, apportioning distance/fuel/idle by elapsed time
-     * (best-effort; see [TripSplitCalculator]). The first half keeps the original cold-start fuel
-     * and route-search link, the second is unlinked. Returns the two new trip ids, or null when
-     * the split point is not strictly inside the drive.
+     * (best-effort; see [TripSplitCalculator]). A manual entry is apportioned the same way (its
+     * consumption, a rate, is kept on both halves), so a split never silently drops the cost the
+     * user typed in. The first half keeps the original cold-start fuel and route-search link, the
+     * second is unlinked. Returns the two new trip ids, or null when the split point is not
+     * strictly inside the drive.
      */
     suspend fun splitTrip(id: Long, splitAtMs: Long): Pair<Long, Long>? {
         val trip = tripDao.findById(id) ?: return null
+        val fraction = TripSplitCalculator.splitFraction(trip.startedAtMs, trip.endedAtMs, splitAtMs) ?: return null
         val (firstTotals, secondTotals) =
-            TripSplitCalculator.split(trip.toTotals(), splitAtMs) ?: return null
+            TripSplitCalculator.split(trip.toRawTotals(), splitAtMs) ?: return null
         val price = trip.pricePerLiterAtTrip
 
         val first = trip.copy(
@@ -403,10 +467,8 @@ class DriveHistoryRepository @Inject constructor(
             idleSeconds = firstTotals.idleSeconds,
             isOpen = 0,
             actualCost = splitCost(firstTotals.fuelL, trip.fuelL, trip.actualCost, price),
-            manualCost = null,
-            manualDistanceKm = null,
-            manualLitersPer100Km = null,
-            manualEnteredAtMs = null,
+            manualCost = trip.manualCost?.times(fraction),
+            manualDistanceKm = trip.manualDistanceKm?.times(fraction),
         )
         val second = trip.copy(
             id = 0,
@@ -426,10 +488,8 @@ class DriveHistoryRepository @Inject constructor(
             linkedAtMs = null,
             coldStartFuelL = 0.0,
             actualCost = splitCost(secondTotals.fuelL, trip.fuelL, trip.actualCost, price),
-            manualCost = null,
-            manualDistanceKm = null,
-            manualLitersPer100Km = null,
-            manualEnteredAtMs = null,
+            manualCost = trip.manualCost?.times(1.0 - fraction),
+            manualDistanceKm = trip.manualDistanceKm?.times(1.0 - fraction),
         )
         val inserted = tripDao.replaceTrips(listOf(id), listOf(first, second))
         if (inserted.size < 2) return null
@@ -477,25 +537,9 @@ class DriveHistoryRepository @Inject constructor(
             manualCost = trip?.manualCost,
             manualDistanceKm = trip?.manualDistanceKm,
             manualLitersPer100Km = trip?.manualLitersPer100Km,
+            avgSpeedKmh = trip?.effectiveAvgSpeedKmh(),
         )
     }
-
-    /**
-     * A trip whose stored OBD fuel is physically impossible (recorded before the 0.7 OBD-data
-     * fixes and not repairable from raw samples) shows no actual liters/cost instead of an
-     * absurd one — unless the user entered a manual cost, which always wins. Checked on the raw
-     * OBD columns, not on the manual overrides.
-     */
-    private fun TripEntity.isObdFuelPlausible(): Boolean =
-        LearnedDataPlausibility.isTripPlausible(distanceKm, fuelL, (endedAtMs - startedAtMs) / 1000.0)
-
-    /** History display cost: manual entry, else OBD cost when plausible, else null. */
-    private fun TripEntity.displayActualCost(): Double? =
-        manualCost ?: actualCost.takeIf { isObdFuelPlausible() }
-
-    /** History display liters: manual entry, else OBD fuel when plausible, else null. */
-    private fun TripEntity.displayFuelL(): Double? =
-        manualLiters() ?: fuelL.takeIf { isObdFuelPlausible() }
 
     private fun TripEntity.toOrphanEntry() = DriveHistoryEntry(
         searchId = null,
@@ -519,39 +563,22 @@ class DriveHistoryRepository @Inject constructor(
         manualCost = manualCost,
         manualDistanceKm = manualDistanceKm,
         manualLitersPer100Km = manualLitersPer100Km,
+        avgSpeedKmh = effectiveAvgSpeedKmh(),
     )
 
-    /**
-     * The user's manual entry wins over the OBD measurement, but only as a read-time view:
-     * the raw OBD columns are never overwritten.
-     */
-
-    private fun TripEntity.effectiveDistanceKm(): Double = manualDistanceKm ?: distanceKm
-
-    private fun TripEntity.effectiveFuelL(): Double = manualLiters() ?: fuelL
-
-    /** Liters implied by the manual entry, from distance+consumption or from cost/price. */
-    private fun TripEntity.manualLiters(): Double? {
-        val distance = manualDistanceKm
-        val consumption = manualLitersPer100Km
-        if (distance != null && consumption != null && pricePerLiterAtTrip > 0.0) {
-            ManualCostCalculator.estimate(distance, consumption, pricePerLiterAtTrip)
-                ?.let { return it.liters }
-        }
-        val cost = manualCost
-        if (cost != null && pricePerLiterAtTrip > 0.0) return cost / pricePerLiterAtTrip
-        return null
-    }
-
-    /** Pure view of a trip for the merge/split math (manual values win, as in History). */
-    private fun TripEntity.toTotals() = TripTotals(
+    /** The measured (raw OBD) columns, the input to the merge/split math. */
+    private fun TripEntity.toRawTotals() = TripTotals(
         startedAtMs = startedAtMs,
         endedAtMs = endedAtMs,
-        distanceKm = effectiveDistanceKm(),
-        fuelL = effectiveFuelL(),
+        distanceKm = distanceKm,
+        fuelL = fuelL,
         idleSeconds = idleSeconds,
         maxSpeedKmh = maxSpeedKmh,
     )
+
+    /** The part's own OBD cost: the stored one, else its fuel at its price. */
+    private fun TripEntity.obdCost(): Double =
+        actualCost.takeIf { it > 0.0 } ?: (fuelL * pricePerLiterAtTrip).coerceAtLeast(0.0)
 
     companion object {
         const val DEFAULT_LIMIT = 50

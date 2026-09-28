@@ -45,7 +45,11 @@
     <string name="history_merge_split_split">הנסיעה פוצלה</string>
     <string name="history_merge_split_failed">הפעולה נכשלה. נסה שוב</string>
     <string name="history_merge_confirm_title">מיזוג נסיעות</string>
-    <string name="history_merge_confirm_message">הפעולה תמחק את הנסיעות המקוריות ותיצור נסיעה אחת. להמשיך?</string>
+    <string name="history_merge_confirm_message">הנסיעות יאוחדו לנסיעה אחת. הקישור לחיפוש של הקטע הראשון והעלות שהוזנה ידנית יישמרו. להמשיך?</string>
     <string name="history_split_confirm_title">פיצול נסיעה</string>
-    <string name="history_split_confirm_message">הפעולה תמחק את הנסיעה המקורית ותיצור שתי נסיעות. להמשיך?</string>
+    <string name="history_split_confirm_message">הנסיעה תחולק לשתיים לפי זמן. מרחק, דלק ועלות (גם עלות שהוזנה ידנית) יחולקו באופן יחסי. להמשיך?</string>
+
+    <!-- Detail sheet: the numbers the Drive tab's trip list used to be the only place to see -->
+    <string name="history_avg_speed_label">מהירות ממוצעת</string>
+    <string name="history_consumption_label">צריכה בפועל</string>
 </resources>

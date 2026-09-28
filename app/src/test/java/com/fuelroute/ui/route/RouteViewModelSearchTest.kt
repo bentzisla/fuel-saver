@@ -120,6 +120,6 @@ class RouteViewModelSearchTest {
         val state = vm.uiState.value
         assertEquals(listOf("fresh"), state.results.map { it.route.id })
         assertFalse(state.isLoading)
-        coVerify(exactly = 1) { routeSearchRepository.add(any()) }
+        coVerify(exactly = 1) { routeSearchRepository.record(any()) }
     }
 }
