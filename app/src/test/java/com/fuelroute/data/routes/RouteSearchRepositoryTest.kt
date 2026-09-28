@@ -72,6 +72,30 @@ class RouteSearchRepositoryTest {
     }
 
     @Test
+    fun `a refresh after pulling away before the previous search records nothing`() = runTest {
+        // Searched at minute 60 from the road; the drive had started at minute 45 (inside the
+        // link window before that search), so the refresh at minute 70 must not replace it.
+        coEvery { dao.latest() } returns stored(id = 5, atMin = 60)
+        coEvery { dao.isLinked(5) } returns false
+        coEvery { tripDao.recentOpenTrips() } returns listOf(openTrip(startMin = 45))
+
+        assertNull(repository.record(search(atMin = 70)))
+        coVerify(exactly = 0) { dao.insert(any()) }
+        coVerify(exactly = 0) { dao.update(any()) }
+    }
+
+    @Test
+    fun `an open trip that started long before the previous search does not block a refresh`() = runTest {
+        coEvery { dao.latest() } returns stored(id = 5, atMin = 120)
+        coEvery { dao.isLinked(5) } returns false
+        coEvery { tripDao.recentOpenTrips() } returns listOf(openTrip(startMin = 45))
+        coJustRun { dao.update(any()) }
+
+        assertEquals(5L, repository.record(search(atMin = 125)))
+        coVerify(exactly = 1) { dao.update(any()) }
+    }
+
+    @Test
     fun `a search after the previous ride was driven is inserted`() = runTest {
         coEvery { dao.latest() } returns stored(id = 5, atMin = 0)
         coEvery { dao.isLinked(5) } returns true
