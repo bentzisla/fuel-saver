@@ -240,7 +240,18 @@ private fun PricesAndNavigation(state: SettingsUiState, viewModel: SettingsViewM
             onValueChange = viewModel::onValuePerMinuteChange,
             label = { Text(stringResource(R.string.settings_value_per_minute_label)) },
             suffix = { Text(stringResource(R.string.settings_unit_per_minute)) },
-            supportingText = { Text(stringResource(R.string.settings_value_per_minute_help)) },
+            isError = state.valuePerMinuteInvalid,
+            supportingText = {
+                Text(
+                    stringResource(
+                        if (state.valuePerMinuteInvalid) {
+                            R.string.settings_value_per_minute_invalid
+                        } else {
+                            R.string.settings_value_per_minute_help
+                        },
+                    ),
+                )
+            },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             modifier = Modifier.fillMaxWidth(),
