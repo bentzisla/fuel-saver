@@ -162,6 +162,7 @@
     <string name="stats_connecting_to">מתחבר ל־%1$s…</string>
     <string name="stats_trips">נסיעות אחרונות</string>
     <string name="stats_no_trips">אין נסיעות מתועדות עדיין</string>
+    <string name="stats_trips_open_history">כל הנסיעות ועריכה</string>
     <string name="stats_prediction">חיזוי %1$s</string>
     <string name="stats_debug_title">אבחון ופעולות מתקדמות</string>
     <string name="stats_last_error">שגיאה אחרונה</string>
@@ -193,7 +194,7 @@
     <string name="stats_error_security">אין הרשאת Bluetooth להתחבר לדונגל</string>
     <string name="stats_error_socket_closed">החיבור לדונגל נסגר</string>
 
-    <string name="history_title">היסטוריה</string>
+    <string name="history_title">היסטוריית נסיעות</string>
     <string name="history_empty">אין חיפושים קודמים עדיין</string>
     <string name="history_accuracy">דיוק חיזוי: ±%1$s%%</string>
     <string name="history_delta">הפרש: %1$s ₪ (%2$s%%)</string>

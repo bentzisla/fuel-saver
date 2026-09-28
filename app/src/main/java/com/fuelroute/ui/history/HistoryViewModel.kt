@@ -1,5 +1,6 @@
 package com.fuelroute.ui.history
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fuelroute.data.history.DriveHistoryEntry
@@ -63,10 +64,18 @@ class HistoryViewModel @Inject constructor(
     private val repository: DriveHistoryRepository,
     private val vehicleRepository: VehicleRepository,
     private val fuelPriceRepository: FuelPriceRepository,
+    private val savedStateHandle: SavedStateHandle = SavedStateHandle(),
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(HistoryUiState())
     val state: StateFlow<HistoryUiState> = _state.asStateFlow()
+
+    /**
+     * Drive whose detail sheet opens once History has loaded, when the screen was opened from a
+     * trip row on the Drive tab. Consumed once (and cleared from the saved state) so the sheet does
+     * not pop up again after the user dismissed it and the screen is recreated.
+     */
+    private var pendingFocusTripId: Long? = savedStateHandle.get<Long>(ARG_TRIP_ID)?.takeIf { it > 0L }
 
     /** Active vehicle the history is scoped to; reloads whenever it changes. */
     private val activeVehicleId = MutableStateFlow<String?>(null)
@@ -113,6 +122,11 @@ class HistoryViewModel @Inject constructor(
                 pricePerLiter = price,
                 selectedIds = _state.value.selectedIds.intersect(liveKeys),
             )
+            pendingFocusTripId?.let { focus ->
+                pendingFocusTripId = null
+                savedStateHandle[ARG_TRIP_ID] = NO_TRIP
+                history.entries.firstOrNull { it.tripId == focus }?.let { openDetail(it) }
+            }
         }
     }
 
@@ -358,5 +372,13 @@ class HistoryViewModel @Inject constructor(
 
     fun clearMergeSplitFeedback() {
         _state.value = _state.value.copy(mergeSplitFeedback = null)
+    }
+
+    companion object {
+        /** Optional navigation argument: the trip whose detail sheet opens on arrival. */
+        const val ARG_TRIP_ID = "tripId"
+
+        /** [ARG_TRIP_ID] value meaning "just open the list". */
+        const val NO_TRIP = -1L
     }
 }

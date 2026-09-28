@@ -94,12 +94,14 @@ import kotlinx.coroutines.flow.map
  *  2. Live dashboard (when connected) — two big tiles (live consumption, trip cost) and three
  *     small ones (speed, distance, time).
  *  3. Collapsed sections: engine & fuel, learning progress, diagnostics & advanced (reset).
- *  4. Recent trips (5 shown, expandable).
+ *  4. Recent trips (5 shown, expandable). These are the same drives History lists: tapping one
+ *     opens its detail sheet there (cost, manual entry, link, merge/split, delete).
  */
 @Composable
 fun StatsScreen(
     modifier: Modifier = Modifier,
     onOpenCurve: () -> Unit = {},
+    onOpenHistory: (tripId: Long?) -> Unit = {},
     viewModel: StatsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.live.collectAsStateWithLifecycle()
@@ -128,6 +130,9 @@ fun StatsScreen(
     val fuelPricePerLiter by remember(priceRepository, fuelGrade) {
         priceRepository.price(fuelGrade).map { it.pricePerLiter }
     }.collectAsStateWithLifecycle(initialValue = ModelConstants.DEFAULT_FUEL_PRICE)
+
+    // Back from History, where drives may have been merged, split or deleted.
+    LaunchedEffect(Unit) { viewModel.refreshTrips() }
 
     LaunchedEffect(vinEvent) {
         val name = vinEvent ?: return@LaunchedEffect
@@ -231,13 +236,19 @@ fun StatsScreen(
                 )
             }
 
-            item(key = "trips-title") { SectionTitle(stringResource(R.string.stats_trips)) }
+            item(key = "trips-title") {
+                SectionTitle(stringResource(R.string.stats_trips)) {
+                    TextButton(onClick = { onOpenHistory(null) }) {
+                        Text(stringResource(R.string.stats_trips_open_history))
+                    }
+                }
+            }
             if (trips.isEmpty()) {
                 item(key = "trips-empty") { EmptyState(title = stringResource(R.string.stats_no_trips)) }
             } else {
                 val visible = if (showAllTrips) trips else trips.take(TRIPS_PREVIEW)
                 items(visible, key = { it.trip.id }) { display ->
-                    TripRow(display)
+                    TripRow(display, onClick = { onOpenHistory(display.trip.id) })
                 }
                 if (trips.size > TRIPS_PREVIEW) {
                     item(key = "trips-more") {
@@ -680,7 +691,7 @@ private fun DiagnosticsSection(
 }
 
 @Composable
-private fun TripRow(display: TripDisplay) {
+private fun TripRow(display: TripDisplay, onClick: () -> Unit) {
     val trip = display.trip
     val l100 = trip.litersPer100Km
     val details = buildString {
@@ -691,7 +702,7 @@ private fun TripRow(display: TripDisplay) {
             append(stringResource(R.string.stats_prediction, fmt(display.predictedL100, 1)))
         }
     }
-    SectionCard(contentPadding = Dimens.s) {
+    SectionCard(contentPadding = Dimens.s, onClick = onClick) {
         ListRow(
             title = formatDateTime(trip.startedAtMs),
             subtitle = details,

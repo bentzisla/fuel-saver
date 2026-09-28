@@ -1,5 +1,6 @@
 package com.fuelroute.ui.history
 
+import androidx.lifecycle.SavedStateHandle
 import com.fuelroute.data.history.DriveHistory
 import com.fuelroute.data.history.DriveHistoryEntry
 import com.fuelroute.data.history.DriveHistoryRepository
@@ -90,6 +91,30 @@ class HistoryViewModelTest {
         assertEquals(entry, viewModel.state.value.selectedEntry)
 
         viewModel.dismissDetail()
+        assertEquals(null, viewModel.state.value.selectedEntry)
+    }
+
+    @Test
+    fun `opening History from a Drive-tab trip row opens that drive once`() = runTest(dispatcher) {
+        val repository = mockk<DriveHistoryRepository>()
+        val vehicleRepository = mockk<VehicleRepository>()
+        val fuelPriceRepository = mockk<FuelPriceRepository>()
+        every { vehicleRepository.vehicles() } returns MutableStateFlow(listOf(vehicle("v1")))
+        coEvery { vehicleRepository.active() } returns vehicle("v1")
+        coEvery { fuelPriceRepository.current(any()) } returns FuelPrice(7.0, "95", false)
+        coEvery { repository.recent("v1", any()) } returns DriveHistory(listOf(entry(3), entry(9)), null)
+        val savedState = SavedStateHandle(mapOf(HistoryViewModel.ARG_TRIP_ID to 9L))
+
+        val viewModel = HistoryViewModel(repository, vehicleRepository, fuelPriceRepository, savedState)
+        advanceUntilIdle()
+
+        assertEquals(9L, viewModel.state.value.selectedEntry?.tripId)
+        assertEquals(HistoryViewModel.NO_TRIP, savedState.get<Long>(HistoryViewModel.ARG_TRIP_ID))
+
+        // A later reload (after an edit) must not pop the sheet up again.
+        viewModel.dismissDetail()
+        viewModel.load()
+        advanceUntilIdle()
         assertEquals(null, viewModel.state.value.selectedEntry)
     }
 
