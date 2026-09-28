@@ -49,8 +49,8 @@ No AI attribution in git history: commit messages and PR descriptions must not c
 ## Fuel model rules (see PLAN.md section 4)
 - `consumption(v)` in L/100km = `ratedCombinedL100 * factor(v)`, linear interpolation over a speed curve, clamped to [10, 130] km/h.
 - Effective curve = `CurveBlender`: learned (OBD) curve weighted by km-in-bin confidence `w = km/(km+20)`, falling back to manual curve, then default curve. The default curve's level is anchored to the measurements by `BaseLevel` (distance-weighted measured/default ratio, shrunk by `km/(km+50)`, bounded 0.6..1.5); a manual curve is never rescaled. Build the fallback with `BaseLevel.fallback(...)` at every call site.
-- Per step: effective speed = free-flow speed (distance/staticDuration) scaled by congestion from `speedReadingIntervals`, then normalized so total time matches route `duration`.
-- Cost = fuel liters * price + toll estimate. Ranking by total cost, optionally plus `minutes * valuePerMinute`.
+- Per step: split into NORMAL/SLOW/JAM sub-segments (per-level metres from `speedReadingIntervals`), each at free-flow speed (distance/staticDuration) times its level factor. Time is fitted to route `duration` by slowing/speeding only congested sub-segments (never above free flow); unexplained extra delay is idle time.
+- Cost = fuel liters * price + toll estimate. Ranking by total cost (unpriced toll counted as a conservative estimate), optionally plus `minutes * valuePerMinute` (clamped 0..10); costs within max(1 NIS, 5%) are a tie and the faster route wins.
 
 ## OBD-II rules (see PLAN.md section 5)
 - ELM327 over Bluetooth Classic SPP (UUID `00001101-0000-1000-8000-00805F9B34FB`). Transport is behind `data/obd/ObdTransport` interface; `FakeObdTransport` replays recorded scripts, `SimulatedObdTransport` runs a live demo drive-cycle, and `tools/elm327_emulator.py` is an external TCP emulator.
