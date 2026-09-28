@@ -1,0 +1,32 @@
+# Supported-PID negotiation on a car where two ECUs answer Mode 01 (CAN: engine ECM 7E8 and
+# transmission TCM 7E9). The TCM answers FIRST here, which is the order that used to lose the
+# ECM's bitmap: MAF (10), MAP (0B) and fuel rate (5E) are only supported by the ECM.
+#   ECM 0100 = BE 3F B8 13  (01 03-07, 0B-10, 11 13-15, 1C 1F 20)
+#   TCM 0100 = 98 18 00 01  (01 04 05, 0C 0D, 20)
+#   ECM 0140 = 44 80 00 04  (42 46, 49, 5E)
+#   TCM 0140 = 40 00 00 00  (42)
+# Four blocks per scenario, in the order 0100, 0120, 0140, 0160.
+
+# Scenario 1: headers off (ATH0, the app's configuration), CAN multi-line reply.
+0100> 41 00 98 18 00 01\r41 00 BE 3F B8 13\r
+0120> 41 20 80 00 00 00\r
+0140> 41 40 40 00 00 00\r41 40 44 80 00 04\r
+0160> NO DATA
+
+# Scenario 2: headers on (ATH1), CAN 11-bit, with a search banner in front of the first block.
+0100> SEARCHING...\r7E9 06 41 00 98 18 00 01\r7E8 06 41 00 BE 3F B8 13\r
+0120> 7E8 06 41 20 80 00 00 00\r
+0140> 7E9 06 41 40 40 00 00 00\r7E8 06 41 40 44 80 00 04\r
+0160> NO DATA
+
+# Scenario 3: headers on, CAN 29-bit (18 DA F1 xx).
+0100> 18 DA F1 18 06 41 00 98 18 00 01\r18 DA F1 10 06 41 00 BE 3F B8 13\r
+0120> 18 DA F1 10 06 41 20 80 00 00 00\r
+0140> 18 DA F1 18 06 41 40 40 00 00 00\r18 DA F1 10 06 41 40 44 80 00 04\r
+0160> NO DATA
+
+# Scenario 4: headers on, ISO 9141-2 / KWP (3 header bytes + trailing checksum).
+0100> 48 6B 18 41 00 98 18 00 01 5B\r48 6B 10 41 00 BE 3F B8 13 A6\r
+0120> 48 6B 10 41 20 80 00 00 00 44\r
+0140> 48 6B 18 41 40 40 00 00 00 44\r48 6B 10 41 40 44 80 00 04 9A\r
+0160> NO DATA
