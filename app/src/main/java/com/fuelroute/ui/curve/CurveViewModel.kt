@@ -9,6 +9,8 @@ import com.fuelroute.domain.fuel.CurveBasis
 import com.fuelroute.domain.fuel.CurveBlender
 import com.fuelroute.domain.fuel.CurveDataQuality
 import com.fuelroute.domain.fuel.DefaultCurve
+import com.fuelroute.domain.fuel.EfficientSpeed
+import com.fuelroute.domain.fuel.EfficientSpeedInsight
 import com.fuelroute.domain.fuel.ManualCurveResult
 import com.fuelroute.domain.fuel.ManualCurveValidator
 import com.fuelroute.domain.model.SpeedPoint
@@ -24,6 +26,12 @@ data class LearnedPoint(
     val speedKmh: Double,
     val litersPer100Km: Double,
     val distanceKm: Double,
+    /**
+     * False when the blend ignores this measurement as implausible against the fallback curve
+     * ([CurveBlender.usesLearnedValue]); the chart draws it hollow so a dot the curve does not
+     * follow is not mistaken for data the recommendation is based on.
+     */
+    val usedInCurve: Boolean = true,
 )
 
 data class CurveUiState(
@@ -37,8 +45,8 @@ data class CurveUiState(
     val totalKm: Double = 0.0,
     val totalSamples: Int = 0,
     val idleLph: Double? = null,
-    val efficientSpeedKmh: Double? = null,
-    val efficientL100: Double? = null,
+    /** The recommendation, computed from the same curve the chart draws (see [EfficientSpeed]). */
+    val efficient: EfficientSpeedInsight? = null,
     val calibrationFactor: Double = 1.0,
     val learnedShare: Double = 0.0,
     val quality: CurveDataQuality = CurveDataQuality.NONE,
@@ -124,13 +132,20 @@ class CurveViewModel @Inject constructor(
         val fallback = manual ?: default
         val effective = CurveBlender.blend(learned, fallback)
 
-        // Only the points the curve actually uses: tiny-distance or implausible bins (e.g. rows
-        // stored before the sample sanity filters) are not plotted as if they were measurements.
+        // Only plausible bins are plotted: tiny-distance or corrupted rows (e.g. stored before the
+        // sample sanity filters) are not drawn as if they were measurements. Of those, the ones the
+        // blend still rejects against the fallback curve are flagged so the chart draws them hollow.
         val learnedPoints = learned.points
-            .map { LearnedPoint(it.speedKmh, it.litersPer100Km, it.distanceKm) }
+            .map {
+                LearnedPoint(
+                    speedKmh = it.speedKmh,
+                    litersPer100Km = it.litersPer100Km,
+                    distanceKm = it.distanceKm,
+                    usedInCurve = CurveBlender.usesLearnedValue(it.litersPer100Km, fallback.litersPer100Km(it.speedKmh)),
+                )
+            }
 
         val effectiveSamples = effective.samples()
-        val best = effectiveSamples.minByOrNull { it.litersPer100Km }
 
         return CurveUiState(
             isLoading = false,
@@ -141,8 +156,7 @@ class CurveViewModel @Inject constructor(
             totalKm = learned.totalDistanceKm,
             totalSamples = learned.bins.sumOf { it.samples },
             idleLph = learned.idleLitersPerHour,
-            efficientSpeedKmh = best?.speedKmh,
-            efficientL100 = best?.litersPer100Km,
+            efficient = EfficientSpeed.analyze(effective, learned, fallback),
             calibrationFactor = vehicle.fuelRateCorrection,
             learnedShare = CurveBasis.learnedShare(learned, effectiveSamples.map { it.speedKmh }),
             quality = CurveBasis.quality(learned.totalDistanceKm),

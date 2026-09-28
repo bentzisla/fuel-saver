@@ -2,6 +2,7 @@ package com.fuelroute.ui.curve
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
@@ -45,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
@@ -61,6 +63,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fuelroute.R
 import com.fuelroute.domain.fuel.CurveDataQuality
+import com.fuelroute.domain.fuel.EfficientSpeed
+import com.fuelroute.domain.fuel.EfficientSpeedInsight
 import com.fuelroute.domain.fuel.ManualCurveResult
 import com.fuelroute.domain.fuel.ManualCurveValidator
 import com.fuelroute.domain.model.SpeedPoint
@@ -227,24 +231,74 @@ private fun CurveOverflowMenu(state: CurveUiState, onAction: (PendingCurveAction
     }
 }
 
-/** The insight: the car's most efficient speed, and how trustworthy the curve is. */
+/**
+ * The insight: the car's most efficient speed, and how trustworthy the curve is. Every number here
+ * is read off the thick "in use" line of the chart below, and the chart marks the same speed and
+ * band, so the headline and the picture can never tell different stories.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CurveHero(state: CurveUiState) {
     SectionCard {
-        val speed = state.efficientSpeedKmh
-        val l100 = state.efficientL100
-        if (speed != null && l100 != null) {
+        val efficient = state.efficient
+        if (efficient != null) {
             HeroValue(
-                value = "${Math.round(speed)}",
+                value = "${Math.round(efficient.speedKmh)}",
                 unit = stringResource(R.string.route_units_kmh),
                 label = stringResource(R.string.curve_efficient_label),
                 color = FuelTheme.colors.positive,
             )
             Text(
-                text = stringResource(R.string.curve_efficient_detail, format(l100, 1)),
+                text = stringResource(R.string.curve_efficient_detail, format(efficient.litersPer100Km, 1)),
                 style = MaterialTheme.typography.bodyLarge,
             )
+            if (efficient.rangeToKmh - efficient.rangeFromKmh >= RANGE_MIN_WIDTH_KMH) {
+                Text(
+                    text = stringResource(
+                        R.string.curve_efficient_range,
+                        format(efficient.rangeFromKmh, 0),
+                        format(efficient.rangeToKmh, 0),
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            if (state.hasLearnedData && efficient.learnedWeight < EfficientSpeed.FALLBACK_DOMINATED_WEIGHT) {
+                Text(
+                    text = stringResource(
+                        if (state.hasManualCurve) R.string.curve_efficient_from_manual else R.string.curve_efficient_from_default,
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            val ratio = efficient.measuredVsFallback
+            if (efficient.fallbackMismatch && ratio != null) {
+                val pct = (abs(1.0 - ratio) * 100.0).roundToInt().toString()
+                Text(
+                    text = stringResource(
+                        if (ratio < 1.0) R.string.curve_mismatch_low else R.string.curve_mismatch_high,
+                        pct,
+                        stringResource(
+                            if (state.hasManualCurve) R.string.curve_mismatch_base_manual else R.string.curve_mismatch_base_default,
+                        ),
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            val measuredSpeed = efficient.measuredSpeedKmh
+            val measuredL100 = efficient.measuredL100
+            if (measuredSpeed != null && measuredL100 != null) {
+                Text(
+                    text = stringResource(
+                        R.string.curve_efficient_measured_elsewhere,
+                        format(measuredSpeed, 0),
+                        format(measuredL100, 1),
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(Dimens.xs), verticalArrangement = Arrangement.spacedBy(Dimens.xs)) {
             StatusPill(
@@ -301,6 +355,7 @@ private fun ChartCard(state: CurveUiState) {
             effectivePoints = state.effectivePoints,
             manualPoints = state.manualPoints,
             learnedPoints = state.learnedPoints,
+            efficient = state.efficient,
             selectedPoint = selectedBin,
             onSelect = { selectedBin = it },
             colors = seriesColors,
@@ -317,6 +372,8 @@ private fun ChartCard(state: CurveUiState) {
             colors = seriesColors,
             hasManual = state.manualPoints.isNotEmpty(),
             hasLearned = state.learnedPoints.isNotEmpty(),
+            hasUnused = state.learnedPoints.any { !it.usedInCurve },
+            hasEfficient = state.efficient != null,
         )
         val bin = selectedBin
         if (bin != null) {
@@ -334,28 +391,46 @@ private fun ChartCard(state: CurveUiState) {
 /** Only the series actually drawn get a legend entry. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Legend(colors: CurveSeriesColors, hasManual: Boolean, hasLearned: Boolean) {
+private fun Legend(
+    colors: CurveSeriesColors,
+    hasManual: Boolean,
+    hasLearned: Boolean,
+    hasUnused: Boolean,
+    hasEfficient: Boolean,
+) {
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(Dimens.l),
         verticalArrangement = Arrangement.spacedBy(Dimens.xs),
     ) {
         LegendItem(color = colors.effective, label = stringResource(R.string.curve_legend_effective))
+        if (hasEfficient) {
+            LegendItem(color = colors.effective.copy(alpha = 0.25f), label = stringResource(R.string.curve_legend_efficient))
+        }
         LegendItem(color = colors.default, label = stringResource(R.string.curve_legend_default))
         if (hasManual) LegendItem(color = colors.manual, label = stringResource(R.string.curve_legend_manual))
         if (hasLearned) {
             LegendItem(color = colors.learned, label = stringResource(R.string.curve_legend_learned))
             LegendItem(color = colors.learned.copy(alpha = 0.3f), label = stringResource(R.string.curve_legend_band))
         }
+        if (hasUnused) {
+            LegendItem(color = colors.learned, label = stringResource(R.string.curve_legend_unused), hollow = true)
+        }
     }
 }
 
 @Composable
-private fun LegendItem(color: Color, label: String) {
+private fun LegendItem(color: Color, label: String, hollow: Boolean = false) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Box(
             modifier = Modifier
                 .size(10.dp)
-                .background(color, CircleShape),
+                .then(
+                    if (hollow) {
+                        Modifier.border(1.5.dp, color, CircleShape)
+                    } else {
+                        Modifier.background(color, CircleShape)
+                    },
+                ),
         )
         Text(text = label, style = MaterialTheme.typography.labelMedium)
     }
@@ -631,12 +706,14 @@ private fun CurveChart(
     effectivePoints: List<SpeedPoint>,
     manualPoints: List<SpeedPoint>,
     learnedPoints: List<LearnedPoint>,
+    efficient: EfficientSpeedInsight?,
     selectedPoint: LearnedPoint?,
     onSelect: (LearnedPoint?) -> Unit,
     colors: CurveSeriesColors,
     modifier: Modifier = Modifier,
 ) {
     val textMeasurer = rememberTextMeasurer()
+    val surfaceColor = MaterialTheme.colorScheme.surfaceContainerLow
     val gridColor = MaterialTheme.colorScheme.outlineVariant
     val axisColor = MaterialTheme.colorScheme.outline
     val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
@@ -773,8 +850,29 @@ private fun CurveChart(
             strokeWidth = 1.5.dp.toPx(),
         )
 
+        // The near-optimal speed band and the recommended speed, drawn first so every curve sits
+        // on top of them. Same numbers as the hero card above the chart.
+        efficient?.let { insight ->
+            if (insight.rangeToKmh > insight.rangeFromKmh) {
+                drawRect(
+                    color = colors.effective.copy(alpha = 0.10f),
+                    topLeft = Offset(x(insight.rangeFromKmh), plotTop),
+                    size = Size(x(insight.rangeToKmh) - x(insight.rangeFromKmh), plotBottom - plotTop),
+                )
+            }
+            drawLine(
+                color = colors.effective.copy(alpha = 0.7f),
+                start = Offset(x(insight.speedKmh), plotTop),
+                end = Offset(x(insight.speedKmh), plotBottom),
+                strokeWidth = 1.5.dp.toPx(),
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 8f)),
+            )
+        }
+
+        val usedLearned = learnedPoints.filter { it.usedInCurve }
+
         // Learned uncertainty band (drawn under the curves).
-        buildBandPath(learnedPoints, { x(it) }, { y(it) })?.let { band ->
+        buildBandPath(usedLearned, { x(it) }, { y(it) })?.let { band ->
             drawPath(band, color = colors.learned.copy(alpha = 0.18f))
         }
 
@@ -794,8 +892,8 @@ private fun CurveChart(
         drawSeries(manualPoints, colors.manual, width = 4f)
         drawSeries(effectivePoints, colors.effective, width = 6f)
 
-        // Learned polyline connecting the measured points.
-        val sortedLearned = learnedPoints.sortedBy { it.speedKmh }
+        // Learned polyline connecting the measured points the curve actually uses.
+        val sortedLearned = usedLearned.sortedBy { it.speedKmh }
         if (sortedLearned.size >= 2) {
             val learnedPath = Path()
             sortedLearned.forEachIndexed { index, point ->
@@ -813,11 +911,26 @@ private fun CurveChart(
             } else {
                 5.dp.toPx()
             }
-            drawCircle(
-                color = colors.learned,
-                radius = radius,
-                center = Offset(x(point.speedKmh), y(point.litersPer100Km)),
-            )
+            val center = Offset(x(point.speedKmh), y(point.litersPer100Km))
+            if (point.usedInCurve) {
+                drawCircle(color = colors.learned, radius = radius, center = center)
+            } else {
+                // A measurement the blend rejects as implausible: hollow, so it does not read as
+                // data the curve (and the recommendation) follows.
+                drawCircle(
+                    color = colors.learned.copy(alpha = 0.6f),
+                    radius = radius,
+                    center = center,
+                    style = Stroke(width = 1.5.dp.toPx()),
+                )
+            }
+        }
+
+        // The recommended point itself, on the line it was read from.
+        efficient?.let { insight ->
+            val center = Offset(x(insight.speedKmh), y(insight.litersPer100Km))
+            drawCircle(color = surfaceColor, radius = 7.dp.toPx(), center = center)
+            drawCircle(color = colors.effective, radius = 5.dp.toPx(), center = center)
         }
 
         // Crosshair for the bin selected by tap/drag, drawn above the points.
@@ -890,6 +1003,13 @@ private fun CurveBinChip(
             style = MaterialTheme.typography.labelSmall,
             color = content,
         )
+        if (!point.usedInCurve) {
+            Text(
+                text = stringResource(R.string.curve_bin_unused),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
     }
 }
 
@@ -994,6 +1114,9 @@ private fun curveSeriesColors(): CurveSeriesColors = CurveSeriesColors(
     effective = FuelTheme.colors.chartEffective,
     learned = FuelTheme.colors.chartLearned,
 )
+
+/** A near-optimal band narrower than this is not worth a line of its own in the hero card. */
+private const val RANGE_MIN_WIDTH_KMH = 10.0
 
 /** Plot padding, shared by the Canvas mapping and the touch hit-testing. */
 private val PlotLeftPad = 38.dp

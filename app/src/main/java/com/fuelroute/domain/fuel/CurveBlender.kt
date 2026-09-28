@@ -37,7 +37,7 @@ object CurveBlender {
         val points = blendSpeeds.map { speed ->
             val fallbackValue = fallback.litersPer100Km(speed)
             val learnedValue = learned.litersPer100Km(speed)
-            val value = if (learnedValue == null || !isPlausible(learnedValue, fallbackValue)) {
+            val value = if (learnedValue == null || !usesLearnedValue(learnedValue, fallbackValue)) {
                 fallbackValue
             } else {
                 val w = weight(learned.confidenceKm(speed))
@@ -52,9 +52,10 @@ object CurveBlender {
      * False when [learnedValue] is more than [MAX_PLAUSIBLE_RATIO]x or less than
      * [MIN_PLAUSIBLE_RATIO]x [fallbackValue] (a non-positive fallback can't judge a ratio, so
      * anything is left plausible in that edge case - the fallback curve itself is validated
-     * elsewhere).
+     * elsewhere). A learned value this returns false for is ignored by [blend]; the curve screen
+     * uses the same test to draw such a measured point as "not used".
      */
-    private fun isPlausible(learnedValue: Double, fallbackValue: Double): Boolean {
+    fun usesLearnedValue(learnedValue: Double, fallbackValue: Double): Boolean {
         if (!learnedValue.isFinite() || learnedValue < 0.0) return false
         if (fallbackValue <= 0.0 || !fallbackValue.isFinite()) return true
         val ratio = learnedValue / fallbackValue

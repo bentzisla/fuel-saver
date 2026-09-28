@@ -237,6 +237,9 @@
     <string name="curve_reset_learning">אפס למידה</string>
     <string name="curve_clear_manual">הסר עקומה ידנית</string>
     <string name="curve_legend_band">תחום אי-ודאות</string>
+    <string name="curve_legend_efficient">טווח חסכוני</string>
+    <string name="curve_legend_unused">מדידה חריגה (לא בשימוש)</string>
+    <string name="curve_bin_unused">רחוקה מדי מעקומת הבסיס, ולכן לא נכללת בעקומה</string>
     <string name="curve_adopt_confirm_title">לאמץ את הלמידה לעקומה ידנית?</string>
     <string name="curve_adopt_confirm_message">העקומה הנוכחית תישמר כעקומה ידנית, ונתוני הלמידה יאופסו. הפעולה בלתי הפיכה.</string>
     <string name="curve_reset_confirm_title">לאפס נתוני למידה?</string>
@@ -266,7 +269,7 @@
     <string name="curve_quality_medium">בינונית</string>
     <string name="curve_quality_high">גבוהה</string>
     <string name="curve_quality_hint">איכות הנתונים נקבעת לפי סך הק״מ הנלמדים: פחות מ־20 ק״מ = נמוכה, עד 100 ק״מ = בינונית, ומעל = גבוהה.</string>
-    <string name="curve_confidence_hint">גודל הנקודה מציין כמה ק״מ נמדדו באותה מהירות. הקישו או גררו על הגרף כדי לראות פרטי פח.</string>
+    <string name="curve_confidence_hint">גודל הנקודה מציין כמה ק״מ נמדדו באותה מהירות. נקודה חלולה היא מדידה חריגה (פחות מחצי או יותר מפי 3 מעקומת הבסיס) שהעקומה מתעלמת ממנה. הקישו או גררו על הגרף כדי לראות פרטי פח.</string>
     <string name="curve_km_suffix">ק״מ</string>
     <string name="curve_bin_speed">מהירות: %1$s קמ״ש</string>
     <string name="curve_bin_consumption">צריכה: %1$s ל׳/100 ק״מ</string>
@@ -493,7 +496,15 @@
     <string name="stats_trip_fuel_value">%1$s ל׳ דלק</string>
     <string name="curve_adopt_confirm">אמץ</string>
     <string name="curve_efficient_label">המהירות החסכונית ביותר</string>
-    <string name="curve_efficient_detail">צריכה של %1$s ל׳/100 ק״מ במהירות זו</string>
+    <string name="curve_efficient_detail">צריכה של %1$s ל׳/100 ק״מ במהירות זו (הנקודה המסומנת בגרף)</string>
+    <string name="curve_efficient_range">חיסכון כמעט זהה בכל הטווח %1$s–%2$s קמ״ש (עד 3%% יותר), הרצועה המוצללת בגרף</string>
+    <string name="curve_efficient_from_default">ההמלצה נשענת בעיקר על עקומת ברירת המחדל: נמדדו מעט ק״מ סביב המהירות הזו.</string>
+    <string name="curve_efficient_from_manual">ההמלצה נשענת בעיקר על העקומה הידנית: נמדדו מעט ק״מ סביב המהירות הזו.</string>
+    <string name="curve_mismatch_low">המדידות שלך נמוכות בכ־%1$s%% מ%2$s, ולכן העקומה בשימוש נשארת מעל הנקודות (ומדידות רחוקות מדי מסוננות). אם הצריכה המשולבת בפרופיל הרכב גבוהה מדי, תקנו אותה. אם דווקא ה־OBD מודד חסר, כיול תדלוק (שני מילויים עד הסוף) יתקן את זה.</string>
+    <string name="curve_mismatch_high">המדידות שלך גבוהות בכ־%1$s%% מ%2$s, ולכן העקומה בשימוש נשארת מתחת לנקודות (ומדידות רחוקות מדי מסוננות). אם הצריכה המשולבת בפרופיל הרכב נמוכה מדי, תקנו אותה. אם דווקא ה־OBD מודד ביתר, כיול תדלוק (שני מילויים עד הסוף) יתקן את זה.</string>
+    <string name="curve_mismatch_base_default">עקומת הבסיס (הצריכה המשולבת בפרופיל הרכב)</string>
+    <string name="curve_mismatch_base_manual">העקומה הידנית</string>
+    <string name="curve_efficient_measured_elsewhere">במדידות שלך הצריכה הנמוכה ביותר הייתה ב־%1$s קמ״ש (%2$s ל׳/100 ק״מ). יש שם עדיין מעט ק״מ, ולכן העקומה בשימוש זזה לשם רק בהדרגה.</string>
     <string name="curve_tap_hint">הקישו על הגרף כדי לראות את הנתונים בכל מהירות</string>
     <string name="curve_learned_share_label">חלק העקומה שמבוסס על למידה</string>
     <string name="curve_samples_label">דגימות</string>
