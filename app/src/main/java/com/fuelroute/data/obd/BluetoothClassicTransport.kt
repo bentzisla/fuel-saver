@@ -8,6 +8,7 @@ import android.os.SystemClock
 import android.util.Log
 import com.fuelroute.domain.obd.ElmLinkFailure
 import com.fuelroute.domain.obd.ObdConnectionPolicy
+import com.fuelroute.domain.obd.ObdProbePolicy
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -48,9 +49,15 @@ internal class ObdConnectException(
  * Exchanges go through [ElmLink], whose per-command deadline really fires (it closes the
  * socket to unblock the read). Every connect step and raw command/reply is logged under the
  * `FuelRoute` tag: `adb logcat -s FuelRoute:*`.
+ *
+ * [probe] mode is the background presence check ([ObdProbePolicy]): a single pass, the socket type
+ * that worked last time first, a shorter deadline, and no further variants once a failure looks
+ * like the page timeout of an absent dongle. It costs one ~5 s page when the car is not there
+ * instead of the full chain's retries.
  */
 class BluetoothClassicTransport(
     private val device: BluetoothDevice,
+    private val probe: Boolean = false,
 ) : ObdTransport {
 
     @Volatile
@@ -129,7 +136,7 @@ class BluetoothClassicTransport(
                     return@withContext result
                 }
 
-                if (!ObdConnectionPolicy.shouldRetryConnect(attempt)) break
+                if (probe || !ObdConnectionPolicy.shouldRetryConnect(attempt)) break
                 Log.w(
                     TAG,
                     "connect $address: attempt $attempt/${ObdConnectionPolicy.connectAttempts()} failed " +
@@ -152,7 +159,11 @@ class BluetoothClassicTransport(
     @SuppressLint("MissingPermission")
     private suspend fun attemptConnect(startEpoch: Long): Result<Unit> {
         var lastError: Throwable? = null
-        for (variant in ObdConnectionPolicy.connectVariants()) {
+        val known = lastGoodVariant[key(address)]
+        val variants = ObdConnectionPolicy.connectVariants().let { all ->
+            if (probe && known != null) listOf(known) + (all - known) else all
+        }
+        for (variant in variants) {
             waitForRfcommRelease()
             if (epoch.get() != startEpoch) return Result.failure(IOException("aborted"))
 
@@ -165,8 +176,9 @@ class BluetoothClassicTransport(
                 continue
             }
 
-            Log.i(TAG, "connect $address: trying $variant")
+            Log.i(TAG, "connect $address: trying $variant${if (probe) " (probe)" else ""}")
             pendingSocket = socket
+            val variantStartMs = SystemClock.elapsedRealtime()
             val connected = try {
                 connectSocket(socket)
             } catch (e: CancellationException) {
@@ -182,6 +194,7 @@ class BluetoothClassicTransport(
                     closeSocket(socket, "disconnect() during connect ($variant)")
                     return Result.failure(IOException("aborted"))
                 }
+                lastGoodVariant[key(address)] = variant
                 return try {
                     link = ElmLink(
                         input = socket.inputStream,
@@ -206,6 +219,11 @@ class BluetoothClassicTransport(
             // will not help within this attempt, so fail fast and let the outer retry
             // (with its own backoff) have another go later.
             if (error is SocketTimeoutException) return Result.failure(error)
+            // Probing: a slow failure is the page timeout of a dongle that is not there; the other
+            // socket types would each wait it out again.
+            if (probe && SystemClock.elapsedRealtime() - variantStartMs >= ObdProbePolicy.FAST_FAIL_MS) {
+                return Result.failure(error ?: IOException(ObdConnectionPolicy.ERROR_CONNECT))
+            }
         }
         return Result.failure(lastError ?: IOException(ObdConnectionPolicy.ERROR_CONNECT))
     }
@@ -242,9 +260,10 @@ class BluetoothClassicTransport(
             done.complete(runCatching { s.connect() })
         }, "bt-connect").apply { isDaemon = true }.start()
 
-        val outcome = withTimeoutOrNull(ObdConnectionPolicy.CONNECT_TIMEOUT_MS) { done.await() }
+        val timeoutMs = if (probe) ObdProbePolicy.CONNECT_TIMEOUT_MS else ObdConnectionPolicy.CONNECT_TIMEOUT_MS
+        val outcome = withTimeoutOrNull(timeoutMs) { done.await() }
         if (outcome == null) {
-            Log.w(TAG, "connect $address: timed out after ${ObdConnectionPolicy.CONNECT_TIMEOUT_MS}ms")
+            Log.w(TAG, "connect $address: timed out after ${timeoutMs}ms")
             return Result.failure(SocketTimeoutException(ObdConnectionPolicy.ERROR_CONNECT_TIMEOUT))
         }
         return outcome
@@ -334,6 +353,9 @@ class BluetoothClassicTransport(
 
         /** Process-wide time (elapsedRealtime) we last closed a socket to each dongle. */
         private val lastCloseAt = ConcurrentHashMap<String, Long>()
+
+        /** The socket type that last connected to each dongle; a probe tries it first. */
+        private val lastGoodVariant = ConcurrentHashMap<String, ObdConnectionPolicy.ConnectVariant>()
 
         private fun key(address: String): String = address.uppercase()
 

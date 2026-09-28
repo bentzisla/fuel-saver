@@ -162,6 +162,7 @@
     <string name="stats_connecting_to">מתחבר ל־%1$s…</string>
     <string name="stats_trips">נסיעות אחרונות</string>
     <string name="stats_no_trips">אין נסיעות מתועדות עדיין</string>
+    <string name="stats_trips_open_history">כל הנסיעות ועריכה</string>
     <string name="stats_prediction">חיזוי %1$s</string>
     <string name="stats_debug_title">אבחון ופעולות מתקדמות</string>
     <string name="stats_last_error">שגיאה אחרונה</string>
@@ -193,7 +194,7 @@
     <string name="stats_error_security">אין הרשאת Bluetooth להתחבר לדונגל</string>
     <string name="stats_error_socket_closed">החיבור לדונגל נסגר</string>
 
-    <string name="history_title">היסטוריה</string>
+    <string name="history_title">היסטוריית נסיעות</string>
     <string name="history_empty">אין חיפושים קודמים עדיין</string>
     <string name="history_accuracy">דיוק חיזוי: ±%1$s%%</string>
     <string name="history_delta">הפרש: %1$s ₪ (%2$s%%)</string>
@@ -236,6 +237,9 @@
     <string name="curve_reset_learning">אפס למידה</string>
     <string name="curve_clear_manual">הסר עקומה ידנית</string>
     <string name="curve_legend_band">תחום אי-ודאות</string>
+    <string name="curve_legend_efficient">טווח חסכוני</string>
+    <string name="curve_legend_unused">מדידה חריגה (לא בשימוש)</string>
+    <string name="curve_bin_unused">רחוקה מדי מעקומת הבסיס, ולכן לא נכללת בעקומה</string>
     <string name="curve_adopt_confirm_title">לאמץ את הלמידה לעקומה ידנית?</string>
     <string name="curve_adopt_confirm_message">העקומה הנוכחית תישמר כעקומה ידנית, ונתוני הלמידה יאופסו. הפעולה בלתי הפיכה.</string>
     <string name="curve_reset_confirm_title">לאפס נתוני למידה?</string>
@@ -265,7 +269,7 @@
     <string name="curve_quality_medium">בינונית</string>
     <string name="curve_quality_high">גבוהה</string>
     <string name="curve_quality_hint">איכות הנתונים נקבעת לפי סך הק״מ הנלמדים: פחות מ־20 ק״מ = נמוכה, עד 100 ק״מ = בינונית, ומעל = גבוהה.</string>
-    <string name="curve_confidence_hint">גודל הנקודה מציין כמה ק״מ נמדדו באותה מהירות. הקישו או גררו על הגרף כדי לראות פרטי פח.</string>
+    <string name="curve_confidence_hint">גודל הנקודה מציין כמה ק״מ נמדדו באותה מהירות. נקודה חלולה היא מדידה חריגה (פחות מחצי או יותר מפי 3 מעקומת הבסיס) שהעקומה מתעלמת ממנה. הקישו או גררו על הגרף כדי לראות פרטי פח.</string>
     <string name="curve_km_suffix">ק״מ</string>
     <string name="curve_bin_speed">מהירות: %1$s קמ״ש</string>
     <string name="curve_bin_consumption">צריכה: %1$s ל׳/100 ק״מ</string>
@@ -377,6 +381,25 @@
     <string name="settings_auto_logging_intro">רישום אוטומטי ללא מגע</string>
     <string name="settings_auto_logging_intro_detail">כשהדונגל מתחבר, FuelRoute יתחיל לתעד צריכה, מהירות וסל״ד ברקע וישמור נסיעות. הנתונים נשארים במכשיר. נדרשות הרשאות Bluetooth והתראות, וכן פטור מאופטימיזציית סוללה כדי שהרישום ימשיך כשהמסך כבוי.</string>
     <string name="settings_auto_logging_enable">הפעל רישום אוטומטי</string>
+    <string name="settings_probe_title">זיהוי נסיעה ברקע</string>
+    <string name="settings_probe_subtitle">בודק בשקט אם הדונגל השמור בטווח. אם המנוע פועל, המדידה מתחילה לבד. רכב חונה לא מקפיץ שום התראה. ניתוק ידני נשמר עד סוף אותה נסיעה.</string>
+    <string name="settings_probe_last">בדיקה אחרונה: %1$s (%2$s)</string>
+    <string name="settings_probe_interval_label">תדירות הבדיקה</string>
+    <string name="settings_probe_interval_value">%1$d דק׳</string>
+    <string name="settings_probe_background_hint">כדי שהמדידה תתחיל לבד כשהאפליקציה סגורה, Android דורש פטור מאופטימיזציית סוללה. בלי הפטור תופיע התראה שקטה \"זוהתה נסיעה\", ולחיצה עליה מתחילה את המדידה.</string>
+    <string name="settings_probe_result_running">מנוע פועל, המדידה הופעלה</string>
+    <string name="settings_probe_result_off">הדונגל בטווח, המנוע כבוי</string>
+    <string name="settings_probe_result_absent">הדונגל לא בטווח</string>
+    <string name="settings_probe_result_unresponsive">הדונגל לא עונה</string>
+    <string name="settings_probe_result_logging">מדידה כבר פעילה</string>
+    <string name="settings_probe_result_no_device">אין דונגל שמור</string>
+    <string name="settings_probe_result_no_permission">חסרה הרשאת Bluetooth</string>
+    <string name="settings_probe_result_bt_off">Bluetooth כבוי</string>
+    <string name="settings_probe_result_disabled">כבוי</string>
+    <string name="settings_probe_result_none">טרם בוצעה</string>
+    <string name="probe_notification_channel">זיהוי נסיעה</string>
+    <string name="probe_notification_title">זוהתה נסיעה</string>
+    <string name="probe_notification_text">הקישו כדי להתחיל למדוד צריכה</string>
 
     <!-- Android Auto help + last-seen diagnostic (card 42). Sideload-only: "Unknown sources" required. -->
     <string name="settings_android_auto_title">תצוגה ברכב (Android Auto)</string>
@@ -492,7 +515,15 @@
     <string name="stats_trip_fuel_value">%1$s ל׳ דלק</string>
     <string name="curve_adopt_confirm">אמץ</string>
     <string name="curve_efficient_label">המהירות החסכונית ביותר</string>
-    <string name="curve_efficient_detail">צריכה של %1$s ל׳/100 ק״מ במהירות זו</string>
+    <string name="curve_efficient_detail">צריכה של %1$s ל׳/100 ק״מ במהירות זו (הנקודה המסומנת בגרף)</string>
+    <string name="curve_efficient_range">חיסכון כמעט זהה בכל הטווח %1$s–%2$s קמ״ש (עד 3%% יותר), הרצועה המוצללת בגרף</string>
+    <string name="curve_efficient_from_default">ההמלצה נשענת בעיקר על עקומת ברירת המחדל: נמדדו מעט ק״מ סביב המהירות הזו.</string>
+    <string name="curve_efficient_from_manual">ההמלצה נשענת בעיקר על העקומה הידנית: נמדדו מעט ק״מ סביב המהירות הזו.</string>
+    <string name="curve_mismatch_low">המדידות שלך נמוכות בכ־%1$s%% מ%2$s, ולכן העקומה בשימוש נשארת מעל הנקודות (ומדידות רחוקות מדי מסוננות). אם הצריכה המשולבת בפרופיל הרכב גבוהה מדי, תקנו אותה. אם דווקא ה־OBD מודד חסר, כיול תדלוק (שני מילויים עד הסוף) יתקן את זה.</string>
+    <string name="curve_mismatch_high">המדידות שלך גבוהות בכ־%1$s%% מ%2$s, ולכן העקומה בשימוש נשארת מתחת לנקודות (ומדידות רחוקות מדי מסוננות). אם הצריכה המשולבת בפרופיל הרכב נמוכה מדי, תקנו אותה. אם דווקא ה־OBD מודד ביתר, כיול תדלוק (שני מילויים עד הסוף) יתקן את זה.</string>
+    <string name="curve_mismatch_base_default">עקומת הבסיס (הצריכה המשולבת בפרופיל הרכב)</string>
+    <string name="curve_mismatch_base_manual">העקומה הידנית</string>
+    <string name="curve_efficient_measured_elsewhere">במדידות שלך הצריכה הנמוכה ביותר הייתה ב־%1$s קמ״ש (%2$s ל׳/100 ק״מ). יש שם עדיין מעט ק״מ, ולכן העקומה בשימוש זזה לשם רק בהדרגה.</string>
     <string name="curve_tap_hint">הקישו על הגרף כדי לראות את הנתונים בכל מהירות</string>
     <string name="curve_learned_share_label">חלק העקומה שמבוסס על למידה</string>
     <string name="curve_samples_label">דגימות</string>

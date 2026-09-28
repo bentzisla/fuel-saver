@@ -2,6 +2,9 @@ package com.fuelroute.data.routes
 
 import com.fuelroute.data.db.RouteSearchDao
 import com.fuelroute.data.db.RouteSearchEntity
+import com.fuelroute.data.db.TripDao
+import com.fuelroute.domain.history.SearchKey
+import com.fuelroute.domain.history.SearchRecordPolicy
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -33,6 +36,15 @@ interface RouteSearchRepository {
     /** Inserts the search and returns its generated id so it can be updated later. */
     suspend fun add(search: RouteSearch): Long
 
+    /**
+     * Records a search as History's one row per ride (see [SearchRecordPolicy]): a new ride is
+     * inserted, a pre-departure refresh of the same ride overwrites the previous row, and a
+     * refresh made while that ride is already being driven records nothing. Returns the id of the
+     * row that now describes this search, or null when nothing was recorded (so later selection
+     * changes must not touch the ride's stored prediction).
+     */
+    suspend fun record(search: RouteSearch): Long? = add(search)
+
     /** Stores which ranked route the user actually opened/navigated. */
     suspend fun updateSelection(
         id: Long,
@@ -50,35 +62,62 @@ interface RouteSearchRepository {
 @Singleton
 class DefaultRouteSearchRepository @Inject constructor(
     private val dao: RouteSearchDao,
+    private val tripDao: TripDao,
 ) : RouteSearchRepository {
 
     override suspend fun recent(limit: Int): List<RouteSearch> =
         dao.recent(limit).map { it.toDomain() }
 
-    override suspend fun add(search: RouteSearch): Long =
-        dao.insert(
-            RouteSearchEntity(
-                originLabel = search.originLabel,
-                destinationLabel = search.destinationLabel,
-                timestampMs = search.timestampMs,
-                cheapestCost = search.cheapestCost,
-                fastestCost = search.cheapestCost + search.savedAmount,
-                savedAmount = search.savedAmount,
-                predictedLiters = search.predictedLiters,
-                distanceKm = search.distanceKm,
-                durationMin = search.durationMin,
-                selectedRouteIndex = search.selectedRouteIndex,
-                departureTimeMs = search.departureTimeMs,
-                tollUnknown = if (search.tollUnknown) 1 else 0,
-                selectedPredictedCost = search.selectedPredictedCost,
-                selectedPredictedLiters = search.selectedPredictedLiters,
-                selectedPredictedMinutes = search.selectedPredictedMinutes,
-                pricePerLiterAtSearch = search.pricePerLiterAtSearch,
-                destinationPlaceId = search.destinationPlaceId,
-                destinationLat = search.destinationLat,
-                destinationLng = search.destinationLng,
-            ),
-        )
+    override suspend fun add(search: RouteSearch): Long = dao.insert(search.toEntity())
+
+    override suspend fun record(search: RouteSearch): Long? {
+        val previous = dao.latest()
+        val previousKey = previous?.let { it.toKey(linked = dao.isLinked(it.id)) }
+        val driveUnderway = previous != null &&
+            tripDao.recentOpenTrips().any { it.startedAtMs >= previous.timestampMs }
+        val entity = search.toEntity()
+        return when (SearchRecordPolicy.decide(previousKey, entity.toKey(linked = false), driveUnderway)) {
+            SearchRecordPolicy.Action.INSERT -> dao.insert(entity)
+            SearchRecordPolicy.Action.REPLACE -> {
+                val id = requireNotNull(previous).id
+                dao.update(entity.copy(id = id))
+                id
+            }
+            SearchRecordPolicy.Action.SKIP -> null
+        }
+    }
+
+    private fun RouteSearch.toEntity() = RouteSearchEntity(
+        originLabel = originLabel,
+        destinationLabel = destinationLabel,
+        timestampMs = timestampMs,
+        cheapestCost = cheapestCost,
+        fastestCost = cheapestCost + savedAmount,
+        savedAmount = savedAmount,
+        predictedLiters = predictedLiters,
+        distanceKm = distanceKm,
+        durationMin = durationMin,
+        selectedRouteIndex = selectedRouteIndex,
+        departureTimeMs = departureTimeMs,
+        tollUnknown = if (tollUnknown) 1 else 0,
+        selectedPredictedCost = selectedPredictedCost,
+        selectedPredictedLiters = selectedPredictedLiters,
+        selectedPredictedMinutes = selectedPredictedMinutes,
+        pricePerLiterAtSearch = pricePerLiterAtSearch,
+        destinationPlaceId = destinationPlaceId,
+        destinationLat = destinationLat,
+        destinationLng = destinationLng,
+    )
+
+    private fun RouteSearchEntity.toKey(linked: Boolean) = SearchKey(
+        id = id,
+        timestampMs = timestampMs,
+        originLabel = originLabel,
+        destinationLabel = destinationLabel,
+        destinationPlaceId = destinationPlaceId,
+        distanceKm = distanceKm,
+        linked = linked,
+    )
 
     override suspend fun updateSelection(
         id: Long,

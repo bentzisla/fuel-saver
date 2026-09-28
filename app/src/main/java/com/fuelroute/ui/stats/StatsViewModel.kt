@@ -157,6 +157,9 @@ class StatsViewModel @Inject constructor(
         }
     }
 
+    /** Reloads the trip list, e.g. when returning from History where drives may have been edited. */
+    fun refreshTrips() = loadTrips()
+
     private fun loadTrips() {
         val vehicleId = _activeVehicle.value?.id
         if (vehicleId == null) {

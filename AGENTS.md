@@ -40,6 +40,7 @@ No AI attribution in git history: commit messages and PR descriptions must not c
 - Log tag: `FuelRoute`.
 - UI strings in `res/values/strings.xml` (Hebrew primary, RTL supported).
 - Prefer `StateFlow` + `collectAsStateWithLifecycle` for UI state; coroutines for async; no RxJava.
+- History is one row per ride: record route searches via `RouteSearchRepository.record` (`domain/history/SearchRecordPolicy`), not `add`. Read trips through `data/history/TripReadout` (manual entry wins, raw OBD columns untouched).
 - Tests: JUnit4 + MockK. Real Routes API JSON responses are saved under `app/src/test/resources/fixtures/` and used for parser + fuel-model tests.
 - WARNING: the project dir must remain **ASCII-only** (currently `C:\dev\fuel`).
   `AGP` refuses non-ASCII paths and Gradle's test worker classpath argfile drops non-ASCII bytes, causing
@@ -57,6 +58,7 @@ No AI attribution in git history: commit messages and PR descriptions must not c
 - Fuel rate priority: PID `5E` (direct L/h) > MAF `10` (`MAF/AFR`, gasoline AFR 14.7, density 745 g/L) > speed-density (`MAP 0B`, `RPM 0C`, `IAT 0F`, needs displacement).
 - Learning: 5 km/h speed bins; per bin accumulate `distanceKm`, `fuelL`, `seconds`, `samples` in Room (`speed_bin_stats`). Bin 0 with RPM > 0 = idle L/h. Samples with dt > 2 s or cold engine (< 60 C) are excluded from the curve.
 - Logging runs in `service/ObdLoggingService` (Foreground Service, type `connectedDevice`) independent of routing.
+- An ELM327 never connects by itself, so ACL broadcasts alone never start logging. A background presence probe (`service/ObdProbeWorker`, a WorkManager chain every N min, default 5) runs `data/obd/ObdPresenceProbe`: one quick RFCOMM connect, then `ATRV`/`010C`. It starts logging only when the engine is running. ACL broadcasts caused by the probe are ignored via `ObdProbeGate`. Rules live in `domain/obd/ObdProbePolicy`.
 - Recorded ELM sessions for tests/fixtures go under `app/src/test/resources/fixtures/obd/`.
 - Android Auto: `car/FuelRouteCarAppService` renders a live OBD dashboard (templates only, ~1 Hz). Test via the Desktop Head Unit (DHU), not the emulator: `sdkmanager --install "extras;google;auto"`, enable Android Auto developer mode on the phone, `adb forward tcp:5277 tcp:5277`, run `desktop-head-unit.exe`. Android Auto only runs apps from a trusted store in a real car, so a sideloaded APK will not show there: use the Play internal-testing track for in-car use (see `docs/play/README.md`); the DHU accepts debug builds.
 

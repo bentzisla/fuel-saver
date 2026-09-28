@@ -23,15 +23,18 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.fuelroute.R
 import com.fuelroute.data.settings.SettingsRepository
 import com.fuelroute.ui.curve.CurveScreen
 import com.fuelroute.ui.debug.CalibrationScreen
 import com.fuelroute.ui.history.HistoryScreen
+import com.fuelroute.ui.history.HistoryViewModel
 import com.fuelroute.ui.onboarding.OnboardingScreen
 import com.fuelroute.ui.refuel.RefuelScreen
 import com.fuelroute.ui.route.RouteScreen
@@ -63,7 +66,11 @@ private object SubRoute {
     const val CURVE = "curve"
     const val CALIBRATION = "calibration"
     const val REFUEL = "refuel"
-    const val HISTORY = "history"
+    const val HISTORY = "history?${HistoryViewModel.ARG_TRIP_ID}={${HistoryViewModel.ARG_TRIP_ID}}"
+
+    /** History, optionally opening one drive's detail sheet (from the Drive tab's trip list). */
+    fun history(tripId: Long? = null): String =
+        if (tripId == null) "history" else "history?${HistoryViewModel.ARG_TRIP_ID}=$tripId"
 }
 
 @Composable
@@ -134,10 +141,13 @@ fun FuelRouteNavHost(openStats: Boolean = false) {
             modifier = Modifier.padding(innerPadding),
         ) {
             composable(TopDestination.ROUTE.route) {
-                RouteScreen(onOpenHistory = { navController.navigate(SubRoute.HISTORY) })
+                RouteScreen(onOpenHistory = { navController.navigate(SubRoute.history()) })
             }
             composable(TopDestination.STATS.route) {
-                StatsScreen(onOpenCurve = { navController.navigate(SubRoute.CURVE) })
+                StatsScreen(
+                    onOpenCurve = { navController.navigate(SubRoute.CURVE) },
+                    onOpenHistory = { tripId -> navController.navigate(SubRoute.history(tripId)) },
+                )
             }
             composable(TopDestination.VEHICLE.route) {
                 VehicleScreen(
@@ -151,7 +161,15 @@ fun FuelRouteNavHost(openStats: Boolean = false) {
             composable(SubRoute.CURVE) { CurveScreen(onBack = back) }
             composable(SubRoute.CALIBRATION) { CalibrationScreen(onBack = back) }
             composable(SubRoute.REFUEL) { RefuelScreen(onBack = back) }
-            composable(SubRoute.HISTORY) { HistoryScreen(onBack = back) }
+            composable(
+                route = SubRoute.HISTORY,
+                arguments = listOf(
+                    navArgument(HistoryViewModel.ARG_TRIP_ID) {
+                        type = NavType.LongType
+                        defaultValue = HistoryViewModel.NO_TRIP
+                    },
+                ),
+            ) { HistoryScreen(onBack = back) }
         }
     }
 }

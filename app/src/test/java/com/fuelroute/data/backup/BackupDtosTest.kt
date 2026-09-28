@@ -54,9 +54,9 @@ class BackupDtosTest {
         assertEquals(original.pricePerLiterAtTrip, restored.pricePerLiterAtTrip, 1e-9)
         assertEquals(original.linkedAtMs, restored.linkedAtMs)
         assertEquals(original.source, restored.source)
-        assertEquals(original.manualCost, restored.manualCost, 1e-9)
-        assertEquals(original.manualDistanceKm, restored.manualDistanceKm, 1e-9)
-        assertEquals(original.manualLitersPer100Km, restored.manualLitersPer100Km, 1e-9)
+        assertEquals(original.manualCost!!, restored.manualCost!!, 1e-9)
+        assertEquals(original.manualDistanceKm!!, restored.manualDistanceKm!!, 1e-9)
+        assertEquals(original.manualLitersPer100Km!!, restored.manualLitersPer100Km!!, 1e-9)
         assertEquals(original.manualEnteredAtMs, restored.manualEnteredAtMs)
     }
 

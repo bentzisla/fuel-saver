@@ -568,7 +568,9 @@ class RouteViewModel @Inject constructor(
                 ranked.firstOrNull()?.let { cheapest ->
                     val fastest = ranked.minByOrNull { it.durationMinutes }
                     if (fastest != null) {
-                        lastSearchId = routeSearchRepository.add(
+                        // One History row per ride: a refresh of the same ride updates it in
+                        // place, and a refresh from the road while driving it records nothing.
+                        lastSearchId = routeSearchRepository.record(
                             RouteSearch(
                                 originLabel = origin,
                                 destinationLabel = destination,

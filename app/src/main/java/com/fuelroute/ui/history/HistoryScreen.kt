@@ -528,6 +528,18 @@ private fun RideDetailSheet(
                     value = "${fmt(it, 1)} ${stringResource(R.string.route_units_km)}",
                 )
             }
+            entry.avgSpeedKmh?.let {
+                KeyValueRow(
+                    label = stringResource(R.string.history_avg_speed_label),
+                    value = "${fmt(it, 0)} ${stringResource(R.string.route_units_kmh)}",
+                )
+            }
+            entry.actualLitersPer100Km?.let {
+                KeyValueRow(
+                    label = stringResource(R.string.history_consumption_label),
+                    value = "${fmt(it, 1)} ${stringResource(R.string.stats_units_l100)}",
+                )
+            }
             entry.pricePerLiterAtSearch?.let {
                 KeyValueRow(label = stringResource(R.string.history_price_search_label), value = money(it))
             }

@@ -96,7 +96,8 @@ class DriveHistoryRepositoryTest {
         )
         coEvery { routeSearchDao.recent(any()) } returns listOf(
             search(id = 100, ts = 2_000),
-            search(id = 200, ts = 1_000),
+            // Another ride (an earlier search for the same one would be a hidden duplicate).
+            search(id = 200, ts = 1_000).copy(destinationLabel = "Gym"),
         )
 
         val candidates = repository.linkCandidates("v1")
@@ -446,6 +447,135 @@ class DriveHistoryRepositoryTest {
         val buggySplitAtMs = (1_800_000L * 0.95f).toLong()
         assertNull(repository.splitTrip(10, buggySplitAtMs))
         coVerify(exactly = 0) { tripDao.replaceTrips(any(), any()) }
+    }
+
+    @Test
+    fun `mergeTrips keeps the search link of the earliest linked part`() = runTest {
+        // One drive split in two by a stop: the first leg was auto-linked to the search.
+        coEvery { tripDao.findById(1) } returns trip(1, "v1", routeSearchId = 7, ts = 1_000, fuel = 1.0)
+            .copy(linkedAtMs = 5_000L)
+        coEvery { tripDao.findById(2) } returns trip(2, "v1", routeSearchId = null, ts = 700_000, fuel = 1.0)
+        val inserted = slot<List<TripEntity>>()
+        coEvery { tripDao.replaceTrips(any(), capture(inserted)) } returns listOf(99L)
+
+        repository.mergeTrips(listOf(2, 1))
+
+        val merged = inserted.captured.single()
+        assertEquals(7, merged.routeSearchId)
+        assertEquals(5_000L, merged.linkedAtMs)
+    }
+
+    @Test
+    fun `mergeTrips keeps a manual cost entered on one of the parts`() = runTest {
+        coEvery { tripDao.findById(1) } returns trip(1, "v1", null, ts = 1_000, actualCost = 7.0, fuel = 1.0)
+            .copy(pricePerLiterAtTrip = 7.0)
+        // The second leg's OBD cost was corrected by hand to 20.
+        coEvery { tripDao.findById(2) } returns trip(2, "v1", null, ts = 700_000, actualCost = 14.0, fuel = 2.0)
+            .copy(pricePerLiterAtTrip = 7.0, manualCost = 20.0, manualEnteredAtMs = 9_000L)
+        val inserted = slot<List<TripEntity>>()
+        coEvery { tripDao.replaceTrips(any(), capture(inserted)) } returns listOf(99L)
+
+        repository.mergeTrips(listOf(1, 2))
+
+        val merged = inserted.captured.single()
+        // What History showed before the merge: 7 (OBD) + 20 (manual).
+        assertEquals(27.0, merged.manualCost!!, 1e-9)
+        assertEquals(9_000L, merged.manualEnteredAtMs)
+        // The measured columns stay OBD-only.
+        assertEquals(3.0, merged.fuelL, 1e-9)
+        assertEquals(21.0, merged.actualCost, 1e-9)
+    }
+
+    @Test
+    fun `mergeTrips never turns a typed-in manual ride into measured OBD numbers`() = runTest {
+        coEvery { tripDao.findById(1) } returns trip(1, "v1", null, ts = 1_000, actualCost = 7.0, fuel = 1.0)
+            .copy(distanceKm = 10.0, pricePerLiterAtTrip = 7.0)
+        // A manual-only ride: its distance is the search's prediction, its fuel was never measured.
+        coEvery { tripDao.findById(2) } returns trip(2, "v1", routeSearchId = 4, ts = 700_000, source = TripSource.MANUAL)
+            .copy(distanceKm = 30.0, pricePerLiterAtTrip = 7.0, manualCost = 21.0)
+        val inserted = slot<List<TripEntity>>()
+        coEvery { tripDao.replaceTrips(any(), capture(inserted)) } returns listOf(99L)
+
+        repository.mergeTrips(listOf(1, 2))
+
+        val merged = inserted.captured.single()
+        assertEquals(TripSource.REAL, merged.source)
+        assertEquals(10.0, merged.distanceKm, 1e-9)
+        assertEquals(1.0, merged.fuelL, 1e-9)
+        assertEquals(40.0, merged.manualDistanceKm!!, 1e-9)
+        assertEquals(28.0, merged.manualCost!!, 1e-9)
+        assertEquals(4, merged.routeSearchId)
+    }
+
+    @Test
+    fun `splitTrip apportions a manual entry instead of dropping it`() = runTest {
+        coEvery { tripDao.findById(5) } returns trip(5, "v1", routeSearchId = 3, ts = 0, actualCost = 14.0, fuel = 2.0)
+            .copy(
+                endedAtMs = 10_000,
+                distanceKm = 20.0,
+                pricePerLiterAtTrip = 7.0,
+                manualCost = 30.0,
+                manualDistanceKm = 25.0,
+                manualLitersPer100Km = 8.0,
+            )
+        val inserted = slot<List<TripEntity>>()
+        coEvery { tripDao.replaceTrips(listOf(5L), capture(inserted)) } returns listOf(101L, 102L)
+
+        repository.splitTrip(5, 3_000)
+
+        val (first, second) = inserted.captured
+        assertEquals(9.0, first.manualCost!!, 1e-9)
+        assertEquals(21.0, second.manualCost!!, 1e-9)
+        assertEquals(7.5, first.manualDistanceKm!!, 1e-9)
+        assertEquals(17.5, second.manualDistanceKm!!, 1e-9)
+        assertEquals(8.0, first.manualLitersPer100Km!!, 1e-9)
+        assertEquals(8.0, second.manualLitersPer100Km!!, 1e-9)
+        // The measured columns are split from the OBD values, not the manual ones.
+        assertEquals(6.0, first.distanceKm, 1e-9)
+        assertEquals(0.6, first.fuelL, 1e-9)
+    }
+
+    @Test
+    fun `recent hides an earlier refresh of a ride that was driven`() = runTest {
+        // Field case: searched at 11:45, refreshed at 11:50, drove from 12:17 (linked to 11:50).
+        val minute = 60_000L
+        coEvery { routeSearchDao.recent(any()) } returns listOf(
+            search(id = 6, ts = 50 * minute),
+            search(id = 5, ts = 45 * minute),
+        )
+        coEvery { tripDao.recentClosedForVehicle("v1", any()) } returns listOf(
+            trip(id = 12, vehicleId = "v1", routeSearchId = 6, ts = 77 * minute, actualCost = 5.0, fuel = 0.7),
+        )
+
+        val entries = repository.recent("v1").entries
+
+        assertEquals(listOf(6L), entries.map { it.searchId })
+    }
+
+    @Test
+    fun `linkCandidates skips hidden duplicate searches`() = runTest {
+        val minute = 60_000L
+        coEvery { tripDao.recentClosedForVehicle("v1", any()) } returns emptyList()
+        coEvery { routeSearchDao.recent(any()) } returns listOf(
+            search(id = 2, ts = 10 * minute),
+            search(id = 1, ts = 0),
+        )
+
+        assertEquals(listOf(2L), repository.linkCandidates("v1").map { it.id })
+    }
+
+    @Test
+    fun `a direct-cost manual entry resolves to liters for accuracy and consumption`() = runTest {
+        coEvery { routeSearchDao.recent(any()) } returns emptyList()
+        coEvery { tripDao.recentClosedForVehicle("v1", any()) } returns listOf(
+            trip(id = 10, vehicleId = "v1", routeSearchId = null, ts = 0, source = TripSource.MANUAL)
+                .copy(distanceKm = 20.0, pricePerLiterAtTrip = 7.0, manualCost = 14.0),
+        )
+
+        val entry = repository.recent("v1").entries.single()
+
+        assertEquals(2.0, entry.actualLiters!!, 1e-9)
+        assertEquals(10.0, entry.actualLitersPer100Km!!, 1e-9)
     }
 
     @Test
