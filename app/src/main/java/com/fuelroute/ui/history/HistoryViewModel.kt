@@ -64,10 +64,16 @@ class HistoryViewModel @Inject constructor(
     private val repository: DriveHistoryRepository,
     private val vehicleRepository: VehicleRepository,
     private val fuelPriceRepository: FuelPriceRepository,
-    private val savedStateHandle: SavedStateHandle = SavedStateHandle(),
+    private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(HistoryUiState())
+    // Multi-select survives process death: restored from the saved state and written back below.
+    private val _state = MutableStateFlow(
+        HistoryUiState(
+            selectionMode = savedStateHandle.get<Boolean>(KEY_SELECTION_MODE) ?: false,
+            selectedIds = savedStateHandle.get<LongArray>(KEY_SELECTED_IDS)?.toSet() ?: emptySet(),
+        ),
+    )
     val state: StateFlow<HistoryUiState> = _state.asStateFlow()
 
     /**
@@ -81,6 +87,12 @@ class HistoryViewModel @Inject constructor(
     private val activeVehicleId = MutableStateFlow<String?>(null)
 
     init {
+        viewModelScope.launch {
+            _state.collect { state ->
+                savedStateHandle[KEY_SELECTION_MODE] = state.selectionMode
+                savedStateHandle[KEY_SELECTED_IDS] = state.selectedIds.toLongArray()
+            }
+        }
         viewModelScope.launch {
             vehicleRepository.vehicles().collect { list ->
                 val current = list.firstOrNull { it.id == activeVehicleId.value } ?: list.firstOrNull()
@@ -375,6 +387,9 @@ class HistoryViewModel @Inject constructor(
     }
 
     companion object {
+        private const val KEY_SELECTION_MODE = "selectionMode"
+        private const val KEY_SELECTED_IDS = "selectedIds"
+
         /** Optional navigation argument: the trip whose detail sheet opens on arrival. */
         const val ARG_TRIP_ID = "tripId"
 
