@@ -338,8 +338,8 @@ class BackupRepositoryTest {
                 }
             },
             favoriteObdDeviceDao = mockk<FavoriteObdDeviceDao>(relaxed = true).also { dao ->
-                coEvery { dao.getAll() } answers { favoriteObdDevices.toList() }
-                coEvery { dao.insert(any()) } coAnswers {
+                every { dao.observeAll() } answers { flowOf(favoriteObdDevices.toList()) }
+                coEvery { dao.upsert(any()) } coAnswers {
                     val device = args[0] as FavoriteObdDeviceEntity
                     favoriteObdDevices.removeAll { it.address == device.address }
                     favoriteObdDevices.add(device)

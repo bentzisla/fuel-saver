@@ -101,7 +101,7 @@ class DefaultBackupRepository @Inject constructor(
             settings = settings.toSnapshot(),
             modelOverrides = settingsRepository.modelOverrides.first(),
             prices = prices,
-            favoriteObdDevices = favoriteObdDeviceDao.getAll().map { it.toSnapshot() },
+            favoriteObdDevices = favoriteObdDeviceDao.observeAll().first().map { it.toSnapshot() },
         )
         return json.encodeToString(BackupPayload.serializer(), payload)
     }
@@ -246,7 +246,7 @@ class DefaultBackupRepository @Inject constructor(
     }
 
     private suspend fun insertFavoriteObdDevices(payload: BackupPayload): Pair<Int, Int> {
-        val existing = favoriteObdDeviceDao.getAll().associateBy { it.address }
+        val existing = favoriteObdDeviceDao.observeAll().first().associateBy { it.address }
         var added = 0
         var skipped = 0
         for (device in payload.favoriteObdDevices) {
@@ -254,7 +254,7 @@ class DefaultBackupRepository @Inject constructor(
                 skipped++
                 continue
             }
-            favoriteObdDeviceDao.insert(device.toEntity())
+            favoriteObdDeviceDao.upsert(device.toEntity())
             added++
         }
         return added to skipped

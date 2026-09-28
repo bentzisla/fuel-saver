@@ -1,0 +1,59 @@
+﻿> Task :app:preBuild UP-TO-DATE
+> Task :app:preSideloadDebugBuild UP-TO-DATE
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :app:generateSideloadDebugBuildConfig FROM-CACHE
+> Task :app:processSideloadDebugNavigationResources
+> Task :app:checkSideloadDebugAarMetadata
+> Task :app:compileSideloadDebugNavigationResources FROM-CACHE
+> Task :app:generateSideloadDebugResValues FROM-CACHE
+> Task :app:mapSideloadDebugSourceSetPaths
+> Task :app:generateSideloadDebugResources
+> Task :app:packageSideloadDebugResources
+> Task :app:createSideloadDebugCompatibleScreenManifests
+> Task :app:extractDeepLinksSideloadDebug FROM-CACHE
+> Task :app:processSideloadDebugMainManifest FROM-CACHE
+> Task :app:processSideloadDebugManifest FROM-CACHE
+> Task :app:processSideloadDebugManifestForPackage FROM-CACHE
+> Task :app:parseSideloadDebugLocalResources
+> Task :app:javaPreCompileSideloadDebug FROM-CACHE
+> Task :app:preSideloadDebugUnitTestBuild UP-TO-DATE
+> Task :app:javaPreCompileSideloadDebugUnitTest FROM-CACHE
+> Task :app:mergeSideloadDebugResources
+> Task :app:processSideloadDebugResources
+> Task :app:kspSideloadDebugKotlin
+
+> Task :app:compileSideloadDebugKotlin FAILED
+gradlew.bat : e: file:///C:/dev/fuel/.claude/worktrees/agent-a9e5656fd6ed19fde/app/src/main/java/com/fuelroute/data/bac
+kup/BackupRepository.kt:104:55 Unresolved reference 'getAll'.
+At C:\Users\bentz\AppData\Local\Temp\claude\C--dev-fuel\49f25ba3-2085-4349-b6f3-981511775024\scratchpad\gradle-locked.p
+s1:17 char:5
++     & .\gradlew.bat @GradleArgs --console=plain *> $log
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (e: file:///C:/d...rence 'getAll'.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+e: file:///C:/dev/fuel/.claude/worktrees/agent-a9e5656fd6ed19fde/app/src/main/java/com/fuelroute/data/backup/BackupRepo
+sitory.kt:104:70 Unresolved reference 'it'.
+e: file:///C:/dev/fuel/.claude/worktrees/agent-a9e5656fd6ed19fde/app/src/main/java/com/fuelroute/data/backup/BackupRepo
+sitory.kt:249:45 Unresolved reference 'getAll'.
+e: file:///C:/dev/fuel/.claude/worktrees/agent-a9e5656fd6ed19fde/app/src/main/java/com/fuelroute/data/backup/BackupRepo
+sitory.kt:249:68 Unresolved reference 'it'.
+e: file:///C:/dev/fuel/.claude/worktrees/agent-a9e5656fd6ed19fde/app/src/main/java/com/fuelroute/data/backup/BackupRepo
+sitory.kt:257:34 Unresolved reference 'insert'.
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:compileSideloadDebugKotlin'.
+> A failure occurred while executing 
+org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+   > Compilation error. See log for more details
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 38s
+20 actionable tasks: 11 executed, 9 from cache
