@@ -3,7 +3,6 @@ package com.fuelroute.ui.stats
 import android.Manifest
 import android.os.Build
 import android.view.WindowManager
-import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -75,6 +74,7 @@ import com.fuelroute.ui.components.StatusDot
 import com.fuelroute.ui.components.fmt
 import com.fuelroute.ui.components.formatDateTime
 import com.fuelroute.ui.components.money
+import com.fuelroute.ui.messages.rememberUserMessages
 import com.fuelroute.ui.permission.PermissionGate
 import com.fuelroute.ui.permission.findActivity
 import com.fuelroute.ui.theme.FuelTheme
@@ -117,6 +117,7 @@ fun StatsScreen(
     val settings by viewModel.settings.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
+    val userMessages = rememberUserMessages()
     val activity = remember(context) { context.findActivity() }
     var showResetConfirm by remember { mutableStateOf(false) }
     var showAllTrips by rememberSaveable { mutableStateOf(false) }
@@ -140,7 +141,7 @@ fun StatsScreen(
     LaunchedEffect(vinEvent) {
         val name = vinEvent ?: return@LaunchedEffect
         val label = name.ifBlank { context.getString(R.string.vehicle_untitled) }
-        Toast.makeText(context, context.getString(R.string.stats_vin_detected, label), Toast.LENGTH_LONG).show()
+        userMessages.show(R.string.stats_vin_detected, label)
         viewModel.consumeVinEvent()
     }
 

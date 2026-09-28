@@ -6,7 +6,6 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -77,6 +76,7 @@ import com.fuelroute.ui.components.SectionCard
 import com.fuelroute.ui.components.SectionTitle
 import com.fuelroute.ui.components.SwitchRow
 import com.fuelroute.ui.components.formatDateTime
+import com.fuelroute.ui.messages.rememberUserMessages
 import com.fuelroute.ui.theme.FuelTheme
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -432,6 +432,7 @@ private fun probeResultText(result: String?): String = stringResource(
 @Composable
 private fun BackupRows(viewModel: SettingsViewModel) {
     val context = LocalContext.current
+    val userMessages = rememberUserMessages()
     val scope = rememberCoroutineScope()
     var pendingImport by remember { mutableStateOf<Uri?>(null) }
 
@@ -445,11 +446,9 @@ private fun BackupRows(viewModel: SettingsViewModel) {
                 context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) }
                     ?: error("cannot open $uri for writing")
             }.isSuccess
-            Toast.makeText(
-                context,
+            userMessages.show(
                 if (ok) R.string.settings_backup_export_success else R.string.settings_backup_export_failed,
-                Toast.LENGTH_SHORT,
-            ).show()
+            )
         }
     }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -495,7 +494,7 @@ private fun BackupRows(viewModel: SettingsViewModel) {
                             } else {
                                 context.getString(R.string.settings_backup_import_failed)
                             }
-                            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                            userMessages.show(message)
                         }
                     },
                 ) {

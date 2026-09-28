@@ -5,7 +5,6 @@ import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Context
 import android.content.pm.PackageManager
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
@@ -107,6 +106,8 @@ import com.fuelroute.ui.components.fmt
 import com.fuelroute.ui.components.formatTime
 import com.fuelroute.ui.components.money
 import com.fuelroute.ui.favorites.FavoritesScreen
+import com.fuelroute.ui.messages.UserMessages
+import com.fuelroute.ui.messages.rememberUserMessages
 import com.fuelroute.ui.theme.FuelTheme
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -134,6 +135,7 @@ fun RouteScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val userMessages = rememberUserMessages()
     var showDetail by rememberSaveable { mutableStateOf(false) }
     var showManageDestinations by rememberSaveable { mutableStateOf(false) }
     var editingSearch by rememberSaveable { mutableStateOf(false) }
@@ -155,7 +157,7 @@ fun RouteScreen(
     val departLinkFeedback = state.departLinkFeedback
     LaunchedEffect(departLinkFeedback) {
         departLinkFeedback?.let { resId ->
-            Toast.makeText(context, context.getString(resId), Toast.LENGTH_SHORT).show()
+            userMessages.show(resId)
             viewModel.clearDepartLinkFeedback()
         }
     }
@@ -200,7 +202,7 @@ fun RouteScreen(
         val needsPlanning = cost.route.id != DEFAULT_ROUTE_ID
         if (needsPlanning) {
             navPreparing = true
-            Toast.makeText(context, R.string.route_nav_preparing, Toast.LENGTH_SHORT).show()
+            userMessages.show(R.string.route_nav_preparing)
         }
         navScope.launch {
             val plan = if (needsPlanning) viewModel.planNavigation(cost) else NavPlan(emptyList(), exact = true)
@@ -210,7 +212,7 @@ fun RouteScreen(
                 // navigating a different route than the one that was recommended.
                 wazePrompt = PendingWazeHandOff(state, plan)
             } else {
-                launchNavigation(context, state, plan)
+                launchNavigation(context, userMessages, state, plan)
             }
         }
     }
@@ -223,13 +225,13 @@ fun RouteScreen(
             confirmButton = {
                 TextButton(onClick = {
                     wazePrompt = null
-                    launchNavigation(context, pending.state.copy(navigationApp = NAV_GOOGLE), pending.plan)
+                    launchNavigation(context, userMessages, pending.state.copy(navigationApp = NAV_GOOGLE), pending.plan)
                 }) { Text(stringResource(R.string.route_waze_prompt_google)) }
             },
             dismissButton = {
                 TextButton(onClick = {
                     wazePrompt = null
-                    launchNavigation(context, pending.state, NavPlan(emptyList(), exact = true))
+                    launchNavigation(context, userMessages, pending.state, NavPlan(emptyList(), exact = true))
                 }) { Text(stringResource(R.string.route_waze_prompt_waze)) }
             },
         )
@@ -386,7 +388,7 @@ private data class PendingWazeHandOff(val state: RouteUiState, val plan: NavPlan
  * Hands the chosen route to Google Maps (the planned waypoints, usually none or one) or Waze
  * (destination only, Waze picks its own route).
  */
-private fun launchNavigation(context: Context, state: RouteUiState, plan: NavPlan) {
+private fun launchNavigation(context: Context, userMessages: UserMessages, state: RouteUiState, plan: NavPlan) {
     val originLocation = state.originLocation
     val origin = if (state.originIsCurrentLocation && originLocation != null) {
         NavDestination(
@@ -420,12 +422,8 @@ private fun launchNavigation(context: Context, state: RouteUiState, plan: NavPla
             waypoints = plan.waypoints.map { it.lat to it.lng },
         )
         when {
-            !plan.exact -> Toast.makeText(context, R.string.route_nav_approx, Toast.LENGTH_LONG).show()
-            plan.waypoints.isNotEmpty() -> Toast.makeText(
-                context,
-                context.getString(R.string.route_nav_via_points, plan.waypoints.size),
-                Toast.LENGTH_LONG,
-            ).show()
+            !plan.exact -> userMessages.show(R.string.route_nav_approx)
+            plan.waypoints.isNotEmpty() -> userMessages.show(R.string.route_nav_via_points, plan.waypoints.size)
         }
     }
 }
