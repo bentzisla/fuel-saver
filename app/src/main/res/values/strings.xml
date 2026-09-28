@@ -238,6 +238,8 @@
     <string name="curve_clear_manual">הסר עקומה ידנית</string>
     <string name="curve_legend_band">תחום אי-ודאות</string>
     <string name="curve_legend_efficient">טווח חסכוני</string>
+    <string name="curve_legend_default_anchored">בסיס מותאם למדידות (×%1$s)</string>
+    <string name="curve_bin_in_use">בעקומה בשימוש: %1$s ל׳/100 ק״מ</string>
     <string name="curve_legend_unused">מדידה חריגה (לא בשימוש)</string>
     <string name="curve_bin_unused">רחוקה מדי מעקומת הבסיס, ולכן לא נכללת בעקומה</string>
     <string name="curve_adopt_confirm_title">לאמץ את הלמידה לעקומה ידנית?</string>
@@ -521,6 +523,9 @@
     <string name="curve_efficient_from_manual">ההמלצה נשענת בעיקר על העקומה הידנית: נמדדו מעט ק״מ סביב המהירות הזו.</string>
     <string name="curve_mismatch_low">המדידות שלך נמוכות בכ־%1$s%% מ%2$s, ולכן העקומה בשימוש נשארת מעל הנקודות (ומדידות רחוקות מדי מסוננות). אם הצריכה המשולבת בפרופיל הרכב גבוהה מדי, תקנו אותה. אם דווקא ה־OBD מודד חסר, כיול תדלוק (שני מילויים עד הסוף) יתקן את זה.</string>
     <string name="curve_mismatch_high">המדידות שלך גבוהות בכ־%1$s%% מ%2$s, ולכן העקומה בשימוש נשארת מתחת לנקודות (ומדידות רחוקות מדי מסוננות). אם הצריכה המשולבת בפרופיל הרכב נמוכה מדי, תקנו אותה. אם דווקא ה־OBD מודד ביתר, כיול תדלוק (שני מילויים עד הסוף) יתקן את זה.</string>
+    <string name="curve_efficient_breakdown">= %1$s נמדד × %2$s%% + %3$s בסיס × %4$s%% (משקל המדידה לפי הק״מ שנמדדו)</string>
+    <string name="curve_anchored_low">המדידות שלך נמוכות בכ־%1$s%% מהצריכה המשולבת בפרופיל הרכב, ולכן רמת עקומת הבסיס הותאמה למדידות (×%2$s). כדאי לעדכן את הצריכה המשולבת בפרופיל. אם דווקא ה־OBD מודד חסר, כיול תדלוק (שני מילויים עד הסוף) יתקן את זה.</string>
+    <string name="curve_anchored_high">המדידות שלך גבוהות בכ־%1$s%% מהצריכה המשולבת בפרופיל הרכב, ולכן רמת עקומת הבסיס הותאמה למדידות (×%2$s). כדאי לעדכן את הצריכה המשולבת בפרופיל. אם דווקא ה־OBD מודד ביתר, כיול תדלוק (שני מילויים עד הסוף) יתקן את זה.</string>
     <string name="curve_mismatch_base_default">עקומת הבסיס (הצריכה המשולבת בפרופיל הרכב)</string>
     <string name="curve_mismatch_base_manual">העקומה הידנית</string>
     <string name="curve_efficient_measured_elsewhere">במדידות שלך הצריכה הנמוכה ביותר הייתה ב־%1$s קמ״ש (%2$s ל׳/100 ק״מ). יש שם עדיין מעט ק״מ, ולכן העקומה בשימוש זזה לשם רק בהדרגה.</string>

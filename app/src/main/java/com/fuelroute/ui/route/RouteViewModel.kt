@@ -29,6 +29,7 @@ import com.fuelroute.data.routes.toEmissionType
 import com.fuelroute.data.settings.NAV_GOOGLE
 import com.fuelroute.data.settings.SettingsRepository
 import com.fuelroute.data.vehicle.VehicleRepository
+import com.fuelroute.domain.fuel.BaseLevel
 import com.fuelroute.domain.fuel.ConsumptionCurve
 import com.fuelroute.domain.fuel.CurveBlender
 import com.fuelroute.domain.fuel.DefaultCurve
@@ -505,7 +506,7 @@ class RouteViewModel @Inject constructor(
                 val overrides = settingsRepository.modelOverrides.first()
                 val learned = learnedCurveRepository.learnedCurve(vehicle.id)
                 val default = DefaultCurve.forVehicle(vehicle.ratedCombinedL100, vehicle.fuelType)
-                val fallback = effectiveFallback(vehicle.manualCurve, default)
+                val fallback = BaseLevel.fallback(learned, manualCurveOf(vehicle.manualCurve), default)
                 val curve = CurveBlender.blend(learned, fallback)
                 val fuelModel = FuelModel(
                     curve = curve,
@@ -645,11 +646,7 @@ class RouteViewModel @Inject constructor(
         }
     }
 
-    private fun effectiveFallback(
-        manualCurve: List<SpeedPoint>?,
-        default: ConsumptionCurve,
-    ): ConsumptionCurve = manualCurve
+    private fun manualCurveOf(manualCurve: List<SpeedPoint>?): ConsumptionCurve? = manualCurve
         ?.takeIf { it.size >= 2 }
         ?.let { runCatching { ConsumptionCurve(it) }.getOrNull() }
-        ?: default
 }

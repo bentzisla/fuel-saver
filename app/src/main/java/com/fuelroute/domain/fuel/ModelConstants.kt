@@ -85,14 +85,22 @@ data class FuelModelOverrides(
      * defense-in-depth guard: a fitted factor is already clamped by [CalibrationFitter], but a
      * manually typed override (debug calibration screen) is not, and an unclamped value far
      * below 1.0 can silently halve every predicted route cost.
+     *
+     * A value outside [CORRUPT_MIN]..[CORRUPT_MAX] is not a correction at all but a leftover of
+     * the pre-0.7.3 calibration bug (a stored 0.0035 was seen in the field). Clamping it to 0.75
+     * would still quietly cut every route cost by a quarter, so it is ignored instead.
      */
     val effectiveFuelCorrection: Double
         get() = (fuelCorrection ?: 1.0)
-            .takeIf { it.isFinite() }
+            .takeIf { it.isFinite() && it in CORRUPT_MIN..CORRUPT_MAX }
             ?.coerceIn(CalibrationFitter.MIN_CORRECTION, CalibrationFitter.MAX_CORRECTION)
             ?: 1.0
 
     companion object {
         val DEFAULT = FuelModelOverrides()
+
+        /** Stored corrections outside this range are corrupt, not merely extreme. */
+        const val CORRUPT_MIN = 0.1
+        const val CORRUPT_MAX = 10.0
     }
 }

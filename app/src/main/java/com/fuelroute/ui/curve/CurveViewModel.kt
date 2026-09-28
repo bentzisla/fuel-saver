@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fuelroute.data.obd.LearnedCurveRepository
 import com.fuelroute.data.vehicle.VehicleRepository
+import com.fuelroute.domain.fuel.BaseLevel
 import com.fuelroute.domain.fuel.ConsumptionCurve
 import com.fuelroute.domain.fuel.CurveBasis
 import com.fuelroute.domain.fuel.CurveBlender
@@ -32,6 +33,8 @@ data class LearnedPoint(
      * follow is not mistaken for data the recommendation is based on.
      */
     val usedInCurve: Boolean = true,
+    /** The curve in use at this speed, next to the measurement in the tap chip. */
+    val curveL100: Double? = null,
 )
 
 data class CurveUiState(
@@ -49,6 +52,8 @@ data class CurveUiState(
     val efficient: EfficientSpeedInsight? = null,
     val calibrationFactor: Double = 1.0,
     val learnedShare: Double = 0.0,
+    /** [BaseLevel] factor applied to the default curve (1.0 = not anchored, or a manual curve). */
+    val baseLevelFactor: Double = 1.0,
     val quality: CurveDataQuality = CurveDataQuality.NONE,
     val hasManualCurve: Boolean = false,
     val hasLearnedData: Boolean = false,
@@ -129,7 +134,10 @@ class CurveViewModel @Inject constructor(
         val manual = vehicle.manualCurve
             ?.takeIf { it.size >= 2 }
             ?.let { runCatching { ConsumptionCurve(it) }.getOrNull() }
-        val fallback = manual ?: default
+        // The default's level follows the measurements (BaseLevel); a manual curve is used as typed.
+        val levelFactor = if (manual == null) BaseLevel.factor(learned, default) else 1.0
+        val base = BaseLevel.anchor(default, levelFactor)
+        val fallback = manual ?: base
         val effective = CurveBlender.blend(learned, fallback)
 
         // Only plausible bins are plotted: tiny-distance or corrupted rows (e.g. stored before the
@@ -142,6 +150,7 @@ class CurveViewModel @Inject constructor(
                     litersPer100Km = it.litersPer100Km,
                     distanceKm = it.distanceKm,
                     usedInCurve = CurveBlender.usesLearnedValue(it.litersPer100Km, fallback.litersPer100Km(it.speedKmh)),
+                    curveL100 = effective.litersPer100Km(it.speedKmh),
                 )
             }
 
@@ -150,13 +159,15 @@ class CurveViewModel @Inject constructor(
         return CurveUiState(
             isLoading = false,
             effectivePoints = effectiveSamples,
-            defaultPoints = default.samples(),
+            // The base the blend actually uses, so the chart's grey line is the one the curve follows.
+            defaultPoints = base.samples(),
             manualPoints = manual?.samples().orEmpty(),
             learnedPoints = learnedPoints,
             totalKm = learned.totalDistanceKm,
             totalSamples = learned.bins.sumOf { it.samples },
             idleLph = learned.idleLitersPerHour,
-            efficient = EfficientSpeed.analyze(effective, learned, fallback),
+            efficient = EfficientSpeed.analyze(effective, learned, fallback, levelReference = manual ?: default),
+            baseLevelFactor = levelFactor,
             calibrationFactor = vehicle.fuelRateCorrection,
             learnedShare = CurveBasis.learnedShare(learned, effectiveSamples.map { it.speedKmh }),
             quality = CurveBasis.quality(learned.totalDistanceKm),

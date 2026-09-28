@@ -53,6 +53,14 @@ class FuelModelOverridesTest {
     }
 
     @Test
+    fun `a corrupt stored correction is ignored instead of clamped`() {
+        // Field case: 0.0035 left over from the pre-0.7.3 calibration bug; clamping it to 0.75
+        // would still cut every route cost by a quarter.
+        assertEquals(1.0, FuelModelOverrides(fuelCorrection = 0.0035).effectiveFuelCorrection, 1e-9)
+        assertEquals(1.0, FuelModelOverrides(fuelCorrection = 50.0).effectiveFuelCorrection, 1e-9)
+    }
+
+    @Test
     fun `stop-go weight override changes the route cost`() {
         val route = congestedRoute()
         val withoutStopGo = FuelModel(

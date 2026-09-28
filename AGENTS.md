@@ -48,7 +48,7 @@ No AI attribution in git history: commit messages and PR descriptions must not c
 
 ## Fuel model rules (see PLAN.md section 4)
 - `consumption(v)` in L/100km = `ratedCombinedL100 * factor(v)`, linear interpolation over a speed curve, clamped to [10, 130] km/h.
-- Effective curve = `CurveBlender`: learned (OBD) curve weighted by km-in-bin confidence `w = km/(km+20)`, falling back to manual curve, then default curve.
+- Effective curve = `CurveBlender`: learned (OBD) curve weighted by km-in-bin confidence `w = km/(km+20)`, falling back to manual curve, then default curve. The default curve's level is anchored to the measurements by `BaseLevel` (distance-weighted measured/default ratio, shrunk by `km/(km+50)`, bounded 0.6..1.5); a manual curve is never rescaled. Build the fallback with `BaseLevel.fallback(...)` at every call site.
 - Per step: effective speed = free-flow speed (distance/staticDuration) scaled by congestion from `speedReadingIntervals`, then normalized so total time matches route `duration`.
 - Cost = fuel liters * price + toll estimate. Ranking by total cost, optionally plus `minutes * valuePerMinute`.
 
