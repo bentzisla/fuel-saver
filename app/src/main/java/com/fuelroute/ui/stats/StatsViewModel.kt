@@ -13,6 +13,7 @@ import com.fuelroute.data.obd.TripRepository
 import com.fuelroute.data.settings.AppSettings
 import com.fuelroute.data.settings.SettingsRepository
 import com.fuelroute.data.vehicle.VehicleRepository
+import com.fuelroute.domain.fuel.BaseLevel
 import com.fuelroute.domain.fuel.ConsumptionCurve
 import com.fuelroute.domain.fuel.CurveBlender
 import com.fuelroute.domain.fuel.DefaultCurve
@@ -185,7 +186,7 @@ class StatsViewModel @Inject constructor(
         val manual = vehicle.manualCurve
             ?.takeIf { it.size >= 2 }
             ?.let { runCatching { ConsumptionCurve(it) }.getOrNull() }
-        return CurveBlender.blend(learned, manual ?: default)
+        return CurveBlender.blend(learned, BaseLevel.fallback(learned, manual, default))
     }
 
     /** Starts a clearly-labelled simulated demo run (no dongle required). */

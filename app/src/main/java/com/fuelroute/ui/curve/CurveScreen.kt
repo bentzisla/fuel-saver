@@ -252,6 +252,22 @@ private fun CurveHero(state: CurveUiState) {
                 text = stringResource(R.string.curve_efficient_detail, format(efficient.litersPer100Km, 1)),
                 style = MaterialTheme.typography.bodyLarge,
             )
+            val learnedAtSpeed = efficient.learnedL100AtSpeed
+            val baseAtSpeed = efficient.baseL100AtSpeed
+            if (learnedAtSpeed != null && baseAtSpeed != null && efficient.learnedWeight > 0.0) {
+                val learnedPct = (efficient.learnedWeight * 100.0).roundToInt()
+                Text(
+                    text = stringResource(
+                        R.string.curve_efficient_breakdown,
+                        format(learnedAtSpeed, 1),
+                        learnedPct.toString(),
+                        format(baseAtSpeed, 1),
+                        (100 - learnedPct).toString(),
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             if (efficient.rangeToKmh - efficient.rangeFromKmh >= RANGE_MIN_WIDTH_KMH) {
                 Text(
                     text = stringResource(
@@ -275,13 +291,19 @@ private fun CurveHero(state: CurveUiState) {
             if (efficient.fallbackMismatch && ratio != null) {
                 val pct = (abs(1.0 - ratio) * 100.0).roundToInt().toString()
                 Text(
-                    text = stringResource(
-                        if (ratio < 1.0) R.string.curve_mismatch_low else R.string.curve_mismatch_high,
-                        pct,
+                    text = if (state.hasManualCurve) {
                         stringResource(
-                            if (state.hasManualCurve) R.string.curve_mismatch_base_manual else R.string.curve_mismatch_base_default,
-                        ),
-                    ),
+                            if (ratio < 1.0) R.string.curve_mismatch_low else R.string.curve_mismatch_high,
+                            pct,
+                            stringResource(R.string.curve_mismatch_base_manual),
+                        )
+                    } else {
+                        stringResource(
+                            if (ratio < 1.0) R.string.curve_anchored_low else R.string.curve_anchored_high,
+                            pct,
+                            format(state.baseLevelFactor, 2),
+                        )
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error,
                 )
@@ -374,6 +396,7 @@ private fun ChartCard(state: CurveUiState) {
             hasLearned = state.learnedPoints.isNotEmpty(),
             hasUnused = state.learnedPoints.any { !it.usedInCurve },
             hasEfficient = state.efficient != null,
+            baseLevelFactor = state.baseLevelFactor,
         )
         val bin = selectedBin
         if (bin != null) {
@@ -397,6 +420,7 @@ private fun Legend(
     hasLearned: Boolean,
     hasUnused: Boolean,
     hasEfficient: Boolean,
+    baseLevelFactor: Double,
 ) {
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(Dimens.l),
@@ -406,7 +430,14 @@ private fun Legend(
         if (hasEfficient) {
             LegendItem(color = colors.effective.copy(alpha = 0.25f), label = stringResource(R.string.curve_legend_efficient))
         }
-        LegendItem(color = colors.default, label = stringResource(R.string.curve_legend_default))
+        LegendItem(
+            color = colors.default,
+            label = if (baseLevelFactor != 1.0) {
+                stringResource(R.string.curve_legend_default_anchored, format(baseLevelFactor, 2))
+            } else {
+                stringResource(R.string.curve_legend_default)
+            },
+        )
         if (hasManual) LegendItem(color = colors.manual, label = stringResource(R.string.curve_legend_manual))
         if (hasLearned) {
             LegendItem(color = colors.learned, label = stringResource(R.string.curve_legend_learned))
@@ -990,6 +1021,13 @@ private fun CurveBinChip(
             style = MaterialTheme.typography.labelSmall,
             color = content,
         )
+        point.curveL100?.let {
+            Text(
+                text = stringResource(R.string.curve_bin_in_use, format(it, 1)),
+                style = MaterialTheme.typography.labelSmall,
+                color = content,
+            )
+        }
         Text(
             text = stringResource(R.string.curve_bin_km, format(point.distanceKm, 1), kmSuffix),
             style = MaterialTheme.typography.labelSmall,

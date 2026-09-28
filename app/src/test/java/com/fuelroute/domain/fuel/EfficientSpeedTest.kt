@@ -88,6 +88,21 @@ class EfficientSpeedTest {
     }
 
     @Test
+    fun `the hero breakdown reproduces the blended value at the optimum`() {
+        val learned = LearnedCurve(listOf(bin(92.5, 31.0, 5.48), bin(97.5, 43.9, 5.49), bin(102.5, 22.1, 5.2)))
+        val base = BaseLevel.fallback(learned, null, default)
+        val effective = CurveBlender.blend(learned, base)
+        val insight = EfficientSpeed.analyze(effective, learned, base, levelReference = default)!!
+
+        val learnedValue = insight.learnedL100AtSpeed!!
+        val baseValue = insight.baseL100AtSpeed!!
+        val w = insight.learnedWeight
+        assertEquals(insight.litersPer100Km, w * learnedValue + (1 - w) * baseValue, 1e-9)
+        // The mismatch is still reported against the profile's rated level.
+        assertTrue(insight.fallbackMismatch)
+    }
+
+    @Test
     fun `the mismatch ratio needs enough measured distance`() {
         val learned = LearnedCurve(listOf(bin(72.5, 2.0, 4.0)))
         assertNull(EfficientSpeed.measuredVsFallback(learned, default))

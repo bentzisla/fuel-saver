@@ -34,6 +34,13 @@ data class EfficientSpeedInsight(
     val measuredSpeedKmh: Double? = null,
     val measuredL100: Double? = null,
     val measuredVsFallback: Double? = null,
+    /**
+     * The two inputs the blend mixed at [speedKmh]: the learned value (null when there is none, or
+     * it was rejected) and the fallback's. With [learnedWeight] they reproduce [litersPer100Km]
+     * (`w * learned + (1 - w) * base`), which the hero shows so the number is not a mystery.
+     */
+    val learnedL100AtSpeed: Double? = null,
+    val baseL100AtSpeed: Double? = null,
 ) {
     /** True when the measurements and the fallback curve disagree enough to tell the user. */
     val fallbackMismatch: Boolean
@@ -69,10 +76,17 @@ object EfficientSpeed {
     /** Range bounds are rounded to this, so the label reads "60-80", not "61-81". */
     private const val RANGE_ROUNDING_KMH = 5.0
 
+    /**
+     * @param fallback the curve the blend actually used (the anchored default, or the manual one).
+     * @param levelReference what [EfficientSpeedInsight.measuredVsFallback] compares against: the
+     *   un-anchored default, so a wrong rated consumption in the profile is still reported after
+     *   [BaseLevel] corrected for it.
+     */
     fun analyze(
         effective: ConsumptionCurve,
         learned: LearnedCurve?,
         fallback: ConsumptionCurve,
+        levelReference: ConsumptionCurve = fallback,
     ): EfficientSpeedInsight? {
         val from = effective.minSpeedKmh
         val to = effective.maxSpeedKmh
@@ -92,7 +106,11 @@ object EfficientSpeed {
         while (hi < values.lastIndex && values[hi + 1] <= limit) hi++
 
         val bestSpeed = speeds[bestIndex]
-        val weight = learned?.let { CurveBlender.weight(it.confidenceKm(bestSpeed)) } ?: 0.0
+        val baseValue = fallback.litersPer100Km(bestSpeed)
+        // Mirrors CurveBlender.blend: a missing or rejected learned value contributes nothing.
+        val learnedValue = learned?.litersPer100Km(bestSpeed)
+            ?.takeIf { CurveBlender.usesLearnedValue(it, baseValue) }
+        val weight = if (learnedValue != null) CurveBlender.weight(learned.confidenceKm(bestSpeed)) else 0.0
 
         val measured = learned?.points
             ?.filter { it.distanceKm >= MIN_MEASURED_KM }
@@ -108,7 +126,9 @@ object EfficientSpeed {
             learnedWeight = weight,
             measuredSpeedKmh = measured?.speedKmh,
             measuredL100 = measured?.litersPer100Km,
-            measuredVsFallback = learned?.let { measuredVsFallback(it, fallback) },
+            measuredVsFallback = learned?.let { measuredVsFallback(it, levelReference) },
+            learnedL100AtSpeed = learnedValue,
+            baseL100AtSpeed = baseValue,
         )
     }
 
