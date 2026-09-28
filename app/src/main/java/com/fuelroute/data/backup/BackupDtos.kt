@@ -1,6 +1,7 @@
 package com.fuelroute.data.backup
 
 import com.fuelroute.data.db.FavoriteDestinationEntity
+import com.fuelroute.data.db.FavoriteObdDeviceEntity
 import com.fuelroute.data.db.LearningExtrasEntity
 import com.fuelroute.data.db.RefuelEntity
 import com.fuelroute.data.db.RouteSearchEntity
@@ -38,6 +39,7 @@ data class BackupPayload(
      */
     val modelOverrides: FuelModelOverrides? = null,
     val prices: List<PriceSnapshot> = emptyList(),
+    val favoriteObdDevices: List<FavoriteObdDeviceSnapshot> = emptyList(),
 )
 
 @Serializable
@@ -146,6 +148,14 @@ data class FavoriteSnapshot(
     val placeId: String? = null,
     val latitude: Double? = null,
     val longitude: Double? = null,
+    val sortOrder: Int = 0,
+    val createdAtMs: Long,
+)
+
+@Serializable
+data class FavoriteObdDeviceSnapshot(
+    val address: String,
+    val name: String,
     val sortOrder: Int = 0,
     val createdAtMs: Long,
 )
@@ -360,6 +370,21 @@ fun FavoriteSnapshot.toEntity() = FavoriteDestinationEntity(
     placeId = placeId,
     latitude = latitude,
     longitude = longitude,
+    sortOrder = sortOrder,
+    createdAtMs = createdAtMs,
+)
+
+fun FavoriteObdDeviceEntity.toSnapshot() = FavoriteObdDeviceSnapshot(
+    address = address,
+    name = name,
+    sortOrder = sortOrder,
+    createdAtMs = createdAtMs,
+)
+
+/** Imported OBD devices use address as the primary key; dedupe happens by device address. */
+fun FavoriteObdDeviceSnapshot.toEntity() = FavoriteObdDeviceEntity(
+    address = address,
+    name = name,
     sortOrder = sortOrder,
     createdAtMs = createdAtMs,
 )

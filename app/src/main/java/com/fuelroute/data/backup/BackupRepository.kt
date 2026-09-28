@@ -2,6 +2,8 @@ package com.fuelroute.data.backup
 
 import com.fuelroute.data.db.FavoriteDestinationDao
 import com.fuelroute.data.db.FavoriteDestinationEntity
+import com.fuelroute.data.db.FavoriteObdDeviceDao
+import com.fuelroute.data.db.FavoriteObdDeviceEntity
 import com.fuelroute.data.db.LearningExtrasDao
 import com.fuelroute.data.db.RefuelDao
 import com.fuelroute.data.db.RouteSearchDao
@@ -36,6 +38,8 @@ data class ImportResult(
     val settingsApplied: Boolean = false,
     val modelOverridesApplied: Boolean = false,
     val prices: Int = 0,
+    val favoriteObdDevicesAdded: Int = 0,
+    val favoriteObdDevicesSkipped: Int = 0,
 ) {
     companion object {
         fun failure(message: String) = ImportResult(success = false, error = message)
@@ -62,6 +66,7 @@ class DefaultBackupRepository @Inject constructor(
     private val routeSearchDao: RouteSearchDao,
     private val learningExtrasDao: LearningExtrasDao,
     private val favoriteDao: FavoriteDestinationDao,
+    private val favoriteObdDeviceDao: FavoriteObdDeviceDao,
     private val settingsRepository: SettingsRepository,
     private val fuelPriceRepository: FuelPriceRepository,
     private val transactionRunner: TransactionRunner,
@@ -96,6 +101,7 @@ class DefaultBackupRepository @Inject constructor(
             settings = settings.toSnapshot(),
             modelOverrides = settingsRepository.modelOverrides.first(),
             prices = prices,
+            favoriteObdDevices = favoriteObdDeviceDao.getAll().map { it.toSnapshot() },
         )
         return json.encodeToString(BackupPayload.serializer(), payload)
     }
@@ -114,6 +120,7 @@ class DefaultBackupRepository @Inject constructor(
             val (routeSearchesAdded, routeSearchesSkipped) = insertRouteSearches(payload)
             val learningExtras = upsertLearningExtras(payload)
             val (favoritesAdded, favoritesSkipped) = insertFavorites(payload)
+            val (favoriteObdDevicesAdded, favoriteObdDevicesSkipped) = insertFavoriteObdDevices(payload)
             val settingsApplied = applySettings(payload)
             val modelOverridesApplied = applyModelOverrides(payload)
             val prices = applyPrices(payload)
@@ -134,6 +141,8 @@ class DefaultBackupRepository @Inject constructor(
                 settingsApplied = settingsApplied,
                 modelOverridesApplied = modelOverridesApplied,
                 prices = prices,
+                favoriteObdDevicesAdded = favoriteObdDevicesAdded,
+                favoriteObdDevicesSkipped = favoriteObdDevicesSkipped,
             )
         }
     }
@@ -231,6 +240,21 @@ class DefaultBackupRepository @Inject constructor(
             }
             favoriteDao.upsert(favorite.toEntity())
             existing.add(favorite.toEntity())
+            added++
+        }
+        return added to skipped
+    }
+
+    private suspend fun insertFavoriteObdDevices(payload: BackupPayload): Pair<Int, Int> {
+        val existing = favoriteObdDeviceDao.getAll().associateBy { it.address }
+        var added = 0
+        var skipped = 0
+        for (device in payload.favoriteObdDevices) {
+            if (existing.containsKey(device.address)) {
+                skipped++
+                continue
+            }
+            favoriteObdDeviceDao.insert(device.toEntity())
             added++
         }
         return added to skipped
