@@ -212,9 +212,9 @@ class BackupRepositoryTest {
         val destManualTrip = dest.trips.first { it.source == "manual" }
 
         assertEquals(sourceManualTrip.source, destManualTrip.source)
-        assertEquals(sourceManualTrip.manualCost, destManualTrip.manualCost, 1e-9)
-        assertEquals(sourceManualTrip.manualDistanceKm, destManualTrip.manualDistanceKm, 1e-9)
-        assertEquals(sourceManualTrip.manualLitersPer100Km, destManualTrip.manualLitersPer100Km, 1e-9)
+        assertEquals(sourceManualTrip.manualCost!!, destManualTrip.manualCost!!, 1e-9)
+        assertEquals(sourceManualTrip.manualDistanceKm!!, destManualTrip.manualDistanceKm!!, 1e-9)
+        assertEquals(sourceManualTrip.manualLitersPer100Km!!, destManualTrip.manualLitersPer100Km!!, 1e-9)
         assertEquals(sourceManualTrip.manualEnteredAtMs, destManualTrip.manualEnteredAtMs)
     }
 
