@@ -499,6 +499,17 @@
     <string name="route_detail_correction_label">מקדם כיול</string>
     <string name="route_detail_correction_value">×%1$s</string>
     <string name="route_grade_missing_hint">העלייה בגובה לאורך המסלול לא נכללה בחישוב הדלק</string>
+    <string name="route_cost_excludes_toll">המחיר לא כולל אגרה: יש במסלול כביש אגרה שמחירו לא ידוע</string>
+    <string name="route_money_plus_toll">%1$s + אגרה</string>
+    <string name="route_similar_cost">עלות דומה</string>
+    <string name="route_reason_similar_fastest">עלות דומה לחלופות (הפרש קטן מדיוק ההערכה) · המהיר ביותר</string>
+    <string name="route_reason_similar_slower">עלות דומה לזול ביותר (הפרש קטן מדיוק ההערכה) · +%1$s דק׳ מהמהיר</string>
+    <string name="route_detail_confidence_label">ביטחון בהערכה</string>
+    <string name="route_detail_confidence_value">%1$s · %2$s%% מהמסלול לפי מדידות OBD</string>
+    <string name="route_confidence_low">נמוך</string>
+    <string name="route_confidence_medium">בינוני</string>
+    <string name="route_confidence_high">גבוה</string>
+    <string name="route_detail_confidence_hint">הערכת הדלק עשויה לסטות בכ-10 עד 20 אחוז; הפרשים קטנים בין מסלולים אינם משמעותיים</string>
     <string name="route_detail_trip_title">נתוני הנסיעה</string>
     <string name="route_traffic_title">נתוני תנועה</string>
     <string name="favorites_tap_to_rename">הקישו לשינוי השם</string>

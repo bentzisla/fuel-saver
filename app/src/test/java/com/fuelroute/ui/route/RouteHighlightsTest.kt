@@ -72,6 +72,44 @@ class RouteHighlightsTest {
     }
 
     @Test
+    fun `routes within the error margin are about the same cost, not a firm winner`() {
+        val costs = listOf(cost(20.4, 26.0), cost(20.0, 30.0), cost(30.0, 20.0))
+
+        val recommended = RouteHighlights.compare(costs, 0)!!
+        val cheapest = RouteHighlights.compare(costs, 1)!!
+        val pricey = RouteHighlights.compare(costs, 2)!!
+
+        assertTrue(recommended.costTie)
+        assertFalse(recommended.isCheapest)
+        assertTrue(cheapest.costTie)
+        assertTrue(cheapest.isCheapest)
+        assertFalse(cheapest.noTradeOff)
+        assertFalse(pricey.costTie)
+    }
+
+    @Test
+    fun `a clear winner is not a tie`() {
+        val costs = listOf(cost(20.0, 40.0), cost(24.5, 32.0))
+
+        assertFalse(RouteHighlights.compare(costs, 0)!!.costTie)
+        assertFalse(RouteHighlights.compare(costs, 1)!!.costTie)
+    }
+
+    @Test
+    fun `an unpriced toll is flagged and does not take the cheapest badge from a toll-free route`() {
+        val unknownToll = cost(17.0, 20.0).let {
+            it.copy(route = it.route.copy(id = "toll", tollCost = null, tollUnknown = true))
+        }
+        val costs = listOf(unknownToll, cost(21.0, 25.0))
+
+        val toll = RouteHighlights.compare(costs, 0)!!
+
+        assertTrue(toll.excludesToll)
+        assertFalse(toll.isCheapest)
+        assertTrue(RouteHighlights.compare(costs, 1)!!.isCheapest)
+    }
+
+    @Test
     fun `out of range index returns null`() {
         assertNull(RouteHighlights.compare(listOf(cost(1.0, 1.0)), 3))
         assertNull(RouteHighlights.compare(emptyList(), 0))

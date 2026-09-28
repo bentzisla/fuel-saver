@@ -826,7 +826,11 @@ internal fun RouteHeadline(cost: RouteCost, comparison: RouteComparison?, etaMs:
     Column(verticalArrangement = Arrangement.spacedBy(Dimens.xs)) {
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(Dimens.m)) {
             Text(
-                text = money(cost.totalCost),
+                text = if (cost.route.tollUnknown) {
+                    stringResource(R.string.route_money_plus_toll, money(cost.totalCost))
+                } else {
+                    money(cost.totalCost)
+                },
                 style = MaterialTheme.typography.displaySmall,
             )
             Text(
@@ -843,10 +847,12 @@ internal fun RouteHeadline(cost: RouteCost, comparison: RouteComparison?, etaMs:
         )
         comparison?.let { TradeOffLine(it) }
         when {
+            // Prominent: the big number above leaves out a toll we cannot price.
             cost.route.tollUnknown -> Text(
-                text = stringResource(R.string.route_toll_unknown),
+                text = stringResource(R.string.route_cost_excludes_toll),
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.tertiary,
+                color = MaterialTheme.colorScheme.error,
+                fontWeight = FontWeight.SemiBold,
             )
             cost.tollCost > RouteHighlights.MONEY_EPSILON -> Text(
                 text = stringResource(R.string.route_total_includes_toll, fmt(cost.tollCost, 2)),
@@ -860,6 +866,14 @@ internal fun RouteHeadline(cost: RouteCost, comparison: RouteComparison?, etaMs:
 @Composable
 private fun TradeOffLine(comparison: RouteComparison) {
     val (text, color) = when {
+        // Within the model's error margin: no firm "cheapest" claim.
+        comparison.costTie && comparison.isFastest ->
+            stringResource(R.string.route_reason_similar_fastest) to FuelTheme.colors.positive
+        comparison.costTie ->
+            stringResource(
+                R.string.route_reason_similar_slower,
+                fmt(comparison.extraMinutesVsFastest, 0),
+            ) to MaterialTheme.colorScheme.onSurface
         comparison.noTradeOff ->
             stringResource(R.string.route_reason_both) to FuelTheme.colors.positive
         comparison.isCheapest && comparison.savingsVsFastest > RouteHighlights.MONEY_EPSILON ->
@@ -899,11 +913,16 @@ internal fun RoutePills(comparison: RouteComparison?, recommended: Boolean) {
         if (recommended) {
             StatusPill(text = stringResource(R.string.route_recommended), tone = PillTone.Positive)
         }
-        if (comparison?.isCheapest == true && !recommended) {
+        if (comparison?.costTie == true) {
+            StatusPill(text = stringResource(R.string.route_similar_cost), tone = PillTone.Neutral)
+        } else if (comparison?.isCheapest == true && !recommended) {
             StatusPill(text = stringResource(R.string.route_cheapest), tone = PillTone.Positive)
         }
         if (comparison?.isFastest == true) {
             StatusPill(text = stringResource(R.string.route_fastest), tone = PillTone.Accent)
+        }
+        if (comparison?.excludesToll == true) {
+            StatusPill(text = stringResource(R.string.route_toll_unknown), tone = PillTone.Caution)
         }
     }
 }
@@ -949,7 +968,14 @@ private fun AllRoutesCard(
                         )
                     }
                     Column(horizontalAlignment = Alignment.End) {
-                        Text(text = money(cost.totalCost), style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            text = if (cost.route.tollUnknown) {
+                                stringResource(R.string.route_money_plus_toll, money(cost.totalCost))
+                            } else {
+                                money(cost.totalCost)
+                            },
+                            style = MaterialTheme.typography.titleMedium,
+                        )
                         Text(
                             text = stringResource(R.string.route_duration_minutes, fmt(cost.durationMinutes, 0)),
                             style = MaterialTheme.typography.bodyMedium,
@@ -966,7 +992,9 @@ private fun AllRoutesCard(
 @Composable
 private fun compactDelta(comparison: RouteComparison?): String {
     if (comparison == null) return ""
-    val cost = if (comparison.isCheapest) {
+    val cost = if (comparison.costTie) {
+        stringResource(R.string.route_similar_cost)
+    } else if (comparison.isCheapest) {
         stringResource(R.string.route_cheapest)
     } else {
         stringResource(R.string.route_delta_cost_short, fmt(comparison.premiumVsCheapest, 2))
