@@ -21,6 +21,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fuelroute.R
+import com.fuelroute.data.price.FuelGrades
 import com.fuelroute.domain.model.Refuel
 import com.fuelroute.ui.components.ConfirmDialog
 import com.fuelroute.ui.components.DASH
@@ -147,12 +148,19 @@ fun RefuelScreen(
 
 @Composable
 private fun RefuelRow(refuel: Refuel) {
+    val gradeLabel = refuel.grade?.let { " · " + stringResource(gradeLabelRes(it)) } ?: ""
     ListRow(
         title = formatDate(refuel.timestampMs),
         subtitle = "${fmt(refuel.liters, 1)} ${stringResource(R.string.vehicle_unit_liters)} · " +
             stringResource(if (refuel.isFull) R.string.refuel_full else R.string.refuel_partial) + " · " +
-            stringResource(R.string.refuel_price_per_liter, fmt(refuel.pricePerLiter, 2)),
+            stringResource(R.string.refuel_price_per_liter, fmt(refuel.pricePerLiter, 2)) + gradeLabel,
         modifier = Modifier.padding(horizontal = Dimens.s),
         trailing = { Text(text = money(refuel.totalPrice), style = MaterialTheme.typography.titleMedium) },
     )
+}
+
+private fun gradeLabelRes(grade: String): Int = when (grade) {
+    FuelGrades.GASOLINE_98 -> R.string.vehicle_grade_98
+    FuelGrades.DIESEL -> R.string.vehicle_grade_diesel
+    else -> R.string.vehicle_grade_95
 }

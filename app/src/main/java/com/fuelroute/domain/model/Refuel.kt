@@ -7,6 +7,7 @@ data class Refuel(
     val totalPrice: Double,
     val isFull: Boolean,
     val vehicleId: String,
+    val grade: String? = null,
 ) {
     val pricePerLiter: Double
         get() = if (liters > 0.0) totalPrice / liters else 0.0
