@@ -151,6 +151,7 @@ class ObdLoggingService : Service() {
         }
 
         logging = true
+        isLogging = true
         stopped = false
         latestState = null
         lastStale = null
@@ -343,6 +344,7 @@ class ObdLoggingService : Service() {
 
     override fun onDestroy() {
         logging = false
+        isLogging = false
         reconnectJob?.cancel()
         reconnectJob = null
         activeTransport = null
@@ -453,13 +455,32 @@ class ObdLoggingService : Service() {
         @Volatile
         private var freshStart = false
 
+        /**
+         * True while a logging run is alive in this process (connected, connecting or waiting to
+         * re-arm), so the background presence probe never competes with it for the dongle.
+         */
+        @Volatile
+        var isLogging = false
+            private set
+
+        /**
+         * Starts (or re-arms) logging. Throws when Android refuses a foreground-service start from
+         * the background (`ForegroundServiceStartNotAllowedException`); callers that can run in the
+         * background handle that.
+         */
         fun start(context: Context, address: String?, auto: Boolean = false) {
             freshStart = true
-            context.startForegroundService(
-                Intent(context, ObdLoggingService::class.java)
-                    .putExtra(EXTRA_ADDRESS, address)
-                    .putExtra(EXTRA_AUTO, auto),
-            )
+            try {
+                context.startForegroundService(
+                    Intent(context, ObdLoggingService::class.java)
+                        .putExtra(EXTRA_ADDRESS, address)
+                        .putExtra(EXTRA_AUTO, auto),
+                )
+            } catch (e: RuntimeException) {
+                // Nothing was started, so no start intent may later slip past the stop latch.
+                freshStart = false
+                throw e
+            }
         }
 
         fun stop(context: Context) {

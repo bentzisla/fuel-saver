@@ -1,5 +1,6 @@
 package com.fuelroute
 
+import android.app.NotificationManager
 import android.content.Intent
 import android.os.Bundle
 import android.view.WindowManager
@@ -10,6 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.core.view.WindowCompat
 import com.fuelroute.nav.FuelRouteNavHost
 import com.fuelroute.service.ObdLoggingService
+import com.fuelroute.service.ObdProbeRunner
 import com.fuelroute.ui.theme.FuelRouteTheme
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -28,6 +30,8 @@ class MainActivity : ComponentActivity() {
         // appears; RouteScreen then lifts its inputs with imePadding().
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         openStats.value = intent.wantsStats()
+        // A recreated activity (rotation) still carries its original intent: act on it once.
+        if (savedInstanceState == null) startProbeLogging(intent)
         setContent {
             FuelRouteTheme {
                 FuelRouteNavHost(openStats = openStats.value)
@@ -38,6 +42,19 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         if (intent.wantsStats()) openStats.value = true
+        startProbeLogging(intent)
+    }
+
+    /**
+     * The tap on the "drive detected" notification: the background probe found the engine running
+     * but Android did not let it start the logging service from the background. The activity is
+     * in the foreground now, so start it here.
+     */
+    private fun startProbeLogging(intent: Intent?) {
+        val address = intent?.getStringExtra(ObdProbeRunner.EXTRA_START_ADDRESS) ?: return
+        intent.removeExtra(ObdProbeRunner.EXTRA_START_ADDRESS)
+        getSystemService(NotificationManager::class.java)?.cancel(ObdProbeRunner.NOTIFICATION_ID)
+        runCatching { ObdLoggingService.start(this, address, auto = true) }
     }
 
     private fun Intent?.wantsStats(): Boolean =

@@ -13,6 +13,7 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import com.fuelroute.data.obd.BluetoothClassicTransport
 import com.fuelroute.data.obd.ObdEngine
+import com.fuelroute.data.obd.ObdProbeGate
 import com.fuelroute.data.obd.ObdStatus
 import com.fuelroute.data.settings.SettingsRepository
 import com.fuelroute.domain.obd.AutoConnectDebounce
@@ -73,6 +74,11 @@ class BluetoothAclReceiver : BroadcastReceiver() {
             return
         }
         markConnected(address)
+        if (ObdProbeGate.isSuppressed(address)) {
+            // Our own background presence probe opened the link; it decides about logging itself.
+            Log.i(TAG, "ACL_CONNECTED for $address ignored: background probe")
+            return
+        }
 
         val pendingResult = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
@@ -122,6 +128,11 @@ class BluetoothAclReceiver : BroadcastReceiver() {
             engine.live.value.status == ObdStatus.Connecting
         if (ObdConnectionPolicy.shouldIgnoreAclDisconnect(connecting)) {
             Log.i(TAG, "ACL_DISCONNECTED for $address ignored: our own connect/init is in progress")
+            return
+        }
+        if (ObdProbeGate.isSuppressed(address)) {
+            // The background probe closed its socket (and may have just started logging).
+            Log.i(TAG, "ACL_DISCONNECTED for $address ignored: background probe")
             return
         }
 

@@ -67,6 +67,7 @@ import com.fuelroute.data.settings.AppSettings
 import com.fuelroute.data.settings.NAV_GOOGLE
 import com.fuelroute.data.settings.NAV_WAZE
 import com.fuelroute.data.settings.SettingsRepository
+import com.fuelroute.domain.obd.ObdProbePolicy
 import com.fuelroute.service.BatteryOptimization
 import com.fuelroute.ui.components.Dimens
 import com.fuelroute.ui.components.FuelTopBar
@@ -271,6 +272,7 @@ private fun PricesAndNavigation(state: SettingsUiState, viewModel: SettingsViewM
  * Zero-touch logging and the switches around it. The first time auto-connect is on, a short intro
  * asks for the permissions/battery exemption it needs.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ObdLogging(state: SettingsUiState, viewModel: SettingsViewModel, ignoringBattery: Boolean) {
     val context = LocalContext.current
@@ -326,6 +328,41 @@ private fun ObdLogging(state: SettingsUiState, viewModel: SettingsViewModel, ign
             color = MaterialTheme.colorScheme.error,
         )
     }
+    Divider()
+    SwitchRow(
+        title = stringResource(R.string.settings_probe_title),
+        subtitle = stringResource(R.string.settings_probe_subtitle) + "\n" +
+            stringResource(
+                R.string.settings_probe_last,
+                state.lastProbeAtMs?.let { formatDateTime(it) } ?: stringResource(R.string.settings_auto_logging_never),
+                probeResultText(state.lastProbeResult),
+            ),
+        checked = state.obdProbeEnabled && state.autoConnect,
+        enabled = state.autoConnect,
+        onCheckedChange = viewModel::onObdProbeEnabledChange,
+    )
+    if (state.obdProbeEnabled && state.autoConnect) {
+        Text(text = stringResource(R.string.settings_probe_interval_label), style = MaterialTheme.typography.titleSmall)
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            val choices = ObdProbePolicy.INTERVAL_CHOICES_MIN
+            choices.forEachIndexed { index, minutes ->
+                SegmentedButton(
+                    selected = state.obdProbeIntervalMin == minutes,
+                    onClick = { viewModel.onObdProbeIntervalChange(minutes) },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = choices.size),
+                ) {
+                    Text(stringResource(R.string.settings_probe_interval_value, minutes))
+                }
+            }
+        }
+        if (!ignoringBattery || !BuildConfig.SIDELOAD_FEATURES) {
+            Text(
+                text = stringResource(R.string.settings_probe_background_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
     if (state.autoConnect && missing.isNotEmpty()) {
         Text(
             text = stringResource(R.string.settings_auto_logging_permission_hint),
@@ -374,6 +411,23 @@ private fun ObdLogging(state: SettingsUiState, viewModel: SettingsViewModel, ign
         modifier = Modifier.padding(top = Dimens.s),
     )
 }
+
+/** Human-readable last probe result (an [ObdProbePolicy.Outcome] or [ObdProbePolicy.Skip] name). */
+@Composable
+private fun probeResultText(result: String?): String = stringResource(
+    when (result) {
+        ObdProbePolicy.Outcome.ENGINE_RUNNING.name -> R.string.settings_probe_result_running
+        ObdProbePolicy.Outcome.ENGINE_OFF.name -> R.string.settings_probe_result_off
+        ObdProbePolicy.Outcome.ABSENT.name -> R.string.settings_probe_result_absent
+        ObdProbePolicy.Outcome.UNRESPONSIVE.name -> R.string.settings_probe_result_unresponsive
+        ObdProbePolicy.Skip.ALREADY_LOGGING.name -> R.string.settings_probe_result_logging
+        ObdProbePolicy.Skip.NO_DEVICE.name -> R.string.settings_probe_result_no_device
+        ObdProbePolicy.Skip.NO_PERMISSION.name -> R.string.settings_probe_result_no_permission
+        ObdProbePolicy.Skip.BLUETOOTH_OFF.name -> R.string.settings_probe_result_bt_off
+        ObdProbePolicy.Skip.DISABLED.name -> R.string.settings_probe_result_disabled
+        else -> R.string.settings_probe_result_none
+    },
+)
 
 @Composable
 private fun BackupRows(viewModel: SettingsViewModel) {

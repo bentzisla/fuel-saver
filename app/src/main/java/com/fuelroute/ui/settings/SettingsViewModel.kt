@@ -9,6 +9,8 @@ import com.fuelroute.data.price.FuelPriceRepository
 import com.fuelroute.data.settings.NAV_GOOGLE
 import com.fuelroute.data.settings.SettingsRepository
 import com.fuelroute.data.vehicle.VehicleRepository
+import com.fuelroute.domain.obd.ObdProbePolicy
+import com.fuelroute.service.ObdProbeScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -34,6 +36,10 @@ data class SettingsUiState(
     val lastObdError: String? = null,
     val autoConnectIntroSeen: Boolean = false,
     val retentionDays: Int = com.fuelroute.domain.retention.RetentionPolicy.DEFAULT_RETENTION_DAYS,
+    val obdProbeEnabled: Boolean = true,
+    val obdProbeIntervalMin: Int = ObdProbePolicy.DEFAULT_INTERVAL_MIN,
+    val lastProbeAtMs: Long? = null,
+    val lastProbeResult: String? = null,
 )
 
 @HiltViewModel
@@ -42,6 +48,7 @@ class SettingsViewModel @Inject constructor(
     private val fuelPriceRepository: FuelPriceRepository,
     private val vehicleRepository: VehicleRepository,
     private val backupRepository: BackupRepository,
+    private val obdProbeScheduler: ObdProbeScheduler,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -68,6 +75,10 @@ class SettingsViewModel @Inject constructor(
                 lastObdError = settings.lastObdError,
                 autoConnectIntroSeen = settings.autoConnectIntroSeen,
                 retentionDays = settings.retentionDays,
+                obdProbeEnabled = settings.obdProbeEnabled,
+                obdProbeIntervalMin = settings.obdProbeIntervalMin,
+                lastProbeAtMs = settings.lastProbeAtMs,
+                lastProbeResult = settings.lastProbeResult,
             )
         }
     }
@@ -112,6 +123,22 @@ class SettingsViewModel @Inject constructor(
     fun onAutoConnectIntroSeen() {
         _uiState.update { it.copy(autoConnectIntroSeen = true) }
         viewModelScope.launch { settingsRepository.saveAutoConnectIntroSeen(true) }
+    }
+
+    fun onObdProbeEnabledChange(value: Boolean) {
+        _uiState.update { it.copy(obdProbeEnabled = value) }
+        viewModelScope.launch {
+            settingsRepository.saveObdProbeEnabled(value)
+            obdProbeScheduler.reschedule()
+        }
+    }
+
+    fun onObdProbeIntervalChange(minutes: Int) {
+        _uiState.update { it.copy(obdProbeIntervalMin = minutes) }
+        viewModelScope.launch {
+            settingsRepository.saveObdProbeIntervalMin(minutes)
+            obdProbeScheduler.reschedule()
+        }
     }
 
     fun onRetentionDaysChange(days: Int) {

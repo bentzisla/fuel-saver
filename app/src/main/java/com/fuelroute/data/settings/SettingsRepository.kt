@@ -11,6 +11,7 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.fuelroute.domain.fuel.FuelModelOverrides
 import com.fuelroute.domain.fuel.ModelConstants
+import com.fuelroute.domain.obd.ObdProbePolicy
 import com.fuelroute.domain.retention.RetentionPolicy
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -50,6 +51,14 @@ data class AppSettings(
     val carLastSeenMs: Long? = null,
     /** Package name of the car host that bound last, for the Settings diagnostic (card 42). */
     val carLastHost: String? = null,
+    /** Quiet periodic check for the saved dongle that starts logging mid-drive ([ObdProbePolicy]). */
+    val obdProbeEnabled: Boolean = true,
+    val obdProbeIntervalMin: Int = ObdProbePolicy.DEFAULT_INTERVAL_MIN,
+    /** When the last probe ran and what it found (an [ObdProbePolicy.Outcome] or skip name). */
+    val lastProbeAtMs: Long? = null,
+    val lastProbeResult: String? = null,
+    /** Start of the current run of probes that could not reach the dongle, or null. */
+    val probeAbsentSinceMs: Long? = null,
 )
 
 interface SettingsRepository {
@@ -93,6 +102,13 @@ interface SettingsRepository {
     suspend fun saveCarLastHost(value: String?) = Unit
 
     suspend fun saveModelOverrides(value: FuelModelOverrides)
+
+    suspend fun saveObdProbeEnabled(value: Boolean) = Unit
+
+    suspend fun saveObdProbeIntervalMin(value: Int) = Unit
+
+    /** Records one probe run; [absentSinceMs] null clears the unreachable streak. */
+    suspend fun saveProbeResult(atMs: Long, result: String, absentSinceMs: Long?) = Unit
 }
 
 @Singleton
@@ -128,6 +144,13 @@ class DataStoreSettingsRepository @Inject constructor(
                 retentionDays = prefs[Keys.RETENTION_DAYS] ?: RetentionPolicy.DEFAULT_RETENTION_DAYS,
                 carLastSeenMs = prefs[Keys.CAR_LAST_SEEN_MS]?.takeIf { it > 0L },
                 carLastHost = prefs[Keys.CAR_LAST_HOST]?.takeIf { it.isNotBlank() },
+                obdProbeEnabled = prefs[Keys.OBD_PROBE_ENABLED] ?: true,
+                obdProbeIntervalMin = ObdProbePolicy.clampIntervalMin(
+                    prefs[Keys.OBD_PROBE_INTERVAL_MIN] ?: ObdProbePolicy.DEFAULT_INTERVAL_MIN,
+                ),
+                lastProbeAtMs = prefs[Keys.LAST_PROBE_AT_MS]?.takeIf { it > 0L },
+                lastProbeResult = prefs[Keys.LAST_PROBE_RESULT]?.takeIf { it.isNotBlank() },
+                probeAbsentSinceMs = prefs[Keys.PROBE_ABSENT_SINCE_MS]?.takeIf { it > 0L },
             )
         }
 
@@ -195,6 +218,22 @@ class DataStoreSettingsRepository @Inject constructor(
         dataStore.edit { it[Keys.MODEL_OVERRIDES] = json.encodeToString(value) }
     }
 
+    override suspend fun saveObdProbeEnabled(value: Boolean) {
+        dataStore.edit { it[Keys.OBD_PROBE_ENABLED] = value }
+    }
+
+    override suspend fun saveObdProbeIntervalMin(value: Int) {
+        dataStore.edit { it[Keys.OBD_PROBE_INTERVAL_MIN] = ObdProbePolicy.clampIntervalMin(value) }
+    }
+
+    override suspend fun saveProbeResult(atMs: Long, result: String, absentSinceMs: Long?) {
+        dataStore.edit {
+            it[Keys.LAST_PROBE_AT_MS] = atMs
+            it[Keys.LAST_PROBE_RESULT] = result
+            it[Keys.PROBE_ABSENT_SINCE_MS] = absentSinceMs ?: 0L
+        }
+    }
+
     private object Keys {
         val VALUE_PER_MINUTE = doublePreferencesKey("value_per_minute")
         val NAVIGATION_APP = stringPreferencesKey("navigation_app")
@@ -212,6 +251,11 @@ class DataStoreSettingsRepository @Inject constructor(
         val CAR_LAST_SEEN_MS = longPreferencesKey("car_last_seen_ms")
         val CAR_LAST_HOST = stringPreferencesKey("car_last_host")
         val MODEL_OVERRIDES = stringPreferencesKey("model_overrides")
+        val OBD_PROBE_ENABLED = booleanPreferencesKey("obd_probe_enabled")
+        val OBD_PROBE_INTERVAL_MIN = intPreferencesKey("obd_probe_interval_min")
+        val LAST_PROBE_AT_MS = longPreferencesKey("last_probe_at_ms")
+        val LAST_PROBE_RESULT = stringPreferencesKey("last_probe_result")
+        val PROBE_ABSENT_SINCE_MS = longPreferencesKey("probe_absent_since_ms")
     }
 
     private companion object {
