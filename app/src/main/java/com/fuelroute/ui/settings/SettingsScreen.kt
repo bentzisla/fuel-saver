@@ -466,6 +466,26 @@ private fun BackupRows(viewModel: SettingsViewModel) {
         if (uri != null) pendingImport = uri
     }
 
+    fun launchCsvExport(csv: suspend () -> String, uri: Uri?) {
+        if (uri == null) return
+        scope.launch {
+            val ok = runCatching {
+                val text = csv()
+                context.contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray(Charsets.UTF_8)) }
+                    ?: error("cannot open $uri for writing")
+            }.isSuccess
+            userMessages.show(
+                if (ok) R.string.settings_export_csv_success else R.string.settings_export_csv_failed,
+            )
+        }
+    }
+    val exportTripsCsvLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/csv"),
+    ) { uri -> launchCsvExport(viewModel::exportTripsCsv, uri) }
+    val exportRefuelsCsvLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/csv"),
+    ) { uri -> launchCsvExport(viewModel::exportRefuelsCsv, uri) }
+
     ListRow(
         title = stringResource(R.string.settings_backup_export),
         subtitle = stringResource(R.string.settings_backup_hint),
@@ -476,6 +496,18 @@ private fun BackupRows(viewModel: SettingsViewModel) {
         title = stringResource(R.string.settings_backup_import),
         subtitle = stringResource(R.string.settings_backup_import_hint),
         onClick = { importLauncher.launch(arrayOf("application/json")) },
+    )
+    Divider()
+    ListRow(
+        title = stringResource(R.string.settings_export_trips_csv),
+        subtitle = stringResource(R.string.settings_export_trips_csv_hint),
+        onClick = { exportTripsCsvLauncher.launch(defaultCsvFileName("trips")) },
+    )
+    Divider()
+    ListRow(
+        title = stringResource(R.string.settings_export_refuels_csv),
+        subtitle = stringResource(R.string.settings_export_refuels_csv_hint),
+        onClick = { exportRefuelsCsvLauncher.launch(defaultCsvFileName("refuels")) },
     )
 
     val target = pendingImport
@@ -704,6 +736,11 @@ private val RETENTION_OPTIONS = listOf(30, 60, 90, 180, 365)
 private fun defaultBackupFileName(): String {
     val stamp = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
     return "fuelroute-backup-$stamp.json"
+}
+
+private fun defaultCsvFileName(kind: String): String {
+    val stamp = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
+    return "fuelroute-$kind-$stamp.csv"
 }
 
 private fun gradeLabelRes(grade: String): Int = when (grade) {

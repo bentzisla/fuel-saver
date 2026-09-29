@@ -100,6 +100,7 @@ class SettingsViewModelTest {
             fuelPriceRepository = fuelPriceRepository,
             vehicleRepository = vehicleRepository,
             backupRepository = mockk(relaxed = true),
+            csvExportRepository = mockk(relaxed = true),
             obdProbeScheduler = mockk(relaxed = true),
         )
     }
