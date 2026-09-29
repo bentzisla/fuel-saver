@@ -591,6 +591,7 @@ class RouteViewModel @Inject constructor(
                                 destinationPlaceId = state.destinationPlaceId,
                                 destinationLat = state.destinationLocation?.latitude,
                                 destinationLng = state.destinationLocation?.longitude,
+                                fuelCorrectionAtSearch = overrides.effectiveFuelCorrection,
                             ),
                         )
                     }

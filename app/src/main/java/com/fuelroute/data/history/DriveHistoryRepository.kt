@@ -73,6 +73,10 @@ data class DriveHistoryEntry(
     val manualLitersPer100Km: Double? = null,
     /** Average speed of the driven trip; null for an undriven search. */
     val avgSpeedKmh: Double? = null,
+    /** The searched route's distance ([distanceKm] is the driven one once a trip is linked). */
+    val predictedDistanceKm: Double? = null,
+    /** Fuel-model correction [predictedLiters] includes; null for searches from before v11. */
+    val fuelCorrectionAtSearch: Double? = null,
 ) {
     val hasActual: Boolean get() = tripId != null && actualCost != null
 
@@ -538,6 +542,8 @@ class DriveHistoryRepository @Inject constructor(
             manualDistanceKm = trip?.manualDistanceKm,
             manualLitersPer100Km = trip?.manualLitersPer100Km,
             avgSpeedKmh = trip?.effectiveAvgSpeedKmh(),
+            predictedDistanceKm = distanceKm.takeIf { it > 0.0 },
+            fuelCorrectionAtSearch = fuelCorrectionAtSearch,
         )
     }
 

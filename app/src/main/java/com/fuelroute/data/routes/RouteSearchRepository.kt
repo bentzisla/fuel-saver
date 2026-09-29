@@ -28,6 +28,8 @@ data class RouteSearch(
     val destinationPlaceId: String? = null,
     val destinationLat: Double? = null,
     val destinationLng: Double? = null,
+    /** `FuelModelOverrides.effectiveFuelCorrection` the predictions above include. */
+    val fuelCorrectionAtSearch: Double? = null,
 )
 
 interface RouteSearchRepository {
@@ -107,6 +109,7 @@ class DefaultRouteSearchRepository @Inject constructor(
         destinationPlaceId = destinationPlaceId,
         destinationLat = destinationLat,
         destinationLng = destinationLng,
+        fuelCorrectionAtSearch = fuelCorrectionAtSearch,
     )
 
     private fun RouteSearchEntity.toKey(linked: Boolean) = SearchKey(
@@ -163,5 +166,6 @@ class DefaultRouteSearchRepository @Inject constructor(
         destinationPlaceId = destinationPlaceId,
         destinationLat = destinationLat,
         destinationLng = destinationLng,
+        fuelCorrectionAtSearch = fuelCorrectionAtSearch,
     )
 }

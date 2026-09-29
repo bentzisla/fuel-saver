@@ -3,6 +3,19 @@ package com.fuelroute.domain.fuel
 import kotlin.math.abs
 
 /**
+ * One real, linked drive for the fit: the stored prediction (which included
+ * [correctionAtSearch], null for rows from before it was stored), the measured fuel, and the
+ * searched vs driven distance.
+ */
+data class LinkedDrive(
+    val predictedLiters: Double,
+    val actualLiters: Double,
+    val correctionAtSearch: Double?,
+    val predictedDistanceKm: Double?,
+    val actualDistanceKm: Double?,
+)
+
+/**
  * Closed-form fit of a single global fuel correction factor over linked drives.
  *
  * Each pair is `(predictedLiters, actualLiters)` for a drive: the corrected prediction is
@@ -38,6 +51,10 @@ object CalibrationFitter {
 
     /** Below this many *plausible* pairs, a fit is too noisy to trust at all. */
     const val MIN_PAIRS = 3
+
+    /** Driven/predicted distance band for a linked drive to count in the fit. */
+    const val MIN_DISTANCE_RATIO = 0.85
+    const val MAX_DISTANCE_RATIO = 1.15
 
     /**
      * Least-squares correction `Σ(p·a) / Σ(p²)` over the pairs whose `actual/predicted` ratio
@@ -82,6 +99,29 @@ object CalibrationFitter {
         }
         return pairs.map { (predicted, actual) -> (predicted / currentCorrection) to actual }
     }
+
+    /**
+     * [uncorrectedPairs] for real linked drives: keeps only drives whose driven distance is within
+     * [MIN_DISTANCE_RATIO]..[MAX_DISTANCE_RATIO] of the searched route's (a trip that stopped short
+     * or took a long detour says nothing about the model), and divides each prediction by the
+     * correction *that search* included ([LinkedDrive.correctionAtSearch]), falling back to
+     * [currentCorrection] only for rows recorded before that was stored. Undoing today's correction
+     * from a prediction made under an older one would bias the fit towards the old value.
+     */
+    fun uncorrectedPairsOf(drives: List<LinkedDrive>, currentCorrection: Double): List<Pair<Double, Double>> =
+        drives.filter(::distanceMatches).map { drive ->
+            val correction = usableCorrection(drive.correctionAtSearch) ?: usableCorrection(currentCorrection) ?: 1.0
+            (drive.predictedLiters / correction) to drive.actualLiters
+        }
+
+    /** True when the driven distance is close enough to the predicted route's to compare fuel. */
+    fun distanceMatches(drive: LinkedDrive): Boolean {
+        val predicted = drive.predictedDistanceKm?.takeIf { it.isFinite() && it > 0.0 } ?: return false
+        val actual = drive.actualDistanceKm?.takeIf { it.isFinite() && it > 0.0 } ?: return false
+        return actual / predicted in MIN_DISTANCE_RATIO..MAX_DISTANCE_RATIO
+    }
+
+    private fun usableCorrection(value: Double?): Double? = value?.takeIf { it.isFinite() && it > 0.0 }
 
     /**
      * Mean absolute percentage error of `predicted * correction` against `actual`, using the
