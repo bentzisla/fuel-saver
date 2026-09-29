@@ -136,4 +136,14 @@ object Migrations {
             )
         }
     }
+
+    // v10 -> v11: calibration provenance. The correction each route search's prediction included
+    // and the OBD correction active at each fill, so fits never undo today's correction from an
+    // older value. Nullable: old rows fall back to the current correction.
+    val MIGRATION_10_11 = object : Migration(10, 11) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE route_search ADD COLUMN fuelCorrectionAtSearch REAL")
+            db.execSQL("ALTER TABLE refuel ADD COLUMN obdCorrectionAtFill REAL")
+        }
+    }
 }
