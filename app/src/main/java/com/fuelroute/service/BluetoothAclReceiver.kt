@@ -52,6 +52,9 @@ class BluetoothAclReceiver : BroadcastReceiver() {
     @Inject
     lateinit var engine: ObdEngine
 
+    @Inject
+    lateinit var obdProbeScheduler: ObdProbeScheduler
+
     @SuppressLint("MissingPermission")
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
@@ -79,6 +82,7 @@ class BluetoothAclReceiver : BroadcastReceiver() {
             Log.i(TAG, "ACL_CONNECTED for $address ignored: background probe")
             return
         }
+        obdProbeScheduler.resetBackoff()
 
         val pendingResult = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {

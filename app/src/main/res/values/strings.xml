@@ -388,7 +388,7 @@
     <string name="settings_probe_last">בדיקה אחרונה: %1$s (%2$s)</string>
     <string name="settings_probe_interval_label">תדירות הבדיקה</string>
     <string name="settings_probe_interval_value">%1$d דק׳</string>
-    <string name="settings_probe_background_hint">כדי שהמדידה תתחיל לבד כשהאפליקציה סגורה, Android דורש פטור מאופטימיזציית סוללה. בלי הפטור תופיע התראה שקטה \"זוהתה נסיעה\", ולחיצה עליה מתחילה את המדידה.</string>
+    <string name="settings_probe_background_hint">כדי שהמדידה תתחיל לבד כשהאפליקציה סגורה, Android דורש פטור מאופטימיזציית סוללה. בלי הפטור תופיע התראה \"זוהתה נסיעה\", ולחיצה עליה מתחילה את המדידה.</string>
     <string name="settings_probe_result_running">מנוע פועל, המדידה הופעלה</string>
     <string name="settings_probe_result_off">הדונגל בטווח, המנוע כבוי</string>
     <string name="settings_probe_result_absent">הדונגל לא בטווח</string>
@@ -399,9 +399,11 @@
     <string name="settings_probe_result_bt_off">Bluetooth כבוי</string>
     <string name="settings_probe_result_disabled">כבוי</string>
     <string name="settings_probe_result_none">טרם בוצעה</string>
-    <string name="probe_notification_channel">זיהוי נסיעה</string>
+    <string name="probe_alert_channel">נסיעה שזוהתה - התחלת מדידה</string>
+    <string name="probe_alert_channel_description">מופיעה כשזוהתה נסיעה ו-Android לא איפשר להתחיל את המדידה ברקע. לחיצה מתחילה את המדידה.</string>
     <string name="probe_notification_title">זוהתה נסיעה</string>
-    <string name="probe_notification_text">הקישו כדי להתחיל למדוד צריכה</string>
+    <string name="probe_notification_text">הקישו כדי להתחיל את המדידה</string>
+    <string name="probe_notification_action_start">התחלת מדידה</string>
 
     <!-- Android Auto help + last-seen diagnostic (card 42). Sideload-only: "Unknown sources" required. -->
     <string name="settings_android_auto_title">תצוגה ברכב (Android Auto)</string>
