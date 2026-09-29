@@ -343,6 +343,13 @@ interface RefuelDao {
             "AND timestampMs >= :sinceMs ORDER BY timestampMs ASC"
     )
     suspend fun fullRefuelsSince(vehicleId: String, sinceMs: Long): List<RefuelEntity>
+
+    /** Litres of every fill (full or partial) in the (fromMs, toMs] window. */
+    @Query(
+        "SELECT COALESCE(SUM(liters), 0.0) FROM refuel WHERE vehicleId = :vehicleId " +
+            "AND timestampMs > :fromMs AND timestampMs <= :toMs"
+    )
+    suspend fun litersBetween(vehicleId: String, fromMs: Long, toMs: Long): Double
 }
 
 @Dao

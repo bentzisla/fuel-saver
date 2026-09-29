@@ -126,7 +126,11 @@
     <string name="refuel_saved">התדלוק נשמר</string>
     <string name="refuel_history">תדלוקים אחרונים</string>
     <string name="refuel_no_history">אין תדלוקים</string>
-    <string name="refuel_calibration_clamped">הכיול הגיע לקצה — בדוק את הנתונים</string>
+    <string name="refuel_calibration_clamped_title">כיול חריג — להחיל?</string>
+    <string name="refuel_calibration_clamped_message">בין שני התדלוקים המלאים מולאו %1$s ל׳, וה־OBD מדד %2$s ל׳. מקדם התיקון שיוצא מזה חורג מהטווח הסביר והוגבל ל־%3$s (כעת %4$s). בדרך כלל זה קורה כשחלק מהנסיעות היו בלי המתאם או כשתדלוק מלא לא נרשם. להחיל בכל זאת?</string>
+    <string name="refuel_calibration_clamped_apply">החל מקדם</string>
+    <string name="refuel_calibration_clamped_keep">השאר את הנוכחי</string>
+    <string name="refuel_calibration_low_coverage">הכיול לא עודכן: מולאו %1$s ל׳ אך ה־OBD מדד רק %2$s ל׳ — כנראה שחלק גדול מהנסיעות היו בלי המתאם.</string>
     <string name="refuel_over_capacity_title">כמות גדולה מנפח המיכל</string>
     <string name="refuel_over_capacity_message">הזנת %1$s ליטר אך נפח המיכל הוא %2$s ליטר. להמשיך בכל זאת?</string>
     <string name="refuel_over_capacity_confirm">המשך בכל זאת</string>
@@ -368,6 +372,7 @@
     <string name="calibration_refuel_exact">כיול תדלוק תקין — מקדם מוצע: %1$s</string>
     <string name="calibration_refuel_clamped">כיול התדלוק הגיע לקצה — מקדם: %1$s (בדקו את הנתונים)</string>
     <string name="calibration_refuel_insufficient">אין מספיק נתוני OBD בקטע האחרון כדי לכייל את התדלוק</string>
+    <string name="calibration_refuel_low_coverage">ה־OBD מדד פחות ממחצית הדלק שמולא — הקטע לא משמש לכיול</string>
     <string name="calibration_refuel_none">אין עדיין שני תדלוקים מלאים לכיול</string>
     <string name="calibration_refuel_hint">מכיול התדלוק מחושב מההשוואה בין הדלק שמולא לדלק שנמדד בין שני תדלוקים מלאים.</string>
 

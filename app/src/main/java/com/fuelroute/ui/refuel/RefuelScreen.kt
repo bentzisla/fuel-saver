@@ -100,9 +100,13 @@ fun RefuelScreen(
                         color = MaterialTheme.colorScheme.primary,
                     )
                 }
-                if (state.calibrationClamped) {
+                state.lowCoverage?.let { notice ->
                     Text(
-                        text = stringResource(R.string.refuel_calibration_clamped),
+                        text = stringResource(
+                            R.string.refuel_calibration_low_coverage,
+                            fmt(notice.pumpedLitres, 1),
+                            fmt(notice.obdLitres, 1),
+                        ),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.error,
                     )
@@ -141,6 +145,24 @@ fun RefuelScreen(
             destructive = false,
             onConfirm = viewModel::confirmTankWarning,
             onDismiss = viewModel::dismissTankWarning,
+        )
+    }
+
+    state.pendingClamped?.let { pending ->
+        ConfirmDialog(
+            title = stringResource(R.string.refuel_calibration_clamped_title),
+            message = stringResource(
+                R.string.refuel_calibration_clamped_message,
+                fmt(pending.pumpedLitres, 1),
+                fmt(pending.obdLitres, 1),
+                fmt(pending.factor, 3),
+                fmt(state.correction, 3),
+            ),
+            confirmLabel = stringResource(R.string.refuel_calibration_clamped_apply),
+            dismissLabel = stringResource(R.string.refuel_calibration_clamped_keep),
+            destructive = false,
+            onConfirm = viewModel::applyClampedCalibration,
+            onDismiss = viewModel::discardClampedCalibration,
         )
     }
 }
