@@ -18,9 +18,8 @@ object RouteConfidence {
 
     /**
      * Distance-weighted learned weight along [cost]'s speed mix, in `0..1`: for each step, the
-     * [CurveBlender] weight `km/(km+20)` the learned curve gets at that step's costed speed (0
-     * where the learned value is missing or rejected as implausible against [fallback]), averaged
-     * by step distance. Mirrors how [CurveBlender.blend] builds the effective curve, so it says
+     * learned weight [CurveBlender.weightAt] gives that step's costed speed (0 where nothing
+     * usable was measured), averaged by step distance. Mirrors how [CurveBlender.blend] builds the effective curve, so it says
      * how much of *this* route's estimate is measured rather than assumed.
      */
     fun learnedShare(cost: RouteCost, learned: LearnedCurve?, fallback: ConsumptionCurve): Double {
@@ -31,9 +30,7 @@ object RouteConfidence {
             val km = segment.distanceKm.takeIf { it.isFinite() && it > 0.0 } ?: continue
             distance += km
             val speed = segment.effectiveSpeedKmh.takeIf { it.isFinite() } ?: continue
-            val learnedValue = learned.litersPer100Km(speed) ?: continue
-            if (!CurveBlender.usesLearnedValue(learnedValue, fallback.litersPer100Km(speed))) continue
-            weighted += km * CurveBlender.weight(learned.confidenceKm(speed))
+            weighted += km * CurveBlender.weightAt(learned, fallback, speed)
         }
         return if (distance > 0.0) (weighted / distance).coerceIn(0.0, 1.0) else 0.0
     }

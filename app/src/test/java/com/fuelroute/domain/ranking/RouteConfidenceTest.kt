@@ -40,13 +40,14 @@ class RouteConfidenceTest {
 
     @Test
     fun `share is distance weighted over the route's speed mix`() {
-        // 30 km in the measured band, 10 km at 120 km/h where nothing was measured.
-        val cost = cost(30.0 to 60.0, 10.0 to 120.0)
-        val w60 = CurveBlender.weight(learned.confidenceKm(60.0))
+        // 30 km in the measured band, 20 km at 120 km/h where nothing was measured.
+        val cost = cost(30.0 to 60.0, 20.0 to 120.0)
+        val w60 = CurveBlender.weightAt(learned, fallback, 60.0)
 
         val share = RouteConfidence.learnedShare(cost, learned, fallback)
 
-        assertEquals(30.0 * w60 / 40.0, share, 1e-9)
+        assertEquals(0.0, CurveBlender.weightAt(learned, fallback, 120.0), 0.0)
+        assertEquals(30.0 * w60 / 50.0, share, 1e-9)
         assertEquals(RouteConfidenceLevel.MEDIUM, RouteConfidence.level(share))
     }
 
