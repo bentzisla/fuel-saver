@@ -491,7 +491,7 @@ class ObdEngine @Inject constructor(
             }
         }
 
-        for (command in ElmProtocol.configurationCommands) {
+        for (command in ElmProtocol.configurationCommands(ObdProtocolMemory.get(transport.address))) {
             if (isStale(runId)) return ObdConnectionPolicy.ERROR_INIT_LINK_CLOSED
             val reply = transport.sendCommand(command, ObdConnectionPolicy.initReadTimeoutMs(command))
             if (reply.isBlank()) return linkLost(transport, command)
@@ -522,6 +522,7 @@ class ObdEngine @Inject constructor(
      */
     private suspend fun settleProtocol(transport: ObdTransport, runId: Long) {
         publish(runId) { it.copy(connectionStage = ObdConnectStage.SettlingProtocol) }
+        val fixedProtocol = ObdProtocolMemory.get(transport.address) != null // ATSP<n> sent in init
         for (attempt in 1..ObdConnectionPolicy.PROTOCOL_SETTLE_ATTEMPTS) {
             if (isStale(runId)) return
             val raw = transport.sendCommand(
@@ -537,6 +538,7 @@ class ObdEngine @Inject constructor(
                         ObdConnectionPolicy.INIT_READ_TIMEOUT_MS,
                     )
                     Log.i(TAG, "protocol locked: ATDPN=${ElmLink.printable(dpn.trim())}")
+                    ObdProtocolMemory.remember(transport.address, ElmProtocol.parseProtocolNumber(dpn))
                     return
                 }
                 ElmProtocol.SearchOutcome.NO_DATA,
@@ -544,7 +546,11 @@ class ObdEngine @Inject constructor(
                 -> return
                 ElmProtocol.SearchOutcome.BUS_ERROR -> {
                     if (!ObdConnectionPolicy.shouldRetryProtocolSearch(outcome, attempt)) break
-                    transport.sendCommand(ElmProtocol.CMD_PROTOCOL_CLOSE, ObdConnectionPolicy.INIT_READ_TIMEOUT_MS)
+                    // A remembered protocol that fails falls back to ATSP0 once, else ATPC.
+                    transport.sendCommand(
+                        ElmProtocol.recoveryCommandAfterBusError(fixedProtocol, attempt),
+                        ObdConnectionPolicy.INIT_READ_TIMEOUT_MS,
+                    )
                     delay(ObdConnectionPolicy.PROTOCOL_RETRY_PAUSE_MS)
                 }
             }

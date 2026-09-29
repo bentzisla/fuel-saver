@@ -2,10 +2,12 @@ package com.fuelroute.ui.stats
 
 import android.annotation.SuppressLint
 import android.content.Context
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fuelroute.data.obd.LearnedCurveRepository
 import com.fuelroute.data.obd.LiveObdState
+import com.fuelroute.data.obd.ObdConnectStage
 import com.fuelroute.data.obd.ObdDeviceRepository
 import com.fuelroute.data.obd.ObdEngine
 import com.fuelroute.data.obd.ObdStatus
@@ -27,7 +29,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -36,6 +40,57 @@ import javax.inject.Inject
 data class TripDisplay(
     val trip: Trip,
     val predictedL100: Double?,
+)
+
+/**
+ * Narrow, [Immutable] slices of [LiveObdState] for each Drive-screen section. The screen used to
+ * pass the whole (4 Hz) [LiveObdState] to every section, so every section recomposed on every
+ * sample; each section now reads only the slice it needs, and [distinctUntilChanged] skips
+ * updates that don't touch that slice.
+ */
+@Immutable
+data class ConnectionUiState(
+    val status: ObdStatus = ObdStatus.Disconnected,
+    val deviceName: String? = null,
+    val lastError: String? = null,
+    val connectionStage: ObdConnectStage? = null,
+    val connectingSinceMs: Long? = null,
+)
+
+@Immutable
+data class LiveTelemetryUiState(
+    val speedKmh: Double? = null,
+    val instantL100: Double? = null,
+    val fuelRateLph: Double? = null,
+    val tripDistanceKm: Double = 0.0,
+    val tripFuelL: Double = 0.0,
+    val tripSeconds: Double = 0.0,
+)
+
+@Immutable
+data class EngineUiState(
+    val fuelRateLph: Double? = null,
+    val rpm: Double? = null,
+    val coolantTempC: Double? = null,
+    val batteryVoltage: Double? = null,
+    val fuelLevelPct: Double? = null,
+    val instantL100: Double? = null,
+)
+
+@Immutable
+data class LearnedUiState(
+    val totalDistanceKm: Double = 0.0,
+    val binCount: Int = 0,
+    val sampleCount: Int = 0,
+)
+
+@Immutable
+data class DiagnosticsUiState(
+    val lastError: String? = null,
+    val lastRawReply: String? = null,
+    val sampleRateHz: Double = 0.0,
+    val vin: String? = null,
+    val supportedPidsCount: Int = 0,
 )
 
 @HiltViewModel
@@ -50,6 +105,71 @@ class StatsViewModel @Inject constructor(
 ) : ViewModel() {
 
     val live: StateFlow<LiveObdState> = engine.live
+
+    val connectionUi: StateFlow<ConnectionUiState> = engine.live
+        .map {
+            ConnectionUiState(
+                status = it.status,
+                deviceName = it.deviceName,
+                lastError = it.lastError,
+                connectionStage = it.connectionStage,
+                connectingSinceMs = it.connectingSinceMs,
+            )
+        }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ConnectionUiState())
+
+    val liveTelemetry: StateFlow<LiveTelemetryUiState> = engine.live
+        .map {
+            LiveTelemetryUiState(
+                speedKmh = it.speedKmh,
+                instantL100 = it.instantL100,
+                fuelRateLph = it.fuelRateLph,
+                tripDistanceKm = it.tripDistanceKm,
+                tripFuelL = it.tripFuelL,
+                tripSeconds = it.tripSeconds,
+            )
+        }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LiveTelemetryUiState())
+
+    val engineUi: StateFlow<EngineUiState> = engine.live
+        .map {
+            EngineUiState(
+                fuelRateLph = it.fuelRateLph,
+                rpm = it.rpm,
+                coolantTempC = it.coolantTempC,
+                batteryVoltage = it.batteryVoltage,
+                fuelLevelPct = it.fuelLevelPct,
+                instantL100 = it.instantL100,
+            )
+        }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), EngineUiState())
+
+    val learnedUi: StateFlow<LearnedUiState> = engine.live
+        .map {
+            LearnedUiState(
+                totalDistanceKm = it.totalDistanceKm,
+                binCount = it.bins.size,
+                sampleCount = it.sampleCount,
+            )
+        }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LearnedUiState())
+
+    val diagnosticsUi: StateFlow<DiagnosticsUiState> = engine.live
+        .map {
+            DiagnosticsUiState(
+                lastError = it.lastError,
+                lastRawReply = it.lastRawReply,
+                sampleRateHz = it.sampleRateHz,
+                vin = it.vin,
+                supportedPidsCount = it.supportedPids.size,
+            )
+        }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DiagnosticsUiState())
 
     val settings: StateFlow<AppSettings> = settingsRepository.settings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppSettings())

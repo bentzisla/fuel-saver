@@ -126,7 +126,11 @@
     <string name="refuel_saved">התדלוק נשמר</string>
     <string name="refuel_history">תדלוקים אחרונים</string>
     <string name="refuel_no_history">אין תדלוקים</string>
-    <string name="refuel_calibration_clamped">הכיול הגיע לקצה — בדוק את הנתונים</string>
+    <string name="refuel_calibration_clamped_title">כיול חריג — להחיל?</string>
+    <string name="refuel_calibration_clamped_message">בין שני התדלוקים המלאים מולאו %1$s ל׳, וה־OBD מדד %2$s ל׳. מקדם התיקון שיוצא מזה חורג מהטווח הסביר והוגבל ל־%3$s (כעת %4$s). בדרך כלל זה קורה כשחלק מהנסיעות היו בלי המתאם או כשתדלוק מלא לא נרשם. להחיל בכל זאת?</string>
+    <string name="refuel_calibration_clamped_apply">החל מקדם</string>
+    <string name="refuel_calibration_clamped_keep">השאר את הנוכחי</string>
+    <string name="refuel_calibration_low_coverage">הכיול לא עודכן: מולאו %1$s ל׳ אך ה־OBD מדד רק %2$s ל׳ — כנראה שחלק גדול מהנסיעות היו בלי המתאם.</string>
     <string name="refuel_over_capacity_title">כמות גדולה מנפח המיכל</string>
     <string name="refuel_over_capacity_message">הזנת %1$s ליטר אך נפח המיכל הוא %2$s ליטר. להמשיך בכל זאת?</string>
     <string name="refuel_over_capacity_confirm">המשך בכל זאת</string>
@@ -317,6 +321,12 @@
     <string name="settings_backup_import_confirm">ייבא</string>
     <string name="settings_backup_import_result">הייבוא הושלם: נוספו %1$d נסיעות ו־%2$d תדלוקים (%3$d כפילויות דולגו)</string>
     <string name="settings_backup_import_failed">ייבוא הגיבוי נכשל</string>
+    <string name="settings_export_trips_csv">ייצוא נסיעות (CSV)</string>
+    <string name="settings_export_trips_csv_hint">כל הנסיעות של כל הרכבים, עם עלות, צריכה וקישור לחיפוש המסלול. נפתח ב־Excel.</string>
+    <string name="settings_export_refuels_csv">ייצוא תדלוקים (CSV)</string>
+    <string name="settings_export_refuels_csv_hint">כל התדלוקים של כל הרכבים, עם ליטרים, מחיר וסוג דלק.</string>
+    <string name="settings_export_csv_success">הקובץ יוצא בהצלחה</string>
+    <string name="settings_export_csv_failed">ייצוא הקובץ נכשל</string>
 
     <string name="settings_calibration_title">כיול הדגם</string>
     <string name="settings_calibration_hint">תהליך מדורג לכיול מודל הדלק, כולל התאמה לנסיעות ובדיקת כיול התדלוק</string>
@@ -368,6 +378,7 @@
     <string name="calibration_refuel_exact">כיול תדלוק תקין — מקדם מוצע: %1$s</string>
     <string name="calibration_refuel_clamped">כיול התדלוק הגיע לקצה — מקדם: %1$s (בדקו את הנתונים)</string>
     <string name="calibration_refuel_insufficient">אין מספיק נתוני OBD בקטע האחרון כדי לכייל את התדלוק</string>
+    <string name="calibration_refuel_low_coverage">ה־OBD מדד פחות ממחצית הדלק שמולא — הקטע לא משמש לכיול</string>
     <string name="calibration_refuel_none">אין עדיין שני תדלוקים מלאים לכיול</string>
     <string name="calibration_refuel_hint">מכיול התדלוק מחושב מההשוואה בין הדלק שמולא לדלק שנמדד בין שני תדלוקים מלאים.</string>
 
@@ -388,7 +399,7 @@
     <string name="settings_probe_last">בדיקה אחרונה: %1$s (%2$s)</string>
     <string name="settings_probe_interval_label">תדירות הבדיקה</string>
     <string name="settings_probe_interval_value">%1$d דק׳</string>
-    <string name="settings_probe_background_hint">כדי שהמדידה תתחיל לבד כשהאפליקציה סגורה, Android דורש פטור מאופטימיזציית סוללה. בלי הפטור תופיע התראה שקטה \"זוהתה נסיעה\", ולחיצה עליה מתחילה את המדידה.</string>
+    <string name="settings_probe_background_hint">כדי שהמדידה תתחיל לבד כשהאפליקציה סגורה, Android דורש פטור מאופטימיזציית סוללה. בלי הפטור תופיע התראה \"זוהתה נסיעה\", ולחיצה עליה מתחילה את המדידה.</string>
     <string name="settings_probe_result_running">מנוע פועל, המדידה הופעלה</string>
     <string name="settings_probe_result_off">הדונגל בטווח, המנוע כבוי</string>
     <string name="settings_probe_result_absent">הדונגל לא בטווח</string>
@@ -399,9 +410,11 @@
     <string name="settings_probe_result_bt_off">Bluetooth כבוי</string>
     <string name="settings_probe_result_disabled">כבוי</string>
     <string name="settings_probe_result_none">טרם בוצעה</string>
-    <string name="probe_notification_channel">זיהוי נסיעה</string>
+    <string name="probe_alert_channel">נסיעה שזוהתה - התחלת מדידה</string>
+    <string name="probe_alert_channel_description">מופיעה כשזוהתה נסיעה ו-Android לא איפשר להתחיל את המדידה ברקע. לחיצה מתחילה את המדידה.</string>
     <string name="probe_notification_title">זוהתה נסיעה</string>
-    <string name="probe_notification_text">הקישו כדי להתחיל למדוד צריכה</string>
+    <string name="probe_notification_text">הקישו כדי להתחיל את המדידה</string>
+    <string name="probe_notification_action_start">התחלת מדידה</string>
 
     <!-- Android Auto help + last-seen diagnostic (card 42). Sideload-only: "Unknown sources" required. -->
     <string name="settings_android_auto_title">תצוגה ברכב (Android Auto)</string>
@@ -499,6 +512,17 @@
     <string name="route_detail_correction_label">מקדם כיול</string>
     <string name="route_detail_correction_value">×%1$s</string>
     <string name="route_grade_missing_hint">העלייה בגובה לאורך המסלול לא נכללה בחישוב הדלק</string>
+    <string name="route_cost_excludes_toll">המחיר לא כולל אגרה: יש במסלול כביש אגרה שמחירו לא ידוע</string>
+    <string name="route_money_plus_toll">%1$s + אגרה</string>
+    <string name="route_similar_cost">עלות דומה</string>
+    <string name="route_reason_similar_fastest">עלות דומה לחלופות (הפרש קטן מדיוק ההערכה) · המהיר ביותר</string>
+    <string name="route_reason_similar_slower">עלות דומה לזול ביותר (הפרש קטן מדיוק ההערכה) · +%1$s דק׳ מהמהיר</string>
+    <string name="route_detail_confidence_label">ביטחון בהערכה</string>
+    <string name="route_detail_confidence_value">%1$s · %2$s%% מהמסלול לפי מדידות OBD</string>
+    <string name="route_confidence_low">נמוך</string>
+    <string name="route_confidence_medium">בינוני</string>
+    <string name="route_confidence_high">גבוה</string>
+    <string name="route_detail_confidence_hint">הערכת הדלק עשויה לסטות בכ-10 עד 20 אחוז; הפרשים קטנים בין מסלולים אינם משמעותיים</string>
     <string name="route_detail_trip_title">נתוני הנסיעה</string>
     <string name="route_traffic_title">נתוני תנועה</string>
     <string name="favorites_tap_to_rename">הקישו לשינוי השם</string>
@@ -568,6 +592,7 @@
     <string name="settings_section_advanced">מתקדם</string>
     <string name="settings_unit_price_per_liter">₪/ליטר</string>
     <string name="settings_unit_per_minute">₪/דקה</string>
+    <string name="settings_value_per_minute_invalid">יש להזין מספר בין 0 ל-10</string>
     <string name="settings_value_per_minute_help">כמה שווה לכם דקה. 0 = דירוג לפי עלות בלבד</string>
     <string name="settings_backup_import_hint">מיזוג נתונים מקובץ גיבוי קיים</string>
     <string name="settings_android_auto_row_hint">הפעלה ראשונה ובדיקת חיבור</string>

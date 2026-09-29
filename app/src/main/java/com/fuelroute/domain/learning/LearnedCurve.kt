@@ -1,5 +1,6 @@
 package com.fuelroute.domain.learning
 
+import com.fuelroute.domain.model.SPEED_BIN_WIDTH_KMH
 import com.fuelroute.domain.model.SpeedBinStats
 import com.fuelroute.domain.model.binIndexToSpeedKmh
 import com.fuelroute.domain.obd.SampleSanitizer
@@ -43,10 +44,33 @@ class LearnedCurve(
     val points: List<BinPoint>
         get() = moving
 
-    val idleLitersPerHour: Double? =
+    private val idleBin: SpeedBinStats? =
         bins.firstOrNull { it.binIndex == 0 }
             ?.takeIf { LearnedDataPlausibility.isBinPlausible(it, maxFuelRateLph) }
-            ?.litersPerHour
+
+    /** Seconds of plausible idle measurement backing [idleLitersPerHour]. */
+    val idleSeconds: Double
+        get() = idleBin?.takeIf { it.litersPerHour != null }?.seconds ?: 0.0
+
+    /**
+     * Measured idle rate, reported only once at least [MIN_IDLE_SECONDS] of idling were logged: a
+     * few seconds at a red light (possibly with a cold engine's fast idle) must not replace the
+     * default idle rate outright. For route costing prefer [blendedIdleLitersPerHour].
+     */
+    val idleLitersPerHour: Double? =
+        idleBin?.litersPerHour?.takeIf { idleBin.seconds >= MIN_IDLE_SECONDS }
+
+    /**
+     * The idle rate to cost routes with: the measured rate shrunk towards [defaultLph] by how
+     * much idling backs it, `w = s / (s + IDLE_CONFIDENCE_K_SECONDS)` (5 minutes of idling = 50%).
+     */
+    fun blendedIdleLitersPerHour(defaultLph: Double): Double {
+        val measured = idleBin?.litersPerHour ?: return defaultLph
+        val seconds = idleBin.seconds
+        if (!measured.isFinite() || seconds <= 0.0) return defaultLph
+        val w = seconds / (seconds + IDLE_CONFIDENCE_K_SECONDS)
+        return w * measured + (1.0 - w) * defaultLph
+    }
 
     val isEmpty: Boolean
         get() = moving.isEmpty()
@@ -81,18 +105,24 @@ class LearnedCurve(
     }
 
     /**
-     * How many measured kilometers back the estimate at [speedKmh].
-     * Tapers linearly to zero at the edge of the extrapolation window.
+     * How many measured kilometers back the estimate at [speedKmh]: a triangular kernel one bin
+     * wide around each bin centre, so a speed between two bins (e.g. 100 km/h between the 97.5 and
+     * 102.5 centres) gets the distance-weighted share of *both* neighbours instead of whichever
+     * one a nearest-point search happens to pick. Zero more than one bin away from any data.
      */
-    fun confidenceKm(speedKmh: Double): Double {
-        if (moving.isEmpty()) return 0.0
-        val nearest = moving.minByOrNull { abs(it.speedKmh - speedKmh) } ?: return 0.0
-        val distance = abs(nearest.speedKmh - speedKmh)
-        if (distance > MAX_EXTRAPOLATION_KMH) return 0.0
-        return nearest.distanceKm * (1.0 - distance / MAX_EXTRAPOLATION_KMH)
-    }
+    fun confidenceKm(speedKmh: Double): Double =
+        moving.sumOf { point ->
+            val t = 1.0 - abs(point.speedKmh - speedKmh) / SPEED_BIN_WIDTH_KMH
+            if (t > 0.0) point.distanceKm * t else 0.0
+        }
 
     companion object {
         const val MAX_EXTRAPOLATION_KMH = 12.5
+
+        /** Below this much idling the measured idle rate is not reported on its own. */
+        const val MIN_IDLE_SECONDS = 120.0
+
+        /** Idle seconds at which the measured idle rate gets half the weight in the blend. */
+        const val IDLE_CONFIDENCE_K_SECONDS = 300.0
     }
 }

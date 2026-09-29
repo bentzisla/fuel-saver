@@ -257,6 +257,83 @@ class RoutesMapperTest {
     }
 
     @Test
+    fun `intervals are scaled to step distances and emitted as per-level lengths`() {
+        // The polyline measures ~2224 m by haversine, but Google's steps add up to 2% more.
+        val legPolyline = encode(listOf(0.0 to 0.0, 0.0 to 0.01, 0.0 to 0.02))
+        val response = ComputeRoutesResponse(
+            routes = listOf(
+                RouteDto(
+                    distanceMeters = 2_268,
+                    duration = "300s",
+                    staticDuration = "180s",
+                    legs = listOf(
+                        LegDto(
+                            distanceMeters = 2_268,
+                            duration = "300s",
+                            staticDuration = "180s",
+                            polyline = PolylineDto(encodedPolyline = legPolyline),
+                            travelAdvisory = TravelAdvisoryDto(
+                                speedReadingIntervals = listOf(
+                                    SpeedReadingIntervalDto(0, 1, "NORMAL"),
+                                    SpeedReadingIntervalDto(1, 2, "TRAFFIC_JAM"),
+                                ),
+                            ),
+                            steps = listOf(
+                                StepDto(distanceMeters = 1_134, staticDuration = "90s"),
+                                StepDto(distanceMeters = 1_134, staticDuration = "90s"),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val route = RoutesMapper.toDomain(response).single()
+
+        // Unscaled, the jam would start 22 m before the end of step 1 and leak into it.
+        assertEquals(0.0, route.segments[0].jamMeters, 1e-6)
+        assertEquals(1.0, route.segments[0].congestionFactor, 1e-9)
+        assertEquals(1_134.0, route.segments[1].jamMeters, 1e-6)
+        assertEquals(0.0, route.segments[1].slowMeters, 1e-9)
+        assertEquals(0.25, route.segments[1].congestionFactor, 1e-9)
+    }
+
+    @Test
+    fun `a partly slow step keeps its slow length and a harmonic factor`() {
+        val legPolyline = encode(listOf(0.0 to 0.0, 0.0 to 0.01, 0.0 to 0.02))
+        val response = ComputeRoutesResponse(
+            routes = listOf(
+                RouteDto(
+                    distanceMeters = 2_224,
+                    duration = "300s",
+                    staticDuration = "180s",
+                    legs = listOf(
+                        LegDto(
+                            distanceMeters = 2_224,
+                            duration = "300s",
+                            staticDuration = "180s",
+                            polyline = PolylineDto(encodedPolyline = legPolyline),
+                            travelAdvisory = TravelAdvisoryDto(
+                                speedReadingIntervals = listOf(
+                                    SpeedReadingIntervalDto(0, 1, "SLOW"),
+                                    SpeedReadingIntervalDto(1, 2, "NORMAL"),
+                                ),
+                            ),
+                            steps = listOf(StepDto(distanceMeters = 2_224, staticDuration = "180s")),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val segment = RoutesMapper.toDomain(response).single().segments.single()
+
+        assertEquals(1_112.0, segment.slowMeters, 1e-6)
+        assertEquals(0.0, segment.jamMeters, 1e-9)
+        assertEquals(2.0 / (1.0 + 1.0 / 0.55), segment.congestionFactor, 1e-9)
+    }
+
+    @Test
     fun `missing step static duration falls back to a distance share of the leg`() {
         val response = ComputeRoutesResponse(
             routes = listOf(

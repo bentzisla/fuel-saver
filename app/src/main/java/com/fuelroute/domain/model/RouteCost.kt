@@ -18,4 +18,9 @@ data class RouteCost(
     val distanceKm: Double,
     val avgSpeedKmh: Double,
     val segments: List<SegmentCost> = emptyList(),
+    /**
+     * Share (0..1) of this route's estimate backed by the car's learned OBD curve along its speed
+     * mix ([com.fuelroute.domain.ranking.RouteConfidence.learnedShare]); null when not computed.
+     */
+    val learnedShare: Double? = null,
 )

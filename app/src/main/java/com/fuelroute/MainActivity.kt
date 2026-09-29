@@ -12,13 +12,24 @@ import androidx.core.view.WindowCompat
 import com.fuelroute.nav.FuelRouteNavHost
 import com.fuelroute.service.ObdLoggingService
 import com.fuelroute.service.ObdProbeRunner
+import com.fuelroute.service.ObdProbeScheduler
 import com.fuelroute.ui.theme.FuelRouteTheme
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     private val openStats = mutableStateOf(false)
+
+    @Inject
+    lateinit var obdProbeScheduler: ObdProbeScheduler
+
+    override fun onStart() {
+        super.onStart()
+        // The user is around: the background probe drops its parked-car backoff.
+        obdProbeScheduler.resetBackoff()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // Edge-to-edge before super.onCreate so the window is laid out behind the system bars

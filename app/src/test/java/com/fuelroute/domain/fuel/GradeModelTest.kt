@@ -45,6 +45,30 @@ class GradeModelTest {
     }
 
     @Test
+    fun `shallow descents recover most of the energy, steep ones little`() {
+        val climb = GradeModel.extraLiters(elevationDeltaM = 100.0, massKg = 1350.0)
+        // 1% over 10 km: gravity only offsets part of the road load.
+        val shallow = GradeModel.extraLiters(-100.0, 1350.0, distanceMeters = 10_000.0)
+        // 10% over 1 km: the brakes take most of it.
+        val steep = GradeModel.extraLiters(-100.0, 1350.0, distanceMeters = 1_000.0)
+
+        assertEquals(-climb * GradeModel.MAX_DESCENT_RECOVERY, shallow, 1e-9)
+        assertEquals(-climb * GradeModel.ROAD_LOAD_GRADE / 0.10, steep, 1e-9)
+        assertTrue(-shallow > -steep)
+        assertTrue(-shallow < climb)
+    }
+
+    @Test
+    fun `recovery fraction falls continuously with grade`() {
+        val grades = listOf(0.005, 0.01, 0.02, 0.025, 0.03, 0.05, 0.08, 0.12)
+        val fractions = grades.map { GradeModel.descentRecoveryFraction(it) }
+
+        assertTrue(fractions.zipWithNext().all { (a, b) -> b <= a })
+        assertTrue(fractions.all { it > 0.0 && it <= GradeModel.MAX_DESCENT_RECOVERY })
+        assertEquals(GradeModel.DESCENT_RECOVERY_FRACTION, GradeModel.descentRecoveryFraction(Double.NaN), 0.0)
+    }
+
+    @Test
     fun `diesel energy density changes the result but stays finite and positive for a climb`() {
         val gasoline = GradeModel.extraLiters(500.0, 1350.0, GradeModel.GASOLINE_MJ_PER_L)
         val diesel = GradeModel.extraLiters(500.0, 1350.0, GradeModel.DIESEL_MJ_PER_L)

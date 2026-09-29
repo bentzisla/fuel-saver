@@ -57,7 +57,7 @@ class HistoryViewModelTest {
         coEvery { repository.recent("v1", any()) } returns DriveHistory(listOf(entry(1)), null)
         coEvery { repository.recent("v2", any()) } returns DriveHistory(listOf(entry(2)), null)
 
-        val viewModel = HistoryViewModel(repository, vehicleRepository, fuelPriceRepository)
+        val viewModel = HistoryViewModel(repository, vehicleRepository, fuelPriceRepository, SavedStateHandle())
         advanceUntilIdle()
 
         assertEquals(listOf(1L), viewModel.state.value.entries.map { it.tripId })
@@ -83,7 +83,7 @@ class HistoryViewModelTest {
         coEvery { fuelPriceRepository.current(any()) } returns FuelPrice(7.0, "95", false)
         coEvery { repository.recent("v1", any()) } returns DriveHistory(emptyList(), null)
 
-        val viewModel = HistoryViewModel(repository, vehicleRepository, fuelPriceRepository)
+        val viewModel = HistoryViewModel(repository, vehicleRepository, fuelPriceRepository, SavedStateHandle())
         advanceUntilIdle()
 
         val entry = entry(7)
@@ -128,7 +128,7 @@ class HistoryViewModelTest {
         coEvery { fuelPriceRepository.current(any()) } returns FuelPrice(7.0, "95", false)
         coEvery { repository.recent("v1", any()) } returns DriveHistory(listOf(entry(1)), null)
 
-        val viewModel = HistoryViewModel(repository, vehicleRepository, fuelPriceRepository)
+        val viewModel = HistoryViewModel(repository, vehicleRepository, fuelPriceRepository, SavedStateHandle())
         advanceUntilIdle()
 
         viewModel.toggleSelectionMode()
@@ -145,6 +145,31 @@ class HistoryViewModelTest {
     }
 
     @Test
+    fun `selection mode and checked rows survive recreation through the saved state`() = runTest(dispatcher) {
+        val repository = mockk<DriveHistoryRepository>()
+        val vehicleRepository = mockk<VehicleRepository>()
+        val fuelPriceRepository = mockk<FuelPriceRepository>()
+        every { vehicleRepository.vehicles() } returns MutableStateFlow(listOf(vehicle("v1")))
+        coEvery { vehicleRepository.active() } returns vehicle("v1")
+        coEvery { fuelPriceRepository.current(any()) } returns FuelPrice(7.0, "95", false)
+        coEvery { repository.recent("v1", any()) } returns DriveHistory(listOf(entry(1), entry(2)), null)
+        val savedState = SavedStateHandle()
+
+        val first = HistoryViewModel(repository, vehicleRepository, fuelPriceRepository, savedState)
+        advanceUntilIdle()
+        first.toggleSelectionMode()
+        first.toggleSelection(entry(2))
+        advanceUntilIdle()
+
+        // Process death: a new ViewModel gets the same saved state.
+        val second = HistoryViewModel(repository, vehicleRepository, fuelPriceRepository, savedState)
+        advanceUntilIdle()
+
+        assertTrue(second.state.value.selectionMode)
+        assertEquals(setOf(2L), second.state.value.selectedIds)
+    }
+
+    @Test
     fun `confirmBulkDelete removes the selected entries and leaves selection mode`() = runTest(dispatcher) {
         val repository = mockk<DriveHistoryRepository>()
         val vehicleRepository = mockk<VehicleRepository>()
@@ -155,7 +180,7 @@ class HistoryViewModelTest {
         coEvery { repository.recent("v1", any()) } returns DriveHistory(listOf(entry(1), entry(2)), null)
         coJustRun { repository.deleteMany(any()) }
 
-        val viewModel = HistoryViewModel(repository, vehicleRepository, fuelPriceRepository)
+        val viewModel = HistoryViewModel(repository, vehicleRepository, fuelPriceRepository, SavedStateHandle())
         advanceUntilIdle()
 
         viewModel.toggleSelectionMode()
@@ -180,7 +205,7 @@ class HistoryViewModelTest {
         coEvery { repository.recent("v1", any()) } returns DriveHistory(emptyList(), null)
         coEvery { repository.mergeTrips(listOf(1L, 2L)) } returns 99L
 
-        val viewModel = HistoryViewModel(repository, vehicleRepository, fuelPriceRepository)
+        val viewModel = HistoryViewModel(repository, vehicleRepository, fuelPriceRepository, SavedStateHandle())
         advanceUntilIdle()
 
         viewModel.requestMerge(listOf(1L, 2L))
@@ -202,7 +227,7 @@ class HistoryViewModelTest {
         coEvery { repository.recent("v1", any()) } returns DriveHistory(emptyList(), null)
         coEvery { repository.mergeTrips(listOf(1L, 2L)) } returns null
 
-        val viewModel = HistoryViewModel(repository, vehicleRepository, fuelPriceRepository)
+        val viewModel = HistoryViewModel(repository, vehicleRepository, fuelPriceRepository, SavedStateHandle())
         advanceUntilIdle()
 
         viewModel.requestMerge(listOf(1L, 2L))
@@ -222,7 +247,7 @@ class HistoryViewModelTest {
         coEvery { fuelPriceRepository.current(any()) } returns FuelPrice(7.0, "95", false)
         coEvery { repository.recent("v1", any()) } returns DriveHistory(emptyList(), null)
 
-        val viewModel = HistoryViewModel(repository, vehicleRepository, fuelPriceRepository)
+        val viewModel = HistoryViewModel(repository, vehicleRepository, fuelPriceRepository, SavedStateHandle())
         advanceUntilIdle()
 
         coEvery { repository.splitTrip(7, 500L) } returns (10L to 11L)
@@ -249,7 +274,7 @@ class HistoryViewModelTest {
         coEvery { repository.recent("v1", any()) } returns DriveHistory(emptyList(), null)
         coEvery { repository.recordManualCost(any(), any(), any(), any(), any(), any(), any()) } returns 7L
 
-        val viewModel = HistoryViewModel(repository, vehicleRepository, fuelPriceRepository)
+        val viewModel = HistoryViewModel(repository, vehicleRepository, fuelPriceRepository, SavedStateHandle())
         advanceUntilIdle()
 
         val driveEntry = entry(7)
@@ -281,7 +306,7 @@ class HistoryViewModelTest {
         coEvery { fuelPriceRepository.current(any()) } returns FuelPrice(7.0, "95", false)
         coEvery { repository.recent("v1", any()) } returns DriveHistory(emptyList(), null)
 
-        val viewModel = HistoryViewModel(repository, vehicleRepository, fuelPriceRepository)
+        val viewModel = HistoryViewModel(repository, vehicleRepository, fuelPriceRepository, SavedStateHandle())
         advanceUntilIdle()
 
         val undrivenSearch = entry(7).copy(tripId = null, searchId = 3)

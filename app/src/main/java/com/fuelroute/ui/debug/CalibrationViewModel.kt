@@ -9,6 +9,7 @@ import com.fuelroute.data.settings.SettingsRepository
 import com.fuelroute.data.vehicle.VehicleRepository
 import com.fuelroute.domain.fuel.CalibrationFitter
 import com.fuelroute.domain.fuel.FuelModelOverrides
+import com.fuelroute.domain.fuel.LinkedDrive
 import com.fuelroute.domain.learning.Calibration
 import com.fuelroute.domain.learning.RefuelCalibrator
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -75,12 +76,11 @@ class CalibrationViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching {
                 val overrides = settingsRepository.modelOverrides.first()
-                val pairs = linkedPairs()
                 val currentCorrection = overrides.effectiveFuelCorrection
-                val uncorrected = CalibrationFitter.uncorrectedPairs(pairs, currentCorrection)
+                val uncorrected = CalibrationFitter.uncorrectedPairsOf(linkedDrives(), currentCorrection)
                 _state.value = fromOverrides(overrides).copy(
-                    pairCount = pairs.size,
-                    currentMape = if (pairs.isEmpty()) {
+                    pairCount = uncorrected.size,
+                    currentMape = if (uncorrected.isEmpty()) {
                         null
                     } else {
                         CalibrationFitter.suggestedMape(uncorrected, currentCorrection)
@@ -151,10 +151,12 @@ class CalibrationViewModel @Inject constructor(
     fun fit() {
         viewModelScope.launch {
             _state.update { it.copy(isFitting = true) }
-            val currentCorrection = _state.value.fuelCorrection.toDoubleOrNull() ?: 1.0
-            // Stored predictions already include the active correction; undo it before fitting so
-            // the result is an absolute correction rather than a compounding one.
-            val uncorrected = CalibrationFitter.uncorrectedPairs(linkedPairs(), currentCorrection)
+            // The correction routes are priced with now: the persisted override as the fuel model
+            // reads it (clamped, a corrupt legacy value such as 0.0035 ignored), never the raw text.
+            val currentCorrection = settingsRepository.modelOverrides.first().effectiveFuelCorrection
+            // Stored predictions include the correction active at their search; undo that one
+            // before fitting so the result is an absolute correction rather than a compounding one.
+            val uncorrected = CalibrationFitter.uncorrectedPairsOf(linkedDrives(), currentCorrection)
             val factor = CalibrationFitter.fitCorrection(uncorrected)
             _state.update {
                 it.copy(
@@ -209,19 +211,27 @@ class CalibrationViewModel @Inject constructor(
     }
 
     /**
-     * (predicted, actual) liters for real, plausible, linked drives. Excludes:
+     * Real, plausible, linked drives for the fit ([CalibrationFitter.uncorrectedPairsOf] then drops
+     * those whose driven distance does not match the searched route). Excludes:
      *  - simulated "הדגמה" rides ([com.fuelroute.data.history.DriveHistoryEntry.isDemo]) - a demo
      *    drive-cycle's fuel has nothing to do with the searched route's real distance, and fitting
      *    against one can produce an absurd correction (root cause of a reported ~0.02 factor);
      *  - any pair a real drive could still not plausibly be (see [CalibrationFitter.fitCorrection],
      *    which also drops per-pair outliers and requires a minimum sample size).
      */
-    private suspend fun linkedPairs(): List<Pair<Double, Double>> =
+    private suspend fun linkedDrives(): List<LinkedDrive> =
         driveHistoryRepository.recent(vehicleRepository.active().id).entries.mapNotNull { entry ->
-            val predicted = entry.predictedLiters
-            val actual = entry.actualLiters
-            if (!entry.isDemo && predicted != null && actual != null && predicted > 0.0 && actual > 0.0) {
-                predicted to actual
+            val predicted = entry.predictedLiters?.takeIf { it > 0.0 }
+            val actual = entry.actualLiters?.takeIf { it > 0.0 }
+            // A linked trip is required: only then is distanceKm the driven distance.
+            if (!entry.isDemo && entry.tripId != null && predicted != null && actual != null) {
+                LinkedDrive(
+                    predictedLiters = predicted,
+                    actualLiters = actual,
+                    correctionAtSearch = entry.fuelCorrectionAtSearch,
+                    predictedDistanceKm = entry.predictedDistanceKm,
+                    actualDistanceKm = entry.distanceKm,
+                )
             } else {
                 null
             }
@@ -231,7 +241,9 @@ class CalibrationViewModel @Inject constructor(
         val vehicle = vehicleRepository.active()
         val interval = refuelRepository.lastFullInterval(vehicle.id)
         val calibration = interval?.let {
-            RefuelCalibrator.calibrate(it.pumpedLitres, it.obdLitres)
+            // Against the correction the interval was logged with: once this interval's result was
+            // applied, the vehicle's current correction already includes it.
+            RefuelCalibrator.calibrate(it.pumpedLitres, it.obdLitres, it.activeCorrection ?: vehicle.fuelRateCorrection)
         }
         _state.update {
             it.copy(

@@ -109,6 +109,11 @@ data class RefuelEntity(
     val isFull: Boolean,
     val pricePerLiter: Double = 0.0,
     val grade: String = "95",
+    /**
+     * The OBD fuel-rate correction active when this fill was logged, i.e. the one the trips since
+     * the previous full fill were recorded with. Null for rows from before v11.
+     */
+    val obdCorrectionAtFill: Double? = null,
 )
 
 @Entity(
@@ -136,6 +141,11 @@ data class RouteSearchEntity(
     val destinationPlaceId: String? = null,
     val destinationLat: Double? = null,
     val destinationLng: Double? = null,
+    /**
+     * The global fuel-model correction (`FuelModelOverrides.effectiveFuelCorrection`) the stored
+     * predictions include. Null for rows from before v11 (the current correction is assumed).
+     */
+    val fuelCorrectionAtSearch: Double? = null,
 )
 
 @Entity(tableName = "favorite_destination")

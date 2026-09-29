@@ -17,9 +17,12 @@ object RoutesMapper {
         val staticSec = dto.staticDuration?.parseDurationSeconds() ?: durationSec
 
         // Route-level traffic is the fallback for legs that carry no intervals of their own.
+        // Its polyline spans every leg, so it is scaled to the summed step distance of the route.
+        val routeStepDistance = dto.legs.sumOf { leg -> leg.steps.sumOf { it.distanceMeters }.toDouble() }
         val routeIntervals = congestionIntervals(
             dto.travelAdvisory?.speedReadingIntervals.orEmpty(),
             dto.polyline?.encodedPolyline,
+            routeStepDistance,
         )
 
         var usedPerSegment = false
@@ -28,9 +31,11 @@ object RoutesMapper {
         val segments = mutableListOf<RouteSegment>()
 
         for (leg in dto.legs) {
+            val legDistance = leg.steps.sumOf { it.distanceMeters }.toDouble()
             val legIntervals = congestionIntervals(
                 leg.travelAdvisory?.speedReadingIntervals.orEmpty(),
                 leg.polyline?.encodedPolyline,
+                legDistance,
             )
             val useRouteLevel = legIntervals.isEmpty() && routeIntervals.isNotEmpty()
             val intervals = when {
@@ -51,18 +56,21 @@ object RoutesMapper {
             val legStaticSec = leg.staticDuration?.parseDurationSeconds()?.takeIf { it > 0.0 }
                 ?: leg.duration.parseDurationSeconds().takeIf { it > 0.0 }
                 ?: staticSec
-            val legDistance = leg.steps.sumOf { it.distanceMeters }.toDouble()
 
             // Per-leg intervals index into the leg polyline (cursor from 0); route-level
             // intervals index into the route polyline, so the cursor keeps advancing across legs.
             var cursor = if (useRouteLevel) routeCursor else 0.0
             for (step in leg.steps) {
                 val end = cursor + step.distanceMeters
-                val factor = if (intervals.isEmpty()) {
-                    1.0
+                // Per-level metres let FuelModel cost SLOW/JAM stretches inside the step as their
+                // own sub-segments (and apply the debug overrides to them); the harmonic factor is
+                // the step's time-equivalent summary for consumers that want a single number.
+                val lengths = if (intervals.isEmpty()) {
+                    null
                 } else {
-                    CongestionModel.weightedSpeedFactor(intervals, cursor, end)
+                    CongestionModel.levelLengths(intervals, cursor, end)
                 }
+                val factor = lengths?.let { CongestionModel.harmonicFactor(it) } ?: 1.0
                 val level = if (intervals.isEmpty()) {
                     CongestionLevel.NORMAL
                 } else {
@@ -82,6 +90,8 @@ object RoutesMapper {
                     staticDurationSeconds = stepStaticSec,
                     congestionFactor = factor,
                     congestion = level,
+                    slowMeters = lengths?.slowM ?: 0.0,
+                    jamMeters = lengths?.jamM ?: 0.0,
                 )
                 cursor = end
             }
@@ -133,9 +143,18 @@ object RoutesMapper {
     private fun TollInfoDto.firstPrice(): Double? =
         estimatedPrice.firstOrNull()?.let { it.units + it.nanos / 1e9 }
 
+    /**
+     * Converts polyline-index intervals into metre ranges along the steps.
+     *
+     * Interval positions come from the haversine length of the decoded polyline, but steps are
+     * laid out by Google's `distanceMeters`; the two differ by 1-2%, which drifts intervals off
+     * their steps towards the end of a long leg. Cumulative polyline distances are therefore
+     * scaled so the polyline's total equals [targetLengthM] (the summed step distance).
+     */
     private fun congestionIntervals(
         raw: List<SpeedReadingIntervalDto>,
         encodedPolyline: String?,
+        targetLengthM: Double,
     ): List<CongestionInterval> {
         if (raw.isEmpty()) return emptyList()
 
@@ -148,11 +167,12 @@ object RoutesMapper {
         }
         val total = cumulative.last()
         if (total <= 0.0) return emptyList()
+        val scale = if (targetLengthM.isFinite() && targetLengthM > 0.0) targetLengthM / total else 1.0
 
         return raw.mapNotNull { interval ->
             val level = interval.speed.toCongestionLevel() ?: return@mapNotNull null
-            val start = cumulative[interval.startPolylinePointIndex.coerceIn(0, points.size - 1)]
-            val end = cumulative[interval.endPolylinePointIndex.coerceIn(0, points.size - 1)]
+            val start = cumulative[interval.startPolylinePointIndex.coerceIn(0, points.size - 1)] * scale
+            val end = cumulative[interval.endPolylinePointIndex.coerceIn(0, points.size - 1)] * scale
             if (end <= start) return@mapNotNull null
             CongestionInterval(start, end, level)
         }

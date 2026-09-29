@@ -119,4 +119,43 @@ class CalibrationFitterTest {
         assertEquals(pairs, CalibrationFitter.uncorrectedPairs(pairs, Double.NaN))
         assertEquals(pairs, CalibrationFitter.uncorrectedPairs(pairs, 0.0))
     }
+
+    private fun drive(predicted: Double, actual: Double, correction: Double?, km: Double = 50.0, drivenKm: Double = 50.0) =
+        LinkedDrive(predicted, actual, correction, predictedDistanceKm = km, actualDistanceKm = drivenKm)
+
+    @Test
+    fun `each prediction is un-corrected with the correction active at its search`() {
+        // True model output 10/20/5 L; the car burns 1.2x. Two searches were priced with 0.8,
+        // one with 1.1 (a later override). Undoing today's 1.1 from all three would bias the fit.
+        val drives = listOf(
+            drive(predicted = 10.0 * 0.8, actual = 12.0, correction = 0.8),
+            drive(predicted = 20.0 * 0.8, actual = 24.0, correction = 0.8),
+            drive(predicted = 5.0 * 1.1, actual = 6.0, correction = 1.1),
+        )
+        val pairs = CalibrationFitter.uncorrectedPairsOf(drives, currentCorrection = 1.1)
+        listOf(10.0, 20.0, 5.0).zip(pairs).forEach { (expected, pair) -> assertEquals(expected, pair.first, 1e-9) }
+        assertEquals(1.2, CalibrationFitter.fitCorrection(pairs)!!, 1e-9)
+    }
+
+    @Test
+    fun `rows from before the correction was stored fall back to the current one`() {
+        val pairs = CalibrationFitter.uncorrectedPairsOf(listOf(drive(8.0, 12.0, correction = null)), currentCorrection = 0.8)
+        assertEquals(10.0, pairs.single().first, 1e-9)
+        val none = CalibrationFitter.uncorrectedPairsOf(listOf(drive(8.0, 12.0, correction = null)), currentCorrection = Double.NaN)
+        assertEquals(8.0, none.single().first, 1e-9)
+    }
+
+    @Test
+    fun `drives whose distance does not match the searched route are dropped`() {
+        val drives = listOf(
+            drive(10.0, 11.0, 1.0, km = 50.0, drivenKm = 50.0),
+            drive(10.0, 11.0, 1.0, km = 50.0, drivenKm = 43.0), // 0.86: kept
+            drive(10.0, 11.0, 1.0, km = 50.0, drivenKm = 57.0), // 1.14: kept
+            drive(10.0, 4.0, 1.0, km = 50.0, drivenKm = 20.0), // stopped short
+            drive(10.0, 16.0, 1.0, km = 50.0, drivenKm = 70.0), // long detour
+            LinkedDrive(10.0, 11.0, 1.0, predictedDistanceKm = null, actualDistanceKm = 50.0),
+            LinkedDrive(10.0, 11.0, 1.0, predictedDistanceKm = 50.0, actualDistanceKm = null),
+        )
+        assertEquals(3, CalibrationFitter.uncorrectedPairsOf(drives, 1.0).size)
+    }
 }

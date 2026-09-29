@@ -4,6 +4,7 @@ import com.fuelroute.domain.obd.ObdProbePolicy.Action
 import com.fuelroute.domain.obd.ObdProbePolicy.Engine
 import com.fuelroute.domain.obd.ObdProbePolicy.Outcome
 import com.fuelroute.domain.obd.ObdProbePolicy.Skip
+import com.fuelroute.domain.obd.ObdProbePolicy.Voltage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -13,23 +14,25 @@ import org.junit.Test
 class ObdProbePolicyTest {
 
     @Test
-    fun `a resting battery ends the probe without asking the car`() {
-        assertEquals(Engine.OFF, ObdProbePolicy.engineFromVoltage(12.4))
-        assertEquals(Engine.OFF, ObdProbePolicy.engineFromVoltage(12.9))
+    fun `a voltage below the charging band is ambiguous, never engine off`() {
+        // Smart (regenerative) alternators hold a running car at 12.4-12.8 V.
+        assertEquals(Voltage.AMBIGUOUS, ObdProbePolicy.classifyVoltage(12.4))
+        assertEquals(Voltage.AMBIGUOUS, ObdProbePolicy.classifyVoltage(12.8))
+        assertEquals(Voltage.AMBIGUOUS, ObdProbePolicy.classifyVoltage(13.1))
     }
 
     @Test
-    fun `a charging voltage is confirmed with RPM, never trusted alone`() {
-        assertNull(ObdProbePolicy.engineFromVoltage(14.1))
-        assertNull(ObdProbePolicy.engineFromVoltage(13.0))
+    fun `a charging voltage is only a hint`() {
+        assertEquals(Voltage.CHARGING, ObdProbePolicy.classifyVoltage(13.2))
+        assertEquals(Voltage.CHARGING, ObdProbePolicy.classifyVoltage(14.1))
     }
 
     @Test
-    fun `a clone reporting its own logic rail is ignored`() {
-        assertNull(ObdProbePolicy.engineFromVoltage(0.0))
-        assertNull(ObdProbePolicy.engineFromVoltage(3.3))
-        assertNull(ObdProbePolicy.engineFromVoltage(5.0))
-        assertNull(ObdProbePolicy.engineFromVoltage(null))
+    fun `a clone reporting its own logic rail is unknown`() {
+        assertEquals(Voltage.UNKNOWN, ObdProbePolicy.classifyVoltage(0.0))
+        assertEquals(Voltage.UNKNOWN, ObdProbePolicy.classifyVoltage(3.3))
+        assertEquals(Voltage.UNKNOWN, ObdProbePolicy.classifyVoltage(5.0))
+        assertEquals(Voltage.UNKNOWN, ObdProbePolicy.classifyVoltage(null))
     }
 
     @Test
@@ -66,6 +69,57 @@ class ObdProbePolicyTest {
             ObdProbePolicy.afterProbe(Outcome.ABSENT, manualDisconnect = true, absentForMs = ObdProbePolicy.ABSENT_ENDS_DRIVE_MS),
         )
         assertEquals(Action.NOTHING, ObdProbePolicy.afterProbe(Outcome.UNRESPONSIVE, manualDisconnect = true))
+    }
+
+    @Test
+    fun `a probe that yielded to the engine does nothing`() {
+        assertEquals(Action.NOTHING, ObdProbePolicy.afterProbe(Outcome.YIELDED, manualDisconnect = false))
+        assertEquals(Action.NOTHING, ObdProbePolicy.afterProbe(Outcome.YIELDED, manualDisconnect = true))
+    }
+
+    @Test
+    fun `quiet probes stretch the interval 5 - 15 - 30 min`() {
+        assertEquals(5, ObdProbePolicy.nextDelayMin(5, quietStreak = 0))
+        assertEquals(5, ObdProbePolicy.nextDelayMin(5, quietStreak = 2))
+        assertEquals(15, ObdProbePolicy.nextDelayMin(5, quietStreak = 3))
+        assertEquals(15, ObdProbePolicy.nextDelayMin(5, quietStreak = 5))
+        assertEquals(30, ObdProbePolicy.nextDelayMin(5, quietStreak = 6))
+        assertEquals(30, ObdProbePolicy.nextDelayMin(5, quietStreak = 100))
+        // Never shorter than the configured interval.
+        assertEquals(60, ObdProbePolicy.nextDelayMin(60, quietStreak = 100))
+        assertFalse(ObdProbePolicy.isBackedOff(5, 2))
+        assertTrue(ObdProbePolicy.isBackedOff(5, 3))
+        assertFalse(ObdProbePolicy.isBackedOff(60, 10))
+    }
+
+    @Test
+    fun `the quiet streak grows on absent or off and ends with a drive`() {
+        assertEquals(1, ObdProbePolicy.nextQuietStreak(0, Outcome.ABSENT))
+        assertEquals(4, ObdProbePolicy.nextQuietStreak(3, Outcome.ENGINE_OFF))
+        assertEquals(3, ObdProbePolicy.nextQuietStreak(3, Outcome.UNRESPONSIVE))
+        assertEquals(0, ObdProbePolicy.nextQuietStreak(7, Outcome.ENGINE_RUNNING))
+        assertEquals(0, ObdProbePolicy.nextQuietStreak(7, Outcome.YIELDED))
+    }
+
+    @Test
+    fun `the off streak counts engine-off probes only`() {
+        assertEquals(1, ObdProbePolicy.nextOffStreak(0, Outcome.ENGINE_OFF))
+        assertEquals(2, ObdProbePolicy.nextOffStreak(2, Outcome.ABSENT))
+        assertEquals(2, ObdProbePolicy.nextOffStreak(2, Outcome.UNRESPONSIVE))
+        assertEquals(0, ObdProbePolicy.nextOffStreak(5, Outcome.ENGINE_RUNNING))
+    }
+
+    @Test
+    fun `a parked car's remembered protocol is trusted without a search`() {
+        assertTrue(ObdProbePolicy.fallbackSearchAllowed(0))
+        assertTrue(ObdProbePolicy.fallbackSearchAllowed(ObdProbePolicy.TRUST_PROTOCOL_AFTER_OFF - 1))
+        assertFalse(ObdProbePolicy.fallbackSearchAllowed(ObdProbePolicy.TRUST_PROTOCOL_AFTER_OFF))
+    }
+
+    @Test
+    fun `the fallback notification uses a new channel id`() {
+        // Importance cannot be raised on an existing channel: the high-importance one needs its own id.
+        assertTrue(ObdProbePolicy.FALLBACK_CHANNEL_ID != ObdProbePolicy.LEGACY_FALLBACK_CHANNEL_ID)
     }
 
     @Test

@@ -51,8 +51,10 @@ class EfficientSpeedTest {
     }
 
     @Test
-    fun `measured points far below the base are flagged as a mismatch and the measured optimum is surfaced`() {
-        // The field case: rated 10 L/100, measured 5-6 L/100 at highway speeds.
+    fun `measured points far below the base are flagged as a mismatch and pull the optimum to them`() {
+        // The field case: rated 10 L/100, measured 5-6 L/100 at highway speeds. Each bin now bends
+        // the curve at its own centre, so the effective optimum moves to the best-measured 92.5
+        // (it used to stay at the default's 70, with the measured optimum shown separately).
         val learned = LearnedCurve(
             listOf(
                 bin(77.5, 2.5, 6.3),
@@ -65,9 +67,24 @@ class EfficientSpeedTest {
 
         assertTrue(insight.fallbackMismatch)
         assertTrue(insight.measuredVsFallback!! < 0.75)
+        assertEquals(92.5, insight.speedKmh, 1e-9)
+        assertEquals(CurveBlender.weight(9.2), insight.learnedWeight, 1e-9)
+        assertEquals(5.2, insight.learnedL100AtSpeed!!, 1e-6)
+        // The measured optimum is the curve's own, so it is not surfaced a second time.
+        assertNull(insight.measuredSpeedKmh)
+    }
+
+    @Test
+    fun `a thinly measured optimum elsewhere is surfaced next to the curve's`() {
+        // 3 km at 5.5 L/100 around 52.5 km/h: too little to move the curve's optimum from 70.
+        val learned = LearnedCurve(listOf(bin(52.5, 3.0, 5.5)))
+        val effective = CurveBlender.blend(learned, default)
+        val insight = EfficientSpeed.analyze(effective, learned, default)!!
+
+        assertEquals(70.0, insight.speedKmh, 1e-9)
         assertNotNull(insight.measuredSpeedKmh)
-        assertEquals(92.5, insight.measuredSpeedKmh!!, 1e-9)
-        assertEquals(5.2, insight.measuredL100!!, 1e-6)
+        assertEquals(52.5, insight.measuredSpeedKmh!!, 1e-9)
+        assertEquals(5.5, insight.measuredL100!!, 1e-6)
     }
 
     @Test

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fuelroute.data.backup.BackupRepository
 import com.fuelroute.data.backup.ImportResult
+import com.fuelroute.data.export.CsvExportRepository
 import com.fuelroute.data.price.FuelGrades
 import com.fuelroute.data.price.FuelPriceRepository
 import com.fuelroute.data.settings.NAV_GOOGLE
@@ -26,6 +27,8 @@ data class SettingsUiState(
     val pricePinned: Boolean = false,
     val priceGrade: String = FuelGrades.GASOLINE_95,
     val valuePerMinute: String = "",
+    /** True while [valuePerMinute] is not a finite number in [SettingsViewModel.VALUE_PER_MINUTE_RANGE]. */
+    val valuePerMinuteInvalid: Boolean = false,
     val navigationApp: String = NAV_GOOGLE,
     val autoConnect: Boolean = true,
     val showOverlay: Boolean = false,
@@ -48,6 +51,7 @@ class SettingsViewModel @Inject constructor(
     private val fuelPriceRepository: FuelPriceRepository,
     private val vehicleRepository: VehicleRepository,
     private val backupRepository: BackupRepository,
+    private val csvExportRepository: CsvExportRepository,
     private val obdProbeScheduler: ObdProbeScheduler,
 ) : ViewModel() {
 
@@ -96,8 +100,10 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun onValuePerMinuteChange(value: String) {
-        _uiState.update { it.copy(valuePerMinute = value) }
-        value.toDoubleOrNull()?.let { viewModelScope.launch { settingsRepository.saveValuePerMinute(it) } }
+        val parsed = parseValuePerMinute(value)
+        _uiState.update { it.copy(valuePerMinute = value, valuePerMinuteInvalid = parsed == null) }
+        // Autosave only valid input; an invalid value stays on screen with an inline error.
+        parsed?.let { viewModelScope.launch { settingsRepository.saveValuePerMinute(it) } }
     }
 
     fun onNavigationAppChange(value: String) {
@@ -151,4 +157,19 @@ class SettingsViewModel @Inject constructor(
 
     /** Merges a previously exported document back into local storage. */
     suspend fun importBackup(json: String): ImportResult = backupRepository.import(json)
+
+    /** Every vehicle's closed trips as a CSV document (backlog item 39). */
+    suspend fun exportTripsCsv(): String = csvExportRepository.exportTripsCsv()
+
+    /** Every vehicle's refuels as a CSV document (backlog item 39). */
+    suspend fun exportRefuelsCsv(): String = csvExportRepository.exportRefuelsCsv()
+
+    companion object {
+        /** Sensible bounds for "what a minute is worth", in shekels. */
+        val VALUE_PER_MINUTE_RANGE = 0.0..10.0
+
+        /** Parses [text]; null unless it is a finite number within [VALUE_PER_MINUTE_RANGE]. */
+        fun parseValuePerMinute(text: String): Double? = text.trim().toDoubleOrNull()
+            ?.takeIf { it.isFinite() && it in VALUE_PER_MINUTE_RANGE }
+    }
 }

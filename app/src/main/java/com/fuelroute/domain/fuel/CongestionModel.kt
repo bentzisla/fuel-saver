@@ -8,15 +8,34 @@ data class CongestionInterval(
     val level: CongestionLevel,
 )
 
+/**
+ * Metres of a queried range at each congestion level, de-overlapped (where intervals overlap the
+ * more severe level wins) and with uncovered length counted as [normalM].
+ */
+data class CongestionLengths(
+    val normalM: Double,
+    val slowM: Double,
+    val jamM: Double,
+) {
+    val totalM: Double get() = normalM + slowM + jamM
+
+    fun metersAt(level: CongestionLevel): Double = when (level) {
+        CongestionLevel.NORMAL -> normalM
+        CongestionLevel.SLOW -> slowM
+        CongestionLevel.TRAFFIC_JAM -> jamM
+    }
+}
+
 object CongestionModel {
 
     /**
-     * Length-weighted speed factor over `[startM, endM]`, treating every metre as covered.
+     * Time-equivalent speed factor over `[startM, endM]`: the *harmonic* length-weighted mean of
+     * the level factors, `L / sum(len_i / f_i)`.
      *
-     * Intervals are clipped to the queried range and de-overlapped: where two intervals cover the
-     * same metre the more severe (lower) factor wins, so coverage is never double-counted. Any
-     * uncovered length is weighted [ModelConstants.NORMAL_FACTOR] instead of being treated as
-     * jammed, which is what the old covered-length-only denominator effectively did.
+     * Travel time over mixed traffic is `sum(len_i / (v_free * f_i))`, so the single factor that
+     * reproduces that time is the harmonic mean, not the arithmetic one (which overstated the
+     * speed: half NORMAL / half JAM is 0.4, not 0.625). Uncovered length counts as
+     * [ModelConstants.NORMAL_FACTOR]; overlaps are resolved as in [levelLengths].
      */
     fun weightedSpeedFactor(
         intervals: List<CongestionInterval>,
@@ -24,9 +43,30 @@ object CongestionModel {
         endM: Double,
     ): Double {
         if (!(startM < endM) || !startM.isFinite() || !endM.isFinite()) return 1.0
-        val length = endM - startM
+        return harmonicFactor(levelLengths(intervals, startM, endM))
+    }
+
+    /** Harmonic (time-equivalent) speed factor of [lengths] using the default level factors. */
+    fun harmonicFactor(lengths: CongestionLengths): Double {
+        val total = lengths.totalM
+        if (!(total > 0.0)) return ModelConstants.NORMAL_FACTOR
+        val timeUnits = CongestionLevel.entries.sumOf { lengths.metersAt(it) / it.speedFactor }
+        return if (timeUnits > 0.0) total / timeUnits else ModelConstants.NORMAL_FACTOR
+    }
+
+    /**
+     * Metres of `[startM, endM]` at each level. Intervals are clipped to the range; where two
+     * intervals cover the same metre the more severe (lower factor) level wins, so coverage is
+     * never double-counted, and any uncovered length is NORMAL (not jammed).
+     */
+    fun levelLengths(
+        intervals: List<CongestionInterval>,
+        startM: Double,
+        endM: Double,
+    ): CongestionLengths {
+        if (!(startM < endM) || !startM.isFinite() || !endM.isFinite()) return CongestionLengths(0.0, 0.0, 0.0)
         val clipped = clip(intervals, startM, endM)
-        if (clipped.isEmpty()) return ModelConstants.NORMAL_FACTOR
+        if (clipped.isEmpty()) return CongestionLengths(endM - startM, 0.0, 0.0)
 
         val boundaries = sortedSetOf(startM, endM)
         for (c in clipped) {
@@ -35,20 +75,27 @@ object CongestionModel {
         }
 
         val points = boundaries.toList()
-        var weighted = 0.0
+        var normal = 0.0
+        var slow = 0.0
+        var jam = 0.0
         for (i in 0 until points.size - 1) {
             val pieceStart = points[i]
             val pieceEnd = points[i + 1]
             val pieceLength = pieceEnd - pieceStart
             if (pieceLength <= 0.0) continue
             val mid = (pieceStart + pieceEnd) / 2.0
-            val factor = clipped
+            val level = clipped
                 .filter { mid >= it.startM && mid < it.endM }
-                .minOfOrNull { it.level.speedFactor }
-                ?: ModelConstants.NORMAL_FACTOR
-            weighted += pieceLength * factor
+                .minByOrNull { it.level.speedFactor }
+                ?.level
+                ?: CongestionLevel.NORMAL
+            when (level) {
+                CongestionLevel.NORMAL -> normal += pieceLength
+                CongestionLevel.SLOW -> slow += pieceLength
+                CongestionLevel.TRAFFIC_JAM -> jam += pieceLength
+            }
         }
-        return weighted / length
+        return CongestionLengths(normal, slow, jam)
     }
 
     /**

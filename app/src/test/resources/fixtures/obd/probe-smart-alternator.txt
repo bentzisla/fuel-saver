@@ -1,0 +1,11 @@
+# Background presence probe of a running car with a smart (regenerative) alternator: the battery
+# reads 12.6 V while cruising, which the old probe classified as "engine off" (<= 12.9 V) and
+# never logged the drive. Clone ELM327 v1.5, CAN 11-bit/500k (protocol 6), protocol unknown yet.
+# Commands are asserted in order by ObdProbeConversationTest (the bare-CR line clear before ATZ is
+# answered by the test transport itself).
+ATZ> \r\rELM327 v1.5\r\r
+ATE0> ATE0\rOK\r
+ATRV> 12.6V\r
+ATSP0> OK\r
+010C> SEARCHING...\r41 0C 0B 68\r
+ATDPN> A6\r

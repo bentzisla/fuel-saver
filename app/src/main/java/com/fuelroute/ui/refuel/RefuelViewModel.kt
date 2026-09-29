@@ -17,6 +17,22 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+/**
+ * A tank-to-tank calibration that hit the [RefuelCalibrator] bounds. It is not applied until the
+ * user confirms: a clamped result usually means drives without the dongle or a missed full fill.
+ */
+data class ClampedCalibration(
+    val factor: Double,
+    val pumpedLitres: Double,
+    val obdLitres: Double,
+)
+
+/** The OBD logged too little of the pumped fuel to calibrate; shown, never applied. */
+data class LowCoverageNotice(
+    val pumpedLitres: Double,
+    val obdLitres: Double,
+)
+
 data class RefuelUiState(
     val liters: String = "",
     val totalPrice: String = "",
@@ -24,7 +40,9 @@ data class RefuelUiState(
     val refuels: List<Refuel> = emptyList(),
     val correction: Double = 1.0,
     val saved: Boolean = false,
-    val calibrationClamped: Boolean = false,
+    /** A clamped calibration waiting for the user's confirmation (dialog). */
+    val pendingClamped: ClampedCalibration? = null,
+    val lowCoverage: LowCoverageNotice? = null,
     val tankCapacityL: Double? = null,
     val showTankWarning: Boolean = false,
 )
@@ -57,17 +75,31 @@ class RefuelViewModel @Inject constructor(
     }
 
     fun onLitersChange(value: String) =
-        _state.update { it.copy(liters = value, saved = false, calibrationClamped = false, showTankWarning = false) }
+        _state.update { it.copy(liters = value, saved = false, lowCoverage = null, showTankWarning = false) }
 
     fun onPriceChange(value: String) =
-        _state.update { it.copy(totalPrice = value, saved = false, calibrationClamped = false) }
+        _state.update { it.copy(totalPrice = value, saved = false, lowCoverage = null) }
 
-    fun onFullChange(value: Boolean) = _state.update { it.copy(isFull = value, calibrationClamped = false) }
+    fun onFullChange(value: Boolean) = _state.update { it.copy(isFull = value, lowCoverage = null) }
 
     fun dismissTankWarning() = _state.update { it.copy(showTankWarning = false) }
 
     /** Confirms the over-capacity warning and saves as-is. */
     fun confirmTankWarning() = save(confirmed = true)
+
+    /** The user accepts the clamped calibration: persist it. */
+    fun applyClampedCalibration() {
+        val pending = _state.value.pendingClamped ?: return
+        _state.update { it.copy(pendingClamped = null) }
+        viewModelScope.launch {
+            vehicleRepository.updateFuelRateCorrection(pending.factor)
+            val updated = vehicleRepository.active().fuelRateCorrection
+            _state.update { it.copy(correction = updated) }
+        }
+    }
+
+    /** The user rejects the clamped calibration: the current correction stays. */
+    fun discardClampedCalibration() = _state.update { it.copy(pendingClamped = null) }
 
     fun save(confirmed: Boolean = false) {
         val state = _state.value
@@ -83,9 +115,12 @@ class RefuelViewModel @Inject constructor(
         viewModelScope.launch {
             val vehicle = vehicleRepository.active()
             val vehicleId = vehicle.id
-            refuelRepository.add(liters, price, state.isFull, vehicleId, vehicle.grade)
+            // The correction the trips since the previous full fill were logged with.
+            val activeCorrection = vehicle.fuelRateCorrection
+            refuelRepository.add(liters, price, state.isFull, vehicleId, vehicle.grade, activeCorrection)
 
-            var clamped = false
+            var pendingClamped: ClampedCalibration? = null
+            var lowCoverage: LowCoverageNotice? = null
             if (state.isFull) {
                 // A full refuel refreshes the observed price for the vehicle's grade,
                 // unless the user pinned it.
@@ -93,12 +128,17 @@ class RefuelViewModel @Inject constructor(
                 // Calibrate against the tank-to-tank interval, not lifetime totals.
                 val interval = refuelRepository.lastFullInterval(vehicleId)
                 if (interval != null) {
-                    when (val calibration = RefuelCalibrator.calibrate(interval.pumpedLitres, interval.obdLitres)) {
+                    val calibration = RefuelCalibrator.calibrate(
+                        interval.pumpedLitres,
+                        interval.obdLitres,
+                        interval.activeCorrection ?: activeCorrection,
+                    )
+                    when (calibration) {
                         is Calibration.Exact -> vehicleRepository.updateFuelRateCorrection(calibration.factor)
-                        is Calibration.Clamped -> {
-                            vehicleRepository.updateFuelRateCorrection(calibration.factor)
-                            clamped = true
-                        }
+                        is Calibration.Clamped -> pendingClamped =
+                            ClampedCalibration(calibration.factor, interval.pumpedLitres, interval.obdLitres)
+                        is Calibration.LowCoverage -> lowCoverage =
+                            LowCoverageNotice(calibration.pumpedLitres, calibration.obdLitres)
                         Calibration.Insufficient -> Unit
                     }
                 }
@@ -113,7 +153,8 @@ class RefuelViewModel @Inject constructor(
                     refuels = refuels,
                     correction = updatedCorrection,
                     saved = true,
-                    calibrationClamped = clamped,
+                    pendingClamped = pendingClamped,
+                    lowCoverage = lowCoverage,
                     showTankWarning = false,
                 )
             }

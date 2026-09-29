@@ -5,6 +5,7 @@ import com.fuelroute.data.db.RouteSearchEntity
 import com.fuelroute.data.db.TripDao
 import com.fuelroute.domain.history.SearchKey
 import com.fuelroute.domain.history.SearchRecordPolicy
+import com.fuelroute.domain.history.TripMatcher
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -28,6 +29,8 @@ data class RouteSearch(
     val destinationPlaceId: String? = null,
     val destinationLat: Double? = null,
     val destinationLng: Double? = null,
+    /** `FuelModelOverrides.effectiveFuelCorrection` the predictions above include. */
+    val fuelCorrectionAtSearch: Double? = null,
 )
 
 interface RouteSearchRepository {
@@ -73,8 +76,13 @@ class DefaultRouteSearchRepository @Inject constructor(
     override suspend fun record(search: RouteSearch): Long? {
         val previous = dao.latest()
         val previousKey = previous?.let { it.toKey(linked = dao.isLinked(it.id)) }
+        // A drive counts as underway even when it started shortly BEFORE the previous search (the
+        // user pulled away, searched from the road, then refreshed): that is the same window in
+        // which TripLinker would have linked the trip to that search.
         val driveUnderway = previous != null &&
-            tripDao.recentOpenTrips().any { it.startedAtMs >= previous.timestampMs }
+            tripDao.recentOpenTrips().any {
+                it.startedAtMs >= previous.timestampMs - TripMatcher.LINK_WINDOW_MS
+            }
         val entity = search.toEntity()
         return when (SearchRecordPolicy.decide(previousKey, entity.toKey(linked = false), driveUnderway)) {
             SearchRecordPolicy.Action.INSERT -> dao.insert(entity)
@@ -107,6 +115,7 @@ class DefaultRouteSearchRepository @Inject constructor(
         destinationPlaceId = destinationPlaceId,
         destinationLat = destinationLat,
         destinationLng = destinationLng,
+        fuelCorrectionAtSearch = fuelCorrectionAtSearch,
     )
 
     private fun RouteSearchEntity.toKey(linked: Boolean) = SearchKey(
@@ -163,5 +172,6 @@ class DefaultRouteSearchRepository @Inject constructor(
         destinationPlaceId = destinationPlaceId,
         destinationLat = destinationLat,
         destinationLng = destinationLng,
+        fuelCorrectionAtSearch = fuelCorrectionAtSearch,
     )
 }

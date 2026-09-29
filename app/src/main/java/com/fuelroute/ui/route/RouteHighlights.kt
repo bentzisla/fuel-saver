@@ -5,7 +5,7 @@ import com.fuelroute.domain.ranking.RouteInsights
 
 /**
  * What the results UI says about one route relative to the others. Pure (no Android) so the
- * wording decisions — "saves X vs fastest", "+Y min" — are unit-testable.
+ * wording decisions — "saves X vs fastest", "+Y min", "about the same cost" — are unit-testable.
  */
 data class RouteComparison(
     val isCheapest: Boolean,
@@ -18,9 +18,17 @@ data class RouteComparison(
     val premiumVsCheapest: Double,
     /** Minutes this route saves compared with the cheapest route (0 when not faster). */
     val minutesSavedVsCheapest: Double,
+    /**
+     * This route and the cheapest one (or, for the cheapest, some other route) differ by less
+     * than the model's error margin ([RouteInsights.tieThreshold]): show "about the same cost"
+     * rather than a firm winner.
+     */
+    val costTie: Boolean = false,
+    /** The route has a toll whose price is unknown, so its shown cost excludes it. */
+    val excludesToll: Boolean = false,
 ) {
     /** Only one alternative exists, or this route is both cheapest and fastest. */
-    val noTradeOff: Boolean get() = isCheapest && isFastest
+    val noTradeOff: Boolean get() = isCheapest && isFastest && !costTie
 }
 
 object RouteHighlights {
@@ -36,15 +44,23 @@ object RouteHighlights {
         val badges = RouteInsights.badges(costs)
         val cheapest = badges.cheapestIndex?.let { costs[it] } ?: cost
         val fastest = badges.fastestIndex?.let { costs[it] } ?: cost
+        val isCheapest = badges.cheapestIndex == index ||
+            RouteInsights.rankingCost(cost) - RouteInsights.rankingCost(cheapest) < MONEY_EPSILON
+        val costTie = if (isCheapest) {
+            badges.cheapestIsTie
+        } else {
+            RouteInsights.isSimilarCost(cost, cheapest)
+        }
         return RouteComparison(
-            isCheapest = badges.cheapestIndex == index ||
-                cost.totalCost - cheapest.totalCost < MONEY_EPSILON,
+            isCheapest = isCheapest,
             isFastest = badges.fastestIndex == index ||
                 cost.durationMinutes - fastest.durationMinutes < MINUTES_EPSILON,
             savingsVsFastest = (fastest.totalCost - cost.totalCost).coerceAtLeast(0.0),
             extraMinutesVsFastest = (cost.durationMinutes - fastest.durationMinutes).coerceAtLeast(0.0),
             premiumVsCheapest = (cost.totalCost - cheapest.totalCost).coerceAtLeast(0.0),
             minutesSavedVsCheapest = (cheapest.durationMinutes - cost.durationMinutes).coerceAtLeast(0.0),
+            costTie = costTie,
+            excludesToll = cost.route.tollUnknown,
         )
     }
 }
