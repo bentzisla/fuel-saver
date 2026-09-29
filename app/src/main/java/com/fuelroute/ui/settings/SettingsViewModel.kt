@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fuelroute.data.backup.BackupRepository
 import com.fuelroute.data.backup.ImportResult
+import com.fuelroute.data.export.CsvExportRepository
 import com.fuelroute.data.price.FuelGrades
 import com.fuelroute.data.price.FuelPriceRepository
 import com.fuelroute.data.settings.NAV_GOOGLE
@@ -48,6 +49,7 @@ class SettingsViewModel @Inject constructor(
     private val fuelPriceRepository: FuelPriceRepository,
     private val vehicleRepository: VehicleRepository,
     private val backupRepository: BackupRepository,
+    private val csvExportRepository: CsvExportRepository,
     private val obdProbeScheduler: ObdProbeScheduler,
 ) : ViewModel() {
 
@@ -151,4 +153,10 @@ class SettingsViewModel @Inject constructor(
 
     /** Merges a previously exported document back into local storage. */
     suspend fun importBackup(json: String): ImportResult = backupRepository.import(json)
+
+    /** Every vehicle's closed trips as a CSV document (backlog item 39). */
+    suspend fun exportTripsCsv(): String = csvExportRepository.exportTripsCsv()
+
+    /** Every vehicle's refuels as a CSV document (backlog item 39). */
+    suspend fun exportRefuelsCsv(): String = csvExportRepository.exportRefuelsCsv()
 }

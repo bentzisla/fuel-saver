@@ -317,6 +317,12 @@
     <string name="settings_backup_import_confirm">ייבא</string>
     <string name="settings_backup_import_result">הייבוא הושלם: נוספו %1$d נסיעות ו־%2$d תדלוקים (%3$d כפילויות דולגו)</string>
     <string name="settings_backup_import_failed">ייבוא הגיבוי נכשל</string>
+    <string name="settings_export_trips_csv">ייצוא נסיעות (CSV)</string>
+    <string name="settings_export_trips_csv_hint">כל הנסיעות של כל הרכבים, עם עלות, צריכה וקישור לחיפוש המסלול. נפתח ב־Excel.</string>
+    <string name="settings_export_refuels_csv">ייצוא תדלוקים (CSV)</string>
+    <string name="settings_export_refuels_csv_hint">כל התדלוקים של כל הרכבים, עם ליטרים, מחיר וסוג דלק.</string>
+    <string name="settings_export_csv_success">הקובץ יוצא בהצלחה</string>
+    <string name="settings_export_csv_failed">ייצוא הקובץ נכשל</string>
 
     <string name="settings_calibration_title">כיול הדגם</string>
     <string name="settings_calibration_hint">תהליך מדורג לכיול מודל הדלק, כולל התאמה לנסיעות ובדיקת כיול התדלוק</string>
