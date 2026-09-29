@@ -10,9 +10,9 @@ import org.junit.Test
 
 class TripDetectorTest {
 
-    private val detector = TripDetector(stopAfterIdleMs = 180_000L)
+    private val detector = TripDetector(stopAfterEngineOffMs = 180_000L)
 
-    private fun sample(tMs: Long, speed: Double, rpm: Double = 800.0) =
+    private fun sample(tMs: Long, speed: Double?, rpm: Double? = 800.0) =
         ObdSample(timestampMs = tMs, speedKmh = speed, rpm = rpm)
 
     @Test
@@ -29,44 +29,58 @@ class TripDetectorTest {
 
         assertTrue(detector.isActive)
         assertEquals(1_000L, detector.startedAtMs)
-        assertEquals(1_000L, detector.lastMovementMs)
+        assertEquals(1_000L, detector.lastActiveMs)
     }
 
     @Test
-    fun `keeps the trip open through a stop under the threshold`() {
+    fun `starts on movement even when the clone never answers RPM`() {
+        assertSame(TripDetector.TripTransition.Started, detector.onSample(sample(0, speed = 30.0, rpm = null)))
+    }
+
+    @Test
+    fun `a long standstill with the engine running keeps the trip open`() {
         detector.onSample(sample(0, speed = 30.0))
 
-        assertSame(TripDetector.TripTransition.None, detector.onSample(sample(60_000, speed = 0.0)))
+        // Ten minutes in a queue / drive-through with the engine idling: still the same drive,
+        // so its idle fuel stays with it (used to end after 3 minutes without movement).
+        for (t in 10_000L..600_000L step 10_000L) {
+            assertSame(TripDetector.TripTransition.None, detector.onSample(sample(t, speed = 0.0)))
+        }
         assertTrue(detector.isActive)
     }
 
     @Test
-    fun `ends the trip after the idle threshold`() {
+    fun `ends after the engine has been off for the threshold, at the last active sample`() {
         detector.onSample(sample(0, speed = 30.0))
-        detector.onSample(sample(60_000, speed = 0.0))
+        detector.onSample(sample(60_000, speed = 0.0)) // idling, engine on
 
-        val transition = detector.onSample(sample(60_000 + 180_000, speed = 0.0))
+        assertSame(TripDetector.TripTransition.None, detector.onSample(sample(61_000, speed = 0.0, rpm = 0.0)))
+        assertSame(TripDetector.TripTransition.None, detector.onSample(sample(200_000, speed = 0.0, rpm = null)))
+        val transition = detector.onSample(sample(240_000, speed = 0.0, rpm = null))
 
-        assertEquals(TripDetector.TripTransition.Ended(0L, 240_000L), transition)
+        assertEquals(TripDetector.TripTransition.Ended(0L, 60_000L), transition)
         assertFalse(detector.isActive)
         assertNull(detector.startedAtMs)
     }
 
     @Test
-    fun `movement resets the idle clock`() {
+    fun `engine restart before the threshold keeps the trip`() {
         detector.onSample(sample(0, speed = 30.0))
-        detector.onSample(sample(100_000, speed = 0.0))
-
-        // Moves again before the threshold, so the idle window restarts from here.
-        detector.onSample(sample(200_000, speed = 20.0))
-        detector.onSample(sample(250_000, speed = 0.0))
-
-        // 250s since the original movement would have ended it; only 50s since the reset.
-        assertSame(TripDetector.TripTransition.None, detector.onSample(sample(250_000, speed = 0.0)))
+        detector.onSample(sample(100_000, speed = 0.0, rpm = 0.0))
+        detector.onSample(sample(200_000, speed = 0.0, rpm = 900.0)) // restarted
+        assertSame(TripDetector.TripTransition.None, detector.onSample(sample(300_000, speed = 0.0, rpm = 0.0)))
         assertEquals(
-            TripDetector.TripTransition.Ended(0L, 500_000L),
-            detector.onSample(sample(500_000, speed = 0.0)),
+            TripDetector.TripTransition.Ended(0L, 200_000L),
+            detector.onSample(sample(380_000, speed = 0.0, rpm = 0.0)),
         )
+    }
+
+    @Test
+    fun `hybrid moving with the engine off is still active`() {
+        detector.onSample(sample(0, speed = 30.0))
+        assertSame(TripDetector.TripTransition.None, detector.onSample(sample(300_000, speed = 20.0, rpm = 0.0)))
+        assertTrue(detector.isActive)
+        assertEquals(300_000L, detector.lastActiveMs)
     }
 
     @Test
