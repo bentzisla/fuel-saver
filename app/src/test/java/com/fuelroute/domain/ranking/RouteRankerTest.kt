@@ -54,13 +54,64 @@ class RouteRankerTest {
         )
     }
 
-    private fun cost(id: String, totalCost: Double, minutes: Double) = RouteCost(
+    @Test
+    fun `routes within the tie margin put the faster one first`() {
+        // 20.00 vs 20.40 NIS is well inside the model's error: prefer the faster route.
+        val cheapSlow = cost(id = "cheap-slow", totalCost = 20.0, minutes = 30.0)
+        val fastSimilar = cost(id = "fast", totalCost = 20.4, minutes = 26.0)
+        val pricey = cost(id = "pricey", totalCost = 30.0, minutes = 20.0)
+
+        val ranked = RouteRanker.rank(listOf(cheapSlow, pricey, fastSimilar), valuePerMinute = 0.0)
+
+        assertEquals(listOf("fast", "cheap-slow", "pricey"), ranked.map { it.route.id })
+    }
+
+    @Test
+    fun `a lead larger than the tie margin still wins`() {
+        // 5% of 40 = 2 NIS margin; 3 NIS apart is a real difference.
+        val cheap = cost(id = "cheap", totalCost = 40.0, minutes = 50.0)
+        val fast = cost(id = "fast", totalCost = 43.0, minutes = 40.0)
+
+        assertEquals("cheap", RouteRanker.rank(listOf(fast, cheap), valuePerMinute = 0.0).first().route.id)
+    }
+
+    @Test
+    fun `an unpriced toll does not win on fuel alone over a toll-free route`() {
+        val tollUnknown = cost(id = "toll-road", totalCost = 18.0, minutes = 30.0, tollUnknown = true)
+        val tollFree = cost(id = "free", totalCost = 22.0, minutes = 31.0)
+
+        val ranked = RouteRanker.rank(listOf(tollUnknown, tollFree), valuePerMinute = 0.0)
+
+        assertEquals("free", ranked.first().route.id)
+    }
+
+    @Test
+    fun `value of time is clamped at use`() {
+        val slowCheap = cost(id = "slow", totalCost = 10.0, minutes = 60.0)
+        val fastPricey = cost(id = "fast", totalCost = 30.0, minutes = 10.0)
+
+        // Negative would rank the slowest route first; it behaves like 0 instead.
+        assertEquals("slow", RouteRanker.rank(listOf(fastPricey, slowCheap), valuePerMinute = -5.0).first().route.id)
+        // Infinity would make every key infinite; it behaves like the maximum instead.
+        assertEquals("fast", RouteRanker.rank(listOf(slowCheap, fastPricey), valuePerMinute = Double.POSITIVE_INFINITY).first().route.id)
+        assertEquals(RouteRanker.MAX_VALUE_PER_MINUTE, RouteRanker.sanitizeValuePerMinute(1e9), 0.0)
+        assertEquals(0.0, RouteRanker.sanitizeValuePerMinute(Double.NEGATIVE_INFINITY), 0.0)
+        assertEquals(
+            ModelConstants.DEFAULT_VALUE_PER_MINUTE,
+            RouteRanker.sanitizeValuePerMinute(Double.NaN),
+            0.0,
+        )
+    }
+
+    private fun cost(id: String, totalCost: Double, minutes: Double, tollUnknown: Boolean = false) = RouteCost(
         route = Route(
             id = id,
             distanceMeters = 10_000.0,
             staticDurationSeconds = minutes * 60.0,
             durationSeconds = minutes * 60.0,
             segments = listOf(RouteSegment(10_000.0, minutes * 60.0)),
+            tollCost = if (tollUnknown) null else 0.0,
+            tollUnknown = tollUnknown,
         ),
         fuelLiters = 1.0,
         fuelCost = totalCost,

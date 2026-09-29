@@ -39,6 +39,7 @@ import com.fuelroute.domain.fuel.ModelConstants
 import com.fuelroute.domain.model.FuelType
 import com.fuelroute.domain.model.RouteCost
 import com.fuelroute.domain.model.SpeedPoint
+import com.fuelroute.domain.ranking.RouteConfidence
 import com.fuelroute.domain.ranking.RouteRanker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -537,7 +538,8 @@ class RouteViewModel @Inject constructor(
                 val coldStartStats = coldStartRepository.stats(vehicle.id)
                 val ranked = RouteRanker.rank(
                     routes.map {
-                        fuelModel.cost(it, fuelPrice, coldStartLiters = coldStartStats.effectiveExtraL)
+                        val cost = fuelModel.cost(it, fuelPrice, coldStartLiters = coldStartStats.effectiveExtraL)
+                        cost.copy(learnedShare = RouteConfidence.learnedShare(cost, learned, fallback))
                     },
                     valuePerMinute = settings.valuePerMinute,
                 )

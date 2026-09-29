@@ -1,5 +1,6 @@
 package com.fuelroute.domain.fuel
 
+import com.fuelroute.domain.model.CongestionLevel
 import com.fuelroute.domain.model.Route
 import com.fuelroute.domain.model.RouteSegment
 import org.junit.Assert.assertEquals
@@ -96,7 +97,15 @@ class FuelModelOverridesTest {
 
     @Test
     fun `jam factor override changes a congested multi-segment route`() {
-        val route = congestedRoute()
+        // Slow and jammed stretches share the time Google reports, so the jam factor decides
+        // how that time is split between them.
+        val route = congestedRoute().copy(
+            segments = listOf(
+                RouteSegment(5_000.0, 300.0, congestion = CongestionLevel.SLOW, slowMeters = 5_000.0),
+                RouteSegment(5_000.0, 300.0, congestion = CongestionLevel.TRAFFIC_JAM, jamMeters = 5_000.0),
+            ),
+            durationSeconds = 1_500.0,
+        )
         val defaultJam = FuelModel(curve, 0.8).cost(route, 7.0)
         val raisedJam = FuelModel(
             curve = curve,

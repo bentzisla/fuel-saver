@@ -24,6 +24,8 @@ import com.fuelroute.R
 import com.fuelroute.domain.model.RouteCost
 import com.fuelroute.domain.model.SegmentCost
 import com.fuelroute.domain.model.TrafficResolution
+import com.fuelroute.domain.ranking.RouteConfidence
+import com.fuelroute.domain.ranking.RouteConfidenceLevel
 import com.fuelroute.ui.components.Dimens
 import com.fuelroute.ui.components.ExpandableSection
 import com.fuelroute.ui.components.KeyValueRow
@@ -126,6 +128,21 @@ internal fun RouteDetailSheet(
                             else -> stringResource(R.string.route_detail_curve_source_default)
                         },
                     )
+                    cost.learnedShare?.let { share ->
+                        KeyValueRow(
+                            label = stringResource(R.string.route_detail_confidence_label),
+                            value = stringResource(
+                                R.string.route_detail_confidence_value,
+                                stringResource(RouteConfidence.level(share).labelRes()),
+                                fmt(share * 100.0, 0),
+                            ),
+                        )
+                        Text(
+                            text = stringResource(R.string.route_detail_confidence_hint),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     if (kotlin.math.abs(fuelCorrectionFactor - 1.0) > 0.005) {
                         KeyValueRow(
                             label = stringResource(R.string.route_detail_correction_label),
@@ -260,6 +277,13 @@ private fun SegmentRow(index: Int, segment: SegmentCost) {
             style = MaterialTheme.typography.bodyMedium,
         )
     }
+}
+
+@StringRes
+private fun RouteConfidenceLevel.labelRes(): Int = when (this) {
+    RouteConfidenceLevel.LOW -> R.string.route_confidence_low
+    RouteConfidenceLevel.MEDIUM -> R.string.route_confidence_medium
+    RouteConfidenceLevel.HIGH -> R.string.route_confidence_high
 }
 
 @StringRes

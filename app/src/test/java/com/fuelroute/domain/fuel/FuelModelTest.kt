@@ -73,14 +73,154 @@ class FuelModelTest {
         )
 
         for (route in cases) {
-            val times = model.normalizedSegmentsSeconds(route)
+            val timing = model.timingSummary(route)
             assertEquals(
-                "route ${route.id}: Σ t_i must equal durationSeconds",
+                "route ${route.id}: Σ t_i + stationary delay must equal durationSeconds",
                 route.durationSeconds,
-                times.sum(),
+                timing.segmentSeconds.sum() + timing.stationarySeconds,
                 1e-6,
             )
         }
+    }
+
+    @Test
+    fun `a step is costed as its congestion sub-segments, each at its own speed`() {
+        // 10 km at a free-flow 60 km/h; the second half is jammed (5 km at 15 km/h).
+        val route = Route(
+            id = "split",
+            distanceMeters = 10_000.0,
+            staticDurationSeconds = 600.0,
+            durationSeconds = 1_500.0,
+            segments = listOf(
+                RouteSegment(
+                    distanceMeters = 10_000.0,
+                    staticDurationSeconds = 600.0,
+                    congestionFactor = 0.4,
+                    congestion = CongestionLevel.TRAFFIC_JAM,
+                    jamMeters = 5_000.0,
+                ),
+            ),
+        )
+
+        val cost = model.cost(route, 7.0)
+
+        val expected = 5.0 * curve.litersPer100Km(60.0) / 100.0 +
+            5.0 * curve.litersPer100Km(15.0) / 100.0 +
+            0.8 * (900.0 / 3600.0) * ModelConstants.STOP_GO_WEIGHT
+        assertEquals(expected, cost.fuelLiters, 1e-9)
+        // The step's display speed is the time-equivalent (harmonic) one: 10 km in 25 min.
+        assertEquals(24.0, cost.segments.single().effectiveSpeedKmh, 1e-9)
+    }
+
+    @Test
+    fun `unexplained delay on a highway is idle time, not a slower cheaper highway`() {
+        val route = Route(
+            id = "highway-delay",
+            distanceMeters = 20_000.0,
+            staticDurationSeconds = 720.0,
+            durationSeconds = 1_020.0,
+            trafficResolution = TrafficResolution.PER_SEGMENT,
+            segments = listOf(RouteSegment(20_000.0, 720.0)),
+        )
+
+        val cost = model.cost(route, 7.0)
+
+        assertEquals(100.0, cost.segments.single().effectiveSpeedKmh, 1e-9)
+        val expected = 20.0 * curve.litersPer100Km(100.0) / 100.0 + 0.8 * 300.0 / 3600.0
+        assertEquals(expected, cost.fuelLiters, 1e-9)
+        assertEquals(300.0, model.timingSummary(route).stationarySeconds, 1e-9)
+    }
+
+    @Test
+    fun `residual delay goes to the congested step, leaving the highway at free flow`() {
+        val route = Route(
+            id = "delay-to-jam",
+            distanceMeters = 22_000.0,
+            staticDurationSeconds = 840.0,
+            // Modelled: 720 s highway + 480 s jam = 1200 s; Google says 1320 s.
+            durationSeconds = 1_320.0,
+            segments = listOf(
+                RouteSegment(20_000.0, 720.0),
+                RouteSegment(
+                    2_000.0,
+                    120.0,
+                    congestionFactor = 0.25,
+                    congestion = CongestionLevel.TRAFFIC_JAM,
+                    jamMeters = 2_000.0,
+                ),
+            ),
+        )
+
+        val timing = model.timingSummary(route)
+        val cost = model.cost(route, 7.0)
+
+        assertEquals(720.0, timing.segmentSeconds[0], 1e-6)
+        assertEquals(600.0, timing.segmentSeconds[1], 1e-6)
+        assertEquals(0.0, timing.stationarySeconds, 1e-6)
+        assertEquals(100.0, cost.segments[0].effectiveSpeedKmh, 1e-6)
+        assertEquals(12.0, cost.segments[1].effectiveSpeedKmh, 1e-6)
+    }
+
+    @Test
+    fun `a faster Google duration never pushes normal steps above free flow`() {
+        val slowStep = RouteSegment(
+            10_000.0,
+            600.0,
+            congestionFactor = ModelConstants.SLOW_FACTOR,
+            congestion = CongestionLevel.SLOW,
+            slowMeters = 10_000.0,
+        )
+        val route = Route(
+            id = "speed-up",
+            distanceMeters = 20_000.0,
+            staticDurationSeconds = 1_200.0,
+            // Modelled 600 + 1090.9 s; Google says 1500 s: only the slow step speeds up.
+            durationSeconds = 1_500.0,
+            segments = listOf(RouteSegment(10_000.0, 600.0), slowStep),
+        )
+
+        val cost = model.cost(route, 7.0)
+        val timing = model.timingSummary(route)
+
+        assertEquals(60.0, cost.segments[0].effectiveSpeedKmh, 1e-9)
+        assertEquals(900.0, timing.segmentSeconds[1], 1e-6)
+
+        // Google even faster than free flow everywhere: everything stays at free flow.
+        val tooFast = route.copy(durationSeconds = 1_000.0)
+        val fastCost = model.cost(tooFast, 7.0)
+        assertTrue(fastCost.segments.all { it.effectiveSpeedKmh <= 60.0 + 1e-9 })
+        assertEquals(20.0 * curve.litersPer100Km(60.0) / 100.0, fastCost.fuelLiters, 1e-9)
+    }
+
+    @Test
+    fun `slow and jam overrides apply to the partial lengths inside a step`() {
+        // No Google duration to normalize to, so the raw per-level times are used as-is.
+        val route = Route(
+            id = "partial-override",
+            distanceMeters = 10_000.0,
+            staticDurationSeconds = 600.0,
+            durationSeconds = 0.0,
+            segments = listOf(
+                RouteSegment(
+                    distanceMeters = 10_000.0,
+                    staticDurationSeconds = 600.0,
+                    congestion = CongestionLevel.NORMAL,
+                    slowMeters = 3_000.0,
+                    jamMeters = 1_000.0,
+                ),
+            ),
+        )
+        val overridden = FuelModel(
+            curve = curve,
+            idleLitersPerHour = 0.8,
+            overrides = FuelModelOverrides(slowFactor = 0.8, jamFactor = 0.5),
+        )
+
+        val defaultSeconds = model.timingSummary(route).segmentSeconds.single()
+        val overriddenSeconds = overridden.timingSummary(route).segmentSeconds.single()
+
+        assertEquals(360.0 + 180.0 / ModelConstants.SLOW_FACTOR + 60.0 / ModelConstants.JAM_FACTOR, defaultSeconds, 1e-6)
+        assertEquals(360.0 + 180.0 / 0.8 + 60.0 / 0.5, overriddenSeconds, 1e-6)
     }
 
     @Test
@@ -92,7 +232,7 @@ class FuelModelTest {
     }
 
     @Test
-    fun `none resolution with factor one is pure uniform time scaling`() {
+    fun `none resolution charges the unexplained delay as idle time at free flow`() {
         val route = Route(
             id = "none",
             distanceMeters = 10_000.0,
@@ -103,10 +243,11 @@ class FuelModelTest {
         )
 
         val cost = model.cost(route, 7.0)
-        val uniformSpeed = 10.0 / (1_200.0 / 3600.0)
-        val expected = 10.0 * curve.litersPer100Km(uniformSpeed) / 100.0
+        // No evidence of where the traffic is: drive at free flow, idle for the extra 600 s.
+        val expected = 10.0 * curve.litersPer100Km(60.0) / 100.0 + 0.8 * 600.0 / 3600.0
 
-        assertEquals(uniformSpeed, cost.avgSpeedKmh, 1e-6)
+        assertEquals(30.0, cost.avgSpeedKmh, 1e-6)
+        assertEquals(60.0, cost.segments.single().effectiveSpeedKmh, 1e-6)
         assertEquals(expected, cost.fuelLiters, 1e-6)
     }
 
@@ -163,11 +304,13 @@ class FuelModelTest {
 
     @Test
     fun `slow factor override changes the costed speed of a slow segment`() {
+        // Without a Google duration to normalize to, the override alone sets the slow speed
+        // (with one, normalization pins the total time and the override only redistributes it).
         val route = Route(
             id = "slow-override",
             distanceMeters = 10_000.0,
             staticDurationSeconds = 600.0,
-            durationSeconds = 900.0,
+            durationSeconds = 0.0,
             trafficResolution = TrafficResolution.NONE,
             segments = listOf(
                 RouteSegment(5_000.0, 300.0, congestionFactor = 1.0, congestion = CongestionLevel.NORMAL),
