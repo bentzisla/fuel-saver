@@ -13,11 +13,12 @@ import com.fuelroute.ui.components.fmt
  *
  * Merge note: the OBD work stream is changing how live consumption is exposed (a smoothed
  * L/100km, and L/h instead of L/100km at very low speed). Rewire ONLY this function: pick the
- * value/unit from the new [LiveObdState] fields here; nothing else in the UI reads
- * `instantL100` / `fuelRateLph` for the hero.
+ * value/unit from the new [LiveObdState] fields here (surfaced narrowly to this tile through
+ * [LiveTelemetryUiState]); nothing else in the UI reads `instantL100` / `fuelRateLph` for the
+ * hero.
  */
 @Composable
-internal fun LiveConsumptionTile(state: LiveObdState, modifier: Modifier = Modifier) {
+internal fun LiveConsumptionTile(state: LiveTelemetryUiState, modifier: Modifier = Modifier) {
     val l100 = state.instantL100
     val lph = state.fuelRateLph
     val (value, unit) = when {

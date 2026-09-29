@@ -581,6 +581,7 @@
     <string name="settings_section_advanced">מתקדם</string>
     <string name="settings_unit_price_per_liter">₪/ליטר</string>
     <string name="settings_unit_per_minute">₪/דקה</string>
+    <string name="settings_value_per_minute_invalid">יש להזין מספר בין 0 ל-10</string>
     <string name="settings_value_per_minute_help">כמה שווה לכם דקה. 0 = דירוג לפי עלות בלבד</string>
     <string name="settings_backup_import_hint">מיזוג נתונים מקובץ גיבוי קיים</string>
     <string name="settings_android_auto_row_hint">הפעלה ראשונה ובדיקת חיבור</string>

@@ -5,7 +5,6 @@ import androidx.car.app.CarContext
 import androidx.car.app.Screen
 import androidx.car.app.model.Action
 import androidx.car.app.model.Header
-import androidx.car.app.model.MessageTemplate
 import androidx.car.app.model.Pane
 import androidx.car.app.model.PaneTemplate
 import androidx.car.app.model.Row
@@ -35,7 +34,7 @@ import java.util.Locale
 
 /**
  * The car dashboard (card 15). A [PaneTemplate] with four glanceable Hebrew rows, refreshed at
- * ~1 Hz, plus a [MessageTemplate] when the dongle is not connected. It observes the singleton
+ * ~1 Hz; when the dongle is not connected the same template type shows its status instead. It observes the singleton
  * [ObdEngine] only and never starts or stops the OBD connection itself.
  *
  * Driver-distraction limits honoured: four rows (the pane maximum), no scrolling list, no text
@@ -188,25 +187,34 @@ class DashboardScreen(
         return template.build()
     }
 
+    /**
+     * Not connected: still a [PaneTemplate], never a [androidx.car.app.model.MessageTemplate].
+     * Alternating template types on status changes counts against the host's template step limit,
+     * so every state is the same type and a status change just refreshes the pane. Connecting is
+     * the pane's loading state; everything else is one status row plus the connect action.
+     */
     private fun buildDisconnected(): Template {
-        val message = when (status) {
-            ObdStatus.Connecting -> string(R.string.car_connecting)
-            ObdStatus.Error -> lastError?.let { string(R.string.car_error, it) }
-                ?: string(R.string.car_error_unknown)
-            else -> lastError?.let { string(R.string.car_disconnected_reason, it) }
-                ?: string(R.string.car_disconnected)
-        }
-        val builder = MessageTemplate.Builder(message)
-        if (supportsHeader) builder.setHeader(titleHeader()) else @Suppress("DEPRECATION") builder.setTitle(string(R.string.car_title))
-        if (status != ObdStatus.Connecting) {
-            builder.addAction(
+        val pane = Pane.Builder()
+        if (status == ObdStatus.Connecting) {
+            pane.setLoading(true)
+        } else {
+            val message = when (status) {
+                ObdStatus.Error -> lastError?.let { string(R.string.car_error, it) }
+                    ?: string(R.string.car_error_unknown)
+                else -> lastError?.let { string(R.string.car_disconnected_reason, it) }
+                    ?: string(R.string.car_disconnected)
+            }
+            pane.addRow(Row.Builder().setTitle(message).build())
+            pane.addAction(
                 Action.Builder()
                     .setTitle(string(R.string.car_connect))
                     .setOnClickListener { startLogging() }
                     .build(),
             )
         }
-        return builder.build()
+        val template = PaneTemplate.Builder(pane.build())
+        if (supportsHeader) template.setHeader(titleHeader()) else @Suppress("DEPRECATION") template.setTitle(string(R.string.car_title))
+        return template.build()
     }
 
     /**
