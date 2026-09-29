@@ -52,27 +52,37 @@ object ObdProbePolicy {
     /** At or above this the alternator is charging: the engine is (very likely) running. */
     const val RUNNING_MIN_VOLTS = 13.2
 
-    /** At or below this the battery is resting: the engine is off, no need to wake the bus. */
-    const val OFF_MAX_VOLTS = 12.9
-
     /** Below this an RPM reading is an engine that is not running (ignition on, engine off). */
     const val RUNNING_MIN_RPM = 300.0
 
     enum class Engine { RUNNING, OFF, UNKNOWN }
 
+    /** What an `ATRV` reading says on its own. */
+    enum class Voltage {
+        /** No reading, or outside the plausible car range (a clone's own 0 V / 3.3 V / 5 V rail). */
+        UNKNOWN,
+
+        /**
+         * Below [RUNNING_MIN_VOLTS]: a resting battery OR a running engine with a smart
+         * (regenerative) alternator, which holds 12.4-12.8 V while cruising. Never trusted as
+         * "engine off" by itself.
+         */
+        AMBIGUOUS,
+
+        /** At or above [RUNNING_MIN_VOLTS]: charging, but a maintainer or surface charge reads high too. */
+        CHARGING,
+    }
+
     /**
-     * Fast verdict from `ATRV`, or null when the voltage cannot decide and RPM must be asked.
-     * Only [Engine.OFF] is trusted from voltage alone (a clearly resting battery); a charging
-     * voltage is confirmed with RPM, since a battery maintainer or surface charge right after
-     * switching off can read high too. Readings outside the plausible car range (clones answer
-     * with their own 0 V / 3.3 V / 5 V rail) are ignored.
+     * Classifies `ATRV`. It is diagnostic only: the probe always confirms with RPM (`010C`), since
+     * neither band decides the engine state reliably (see [Voltage]).
      */
-    fun engineFromVoltage(volts: Double?): Engine? {
-        if (volts == null) return null
-        if (volts !in ObdConnectionPolicy.MIN_PLAUSIBLE_BATTERY_VOLTS..ObdConnectionPolicy.MAX_PLAUSIBLE_BATTERY_VOLTS) {
-            return null
-        }
-        return if (volts <= OFF_MAX_VOLTS) Engine.OFF else null
+    fun classifyVoltage(volts: Double?): Voltage = when {
+        volts == null -> Voltage.UNKNOWN
+        volts !in ObdConnectionPolicy.MIN_PLAUSIBLE_BATTERY_VOLTS..ObdConnectionPolicy.MAX_PLAUSIBLE_BATTERY_VOLTS ->
+            Voltage.UNKNOWN
+        volts >= RUNNING_MIN_VOLTS -> Voltage.CHARGING
+        else -> Voltage.AMBIGUOUS
     }
 
     /**
@@ -100,6 +110,12 @@ object ObdProbePolicy {
 
         /** The adapter answered and the engine is running: a drive is underway. */
         ENGINE_RUNNING,
+
+        /**
+         * The logging engine claimed the dongle while (or before) the probe held it; the probe
+         * gave it up at once (see [com.fuelroute.data.obd.ObdDongleSession]). Logging is active.
+         */
+        YIELDED,
     }
 
     /** Why a scheduled probe was skipped without touching Bluetooth, or null to probe. */
@@ -151,6 +167,78 @@ object ObdProbePolicy {
         Outcome.ENGINE_OFF -> if (manualDisconnect) Action.CLEAR_MANUAL_DISCONNECT else Action.NOTHING
         Outcome.ABSENT ->
             if (manualDisconnect && absentForMs >= ABSENT_ENDS_DRIVE_MS) Action.CLEAR_MANUAL_DISCONNECT else Action.NOTHING
-        Outcome.UNRESPONSIVE -> Action.NOTHING
+        Outcome.UNRESPONSIVE, Outcome.YIELDED -> Action.NOTHING
     }
+
+    // --- Fallback notification --------------------------------------------------------------
+
+    /**
+     * Channel of the "drive detected, tap to start logging" notification shown when Android
+     * refuses to start the logging service from the background worker. High importance (heads-up
+     * with sound): the user has to act while the drive is on, a silent entry went unnoticed. A
+     * channel's importance cannot be raised after creation, hence a new id.
+     */
+    const val FALLBACK_CHANNEL_ID = "obd_drive_detected_alert"
+
+    /** The former silent (IMPORTANCE_LOW) channel, deleted when the new one is created. */
+    const val LEGACY_FALLBACK_CHANNEL_ID = "obd_drive_detected"
+
+    /** The fallback notification is dropped after this long: the drive it announced is likely over. */
+    const val FALLBACK_NOTIFICATION_TIMEOUT_MS = 30L * 60 * 1000
+
+    // --- Backoff and search avoidance --------------------------------------------------------
+
+    /** After this many quiet probes in a row (absent / engine off) the interval grows to [BACKOFF_1_MIN]. */
+    const val BACKOFF_1_AFTER = 3
+    const val BACKOFF_1_MIN = 15
+
+    /** After this many quiet probes in a row the interval grows to [BACKOFF_2_MIN]. */
+    const val BACKOFF_2_AFTER = 6
+    const val BACKOFF_2_MIN = 30
+
+    /**
+     * Delay before the next probe: the configured interval, stretched (never shortened) after a
+     * streak of quiet probes, e.g. 5 -> 15 -> 30 min for a car parked overnight. The streak is
+     * reset by a running engine, logging, an ACL connect of the dongle or the app being opened.
+     */
+    fun nextDelayMin(intervalMin: Int, quietStreak: Int): Int {
+        val base = clampIntervalMin(intervalMin)
+        val backoff = when {
+            quietStreak >= BACKOFF_2_AFTER -> BACKOFF_2_MIN
+            quietStreak >= BACKOFF_1_AFTER -> BACKOFF_1_MIN
+            else -> base
+        }
+        return maxOf(base, backoff)
+    }
+
+    /** True when [quietStreak] already stretched the interval, i.e. a reset should reschedule. */
+    fun isBackedOff(intervalMin: Int, quietStreak: Int): Boolean =
+        nextDelayMin(intervalMin, quietStreak) > clampIntervalMin(intervalMin)
+
+    /** Consecutive absent / engine-off probes after [outcome]. A hung clone neither extends nor ends it. */
+    fun nextQuietStreak(current: Int, outcome: Outcome): Int = when (outcome) {
+        Outcome.ABSENT, Outcome.ENGINE_OFF -> current + 1
+        Outcome.ENGINE_RUNNING, Outcome.YIELDED -> 0
+        Outcome.UNRESPONSIVE -> current
+    }
+
+    /** Consecutive engine-off probes after [outcome] (an absent dongle says nothing about the bus). */
+    fun nextOffStreak(current: Int, outcome: Outcome): Int = when (outcome) {
+        Outcome.ENGINE_OFF -> current + 1
+        Outcome.ENGINE_RUNNING, Outcome.YIELDED -> 0
+        Outcome.ABSENT, Outcome.UNRESPONSIVE -> current
+    }
+
+    /**
+     * After this many engine-off probes in a row, a failed `010C` under the remembered protocol is
+     * taken as "engine off" without falling back to the expensive automatic search: the car is
+     * parked, and searching every protocol only wakes its bus again.
+     */
+    const val TRUST_PROTOCOL_AFTER_OFF = 3
+
+    /**
+     * Whether a failed RPM request under the remembered protocol should be retried with the
+     * automatic search (`ATSP0`), which covers the dongle having moved to another car.
+     */
+    fun fallbackSearchAllowed(offStreak: Int): Boolean = offStreak < TRUST_PROTOCOL_AFTER_OFF
 }

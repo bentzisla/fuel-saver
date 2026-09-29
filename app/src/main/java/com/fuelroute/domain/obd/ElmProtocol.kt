@@ -69,7 +69,7 @@ object ElmProtocol {
                  // adapter's own per-request wait further, which is the wrong direction for a
                  // flaky clone) lets the adapter grow its internal wait, up to the ATST ceiling
                  // below, when it observes slow replies.
-        "ATSP0", // auto-detect protocol
+        CMD_AUTO_PROTOCOL, // auto-detect protocol ([configurationCommands] with a remembered one)
         // ATST is the ELM327's own bus-response timeout ceiling (each unit is ~4 ms), i.e. the
         // longest the ADAPTER itself will wait for the ECU before it gives up and answers
         // "NO DATA" — separate from, and much shorter than, our own COMMAND_TIMEOUT_MS socket
@@ -83,6 +83,52 @@ object ElmProtocol {
         // its way.
         "ATSTFA",
     )
+
+    /** Automatic protocol search (`ATSP0`). */
+    const val CMD_AUTO_PROTOCOL = "ATSP0"
+
+    /** Highest ELM327 protocol number (`C`, user CAN 2). `1`..`9`, `A`..`C` are valid. */
+    private const val MAX_PROTOCOL = 0xC
+
+    /**
+     * The protocol-select command for a remembered bus [protocol] (`ATSP6` for ISO 15765-4 CAN
+     * 11-bit/500k, ...), or [CMD_AUTO_PROTOCOL] when it is unknown or out of range. A fixed
+     * protocol skips the 5-20 s automatic search (and the repeated bus wake-ups it causes); when
+     * it fails the caller falls back to `ATSP0` (see [recoveryCommandAfterBusError]).
+     */
+    fun setProtocolCommand(protocol: Int?): String =
+        if (protocol != null && protocol in 1..MAX_PROTOCOL) "ATSP" + protocol.toString(16).uppercase()
+        else CMD_AUTO_PROTOCOL
+
+    /**
+     * Parses the reply to `ATDPN` (describe protocol by number): `A6` (automatic, currently 6) or
+     * `6` -> 6. Returns null for `?`, garbage, `0` (automatic, nothing locked yet) or a number
+     * outside `1..C`.
+     */
+    fun parseProtocolNumber(raw: String): Int? {
+        val cleaned = PidParser.clean(raw).uppercase().removeSuffix(">").trim()
+        val match = PROTOCOL_NUMBER.matchEntire(cleaned) ?: return null
+        val number = match.groupValues[1].toInt(16)
+        return number.takeIf { it in 1..MAX_PROTOCOL }
+    }
+
+    private val PROTOCOL_NUMBER = Regex("^A?([0-9A-C])$")
+
+    /**
+     * [configurationCommands] with the protocol select replaced for a remembered [protocol]
+     * (null keeps `ATSP0`).
+     */
+    fun configurationCommands(protocol: Int?): List<String> =
+        configurationCommands.map { if (it == CMD_AUTO_PROTOCOL) setProtocolCommand(protocol) else it }
+
+    /**
+     * What to send before retrying after the first data request answered with a bus error. With a
+     * remembered fixed protocol the first failure falls back to the automatic search (`ATSP0`:
+     * the dongle may be in another car, or the car's bus changed); afterwards (and always under
+     * `ATSP0`) the usual `ATPC` protocol close.
+     */
+    fun recoveryCommandAfterBusError(fixedProtocol: Boolean, attempt: Int): String =
+        if (fixedProtocol && attempt == 1) CMD_AUTO_PROTOCOL else CMD_PROTOCOL_CLOSE
 
     /** The nominal full init sequence: one reset followed by [configurationCommands]. */
     val initializationCommands: List<String> = listOf(CMD_RESET) + configurationCommands

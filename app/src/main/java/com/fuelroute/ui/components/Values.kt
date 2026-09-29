@@ -42,7 +42,7 @@ fun HeroValue(
             )
         }
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(Dimens.s)) {
-            Text(text = value, style = valueStyle, color = color, maxLines = 1)
+            Text(text = value, style = valueStyle, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
             unit?.let {
                 Text(
                     text = it,

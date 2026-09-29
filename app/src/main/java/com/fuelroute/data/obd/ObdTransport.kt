@@ -14,6 +14,12 @@ interface ObdTransport {
     val deviceName: String
 
     /**
+     * Bluetooth address of the dongle, or null for fakes/simulations. Keys per-dongle state such
+     * as the remembered bus protocol ([ObdProtocolMemory]).
+     */
+    val address: String? get() = null
+
+    /**
      * True when this transport produces a synthetic drive cycle (the "הדגמה" demo)
      * rather than reading a real vehicle, so the recorded trip can be flagged as such.
      */

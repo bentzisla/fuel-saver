@@ -3,7 +3,6 @@ package com.fuelroute.ui.stats
 import android.Manifest
 import android.os.Build
 import android.view.WindowManager
-import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -48,7 +47,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fuelroute.R
-import com.fuelroute.data.obd.LiveObdState
 import com.fuelroute.data.obd.ObdConnectStage
 import com.fuelroute.data.obd.ObdStatus
 import com.fuelroute.data.price.FuelGrades
@@ -76,6 +74,7 @@ import com.fuelroute.ui.components.StatusDot
 import com.fuelroute.ui.components.fmt
 import com.fuelroute.ui.components.formatDateTime
 import com.fuelroute.ui.components.money
+import com.fuelroute.ui.messages.rememberUserMessages
 import com.fuelroute.ui.permission.PermissionGate
 import com.fuelroute.ui.permission.findActivity
 import com.fuelroute.ui.theme.FuelTheme
@@ -104,7 +103,11 @@ fun StatsScreen(
     onOpenHistory: (tripId: Long?) -> Unit = {},
     viewModel: StatsViewModel = hiltViewModel(),
 ) {
-    val state by viewModel.live.collectAsStateWithLifecycle()
+    val connectionUi by viewModel.connectionUi.collectAsStateWithLifecycle()
+    val liveTelemetry by viewModel.liveTelemetry.collectAsStateWithLifecycle()
+    val engineUi by viewModel.engineUi.collectAsStateWithLifecycle()
+    val learnedUi by viewModel.learnedUi.collectAsStateWithLifecycle()
+    val diagnosticsUi by viewModel.diagnosticsUi.collectAsStateWithLifecycle()
     val devices by viewModel.devices.collectAsStateWithLifecycle()
     val connectingName by viewModel.connectingName.collectAsStateWithLifecycle()
     val trips by viewModel.trips.collectAsStateWithLifecycle()
@@ -114,6 +117,7 @@ fun StatsScreen(
     val settings by viewModel.settings.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
+    val userMessages = rememberUserMessages()
     val activity = remember(context) { context.findActivity() }
     var showResetConfirm by remember { mutableStateOf(false) }
     var showAllTrips by rememberSaveable { mutableStateOf(false) }
@@ -137,7 +141,7 @@ fun StatsScreen(
     LaunchedEffect(vinEvent) {
         val name = vinEvent ?: return@LaunchedEffect
         val label = name.ifBlank { context.getString(R.string.vehicle_untitled) }
-        Toast.makeText(context, context.getString(R.string.stats_vin_detected, label), Toast.LENGTH_LONG).show()
+        userMessages.show(R.string.stats_vin_detected, label)
         viewModel.consumeVinEvent()
     }
 
@@ -158,9 +162,9 @@ fun StatsScreen(
     val onPermissionsGranted: () -> Unit = remember(viewModel) { { viewModel.refreshDevices() } }
 
     // While the live dashboard is connected, optionally hold the screen on.
-    DisposableEffect(activity, settings.keepScreenOn, state.status) {
+    DisposableEffect(activity, settings.keepScreenOn, connectionUi.status) {
         val window = activity?.window
-        if (settings.keepScreenOn && state.status == ObdStatus.Connected) {
+        if (settings.keepScreenOn && connectionUi.status == ObdStatus.Connected) {
             window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         } else {
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -210,7 +214,7 @@ fun StatsScreen(
         ) {
             item(key = "connection") {
                 ConnectionCard(
-                    state = state,
+                    state = connectionUi,
                     connectingName = connectingName,
                     settings = settings,
                     devices = devices,
@@ -221,17 +225,17 @@ fun StatsScreen(
                 )
             }
 
-            if (state.status == ObdStatus.Connected) {
-                item(key = "live") { LiveDashboard(state = state, pricePerLiter = fuelPricePerLiter) }
-                item(key = "engine") { EngineSection(state = state, vehicle = activeVehicle) }
-                item(key = "learned") { LearnedSection(state = state) }
+            if (connectionUi.status == ObdStatus.Connected) {
+                item(key = "live") { LiveDashboard(state = liveTelemetry, pricePerLiter = fuelPricePerLiter) }
+                item(key = "engine") { EngineSection(state = engineUi, vehicle = activeVehicle) }
+                item(key = "learned") { LearnedSection(state = learnedUi) }
             }
 
             item(key = "diagnostics") {
                 DiagnosticsSection(
-                    state = state,
+                    state = diagnosticsUi,
                     settings = settings,
-                    initiallyExpanded = state.status == ObdStatus.Error,
+                    initiallyExpanded = connectionUi.status == ObdStatus.Error,
                     onReset = { showResetConfirm = true },
                 )
             }
@@ -291,7 +295,7 @@ fun StatsScreen(
  */
 @Composable
 private fun ConnectionCard(
-    state: LiveObdState,
+    state: ConnectionUiState,
     connectingName: String?,
     settings: AppSettings,
     devices: List<ObdDevice>,
@@ -383,7 +387,7 @@ private fun StatusLine(
 
 /** Stage + elapsed seconds while connecting; a hint that a powered-off dongle fails fast. */
 @Composable
-private fun ConnectingStatus(state: LiveObdState, connectingName: String?) {
+private fun ConnectingStatus(state: ConnectionUiState, connectingName: String?) {
     val sinceMs = state.connectingSinceMs
     var elapsedSec by remember(sinceMs) { mutableLongStateOf(0L) }
     LaunchedEffect(sinceMs) {
@@ -525,7 +529,7 @@ private fun VehicleMenu(
 
 /** The glanceable part: two big tiles and a row of three small ones. */
 @Composable
-private fun LiveDashboard(state: LiveObdState, pricePerLiter: Double) {
+private fun LiveDashboard(state: LiveTelemetryUiState, pricePerLiter: Double) {
     Column(verticalArrangement = Arrangement.spacedBy(Dimens.s)) {
         Row(horizontalArrangement = Arrangement.spacedBy(Dimens.s)) {
             LiveConsumptionTile(state = state, modifier = Modifier.weight(1f))
@@ -561,7 +565,7 @@ private fun LiveDashboard(state: LiveObdState, pricePerLiter: Double) {
 }
 
 @Composable
-private fun EngineSection(state: LiveObdState, vehicle: VehicleProfile?) {
+private fun EngineSection(state: EngineUiState, vehicle: VehicleProfile?) {
     val rangeKm = RangeEstimator.remainingRangeKm(
         tankCapacityL = vehicle?.tankCapacityL,
         levelPct = state.fuelLevelPct,
@@ -607,7 +611,7 @@ private fun EngineSection(state: LiveObdState, vehicle: VehicleProfile?) {
 }
 
 @Composable
-private fun LearnedSection(state: LiveObdState) {
+private fun LearnedSection(state: LearnedUiState) {
     ExpandableSection(
         title = stringResource(R.string.stats_learned),
         subtitle = "${fmt(state.totalDistanceKm, 1)} ${stringResource(R.string.route_units_km)}",
@@ -616,7 +620,7 @@ private fun LearnedSection(state: LiveObdState) {
             label = stringResource(R.string.stats_learned_distance),
             value = "${fmt(state.totalDistanceKm, 1)} ${stringResource(R.string.route_units_km)}",
         )
-        KeyValueRow(label = stringResource(R.string.stats_learned_bins), value = "${state.bins.size}")
+        KeyValueRow(label = stringResource(R.string.stats_learned_bins), value = "${state.binCount}")
         KeyValueRow(label = stringResource(R.string.stats_samples), value = "${state.sampleCount}")
     }
 }
@@ -627,7 +631,7 @@ private fun LearnedSection(state: LiveObdState) {
  */
 @Composable
 private fun DiagnosticsSection(
-    state: LiveObdState,
+    state: DiagnosticsUiState,
     settings: AppSettings,
     initiallyExpanded: Boolean,
     onReset: () -> Unit,
@@ -653,8 +657,8 @@ private fun DiagnosticsSection(
         state.vin?.takeIf { it.isNotBlank() }?.let {
             KeyValueRow(label = stringResource(R.string.stats_vin), value = it)
         }
-        if (state.supportedPids.isNotEmpty()) {
-            KeyValueRow(label = stringResource(R.string.stats_pids_label), value = "${state.supportedPids.size}")
+        if (state.supportedPidsCount > 0) {
+            KeyValueRow(label = stringResource(R.string.stats_pids_label), value = "${state.supportedPidsCount}")
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         Text(text = stringResource(R.string.settings_auto_logging_title), style = MaterialTheme.typography.titleSmall)

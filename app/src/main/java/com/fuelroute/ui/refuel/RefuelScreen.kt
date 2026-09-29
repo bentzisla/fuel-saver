@@ -21,6 +21,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fuelroute.R
+import com.fuelroute.data.price.FuelGrades
 import com.fuelroute.domain.model.Refuel
 import com.fuelroute.ui.components.ConfirmDialog
 import com.fuelroute.ui.components.DASH
@@ -100,9 +101,13 @@ fun RefuelScreen(
                         color = MaterialTheme.colorScheme.primary,
                     )
                 }
-                if (state.calibrationClamped) {
+                state.lowCoverage?.let { notice ->
                     Text(
-                        text = stringResource(R.string.refuel_calibration_clamped),
+                        text = stringResource(
+                            R.string.refuel_calibration_low_coverage,
+                            fmt(notice.pumpedLitres, 1),
+                            fmt(notice.obdLitres, 1),
+                        ),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.error,
                     )
@@ -143,16 +148,41 @@ fun RefuelScreen(
             onDismiss = viewModel::dismissTankWarning,
         )
     }
+
+    state.pendingClamped?.let { pending ->
+        ConfirmDialog(
+            title = stringResource(R.string.refuel_calibration_clamped_title),
+            message = stringResource(
+                R.string.refuel_calibration_clamped_message,
+                fmt(pending.pumpedLitres, 1),
+                fmt(pending.obdLitres, 1),
+                fmt(pending.factor, 3),
+                fmt(state.correction, 3),
+            ),
+            confirmLabel = stringResource(R.string.refuel_calibration_clamped_apply),
+            dismissLabel = stringResource(R.string.refuel_calibration_clamped_keep),
+            destructive = false,
+            onConfirm = viewModel::applyClampedCalibration,
+            onDismiss = viewModel::discardClampedCalibration,
+        )
+    }
 }
 
 @Composable
 private fun RefuelRow(refuel: Refuel) {
+    val gradeLabel = refuel.grade?.let { " · " + stringResource(gradeLabelRes(it)) } ?: ""
     ListRow(
         title = formatDate(refuel.timestampMs),
         subtitle = "${fmt(refuel.liters, 1)} ${stringResource(R.string.vehicle_unit_liters)} · " +
             stringResource(if (refuel.isFull) R.string.refuel_full else R.string.refuel_partial) + " · " +
-            stringResource(R.string.refuel_price_per_liter, fmt(refuel.pricePerLiter, 2)),
+            stringResource(R.string.refuel_price_per_liter, fmt(refuel.pricePerLiter, 2)) + gradeLabel,
         modifier = Modifier.padding(horizontal = Dimens.s),
         trailing = { Text(text = money(refuel.totalPrice), style = MaterialTheme.typography.titleMedium) },
     )
+}
+
+private fun gradeLabelRes(grade: String): Int = when (grade) {
+    FuelGrades.GASOLINE_98 -> R.string.vehicle_grade_98
+    FuelGrades.DIESEL -> R.string.vehicle_grade_diesel
+    else -> R.string.vehicle_grade_95
 }

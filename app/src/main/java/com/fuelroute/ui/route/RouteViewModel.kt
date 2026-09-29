@@ -1,5 +1,6 @@
 package com.fuelroute.ui.route
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import android.util.Log
@@ -39,6 +40,7 @@ import com.fuelroute.domain.fuel.ModelConstants
 import com.fuelroute.domain.model.FuelType
 import com.fuelroute.domain.model.RouteCost
 import com.fuelroute.domain.model.SpeedPoint
+import com.fuelroute.domain.ranking.RouteConfidence
 import com.fuelroute.domain.ranking.RouteRanker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -105,9 +107,14 @@ class RouteViewModel @Inject constructor(
     private val tripLinker: TripLinker,
     private val coldStartRepository: ColdStartRepository,
     private val navigationPlanner: NavigationPlanner,
+    private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(RouteUiState())
+    // The search inputs and the selected alternative survive process death (primitives only,
+    // written back below); the routes themselves are not stored, the search is re-run instead.
+    private val restoredDestination = savedStateHandle.get<String>(KEY_DESTINATION).orEmpty()
+
+    private val _uiState = MutableStateFlow(restoreInputs(savedStateHandle))
     val uiState: StateFlow<RouteUiState> = _uiState.asStateFlow()
 
     /** Id of the route_search row written by the most recent compute(), if any. */
@@ -120,6 +127,10 @@ class RouteViewModel @Inject constructor(
     private val destinationQuery = MutableStateFlow("")
 
     init {
+        viewModelScope.launch {
+            _uiState.collect { state -> saveInputs(savedStateHandle, state) }
+        }
+
         viewModelScope.launch {
             settingsRepository.settings.first().let { settings ->
                 _uiState.update { it.copy(navigationApp = settings.navigationApp) }
@@ -174,6 +185,12 @@ class RouteViewModel @Inject constructor(
                         _uiState.update { it.copy(destinationSuggestions = suggestions) }
                     }
                 }
+        }
+
+        // Back after process death with a destination set: recompute the routes.
+        if (restoredDestination.isNotBlank()) {
+            val restoredIndex = _uiState.value.selectedIndex
+            runSearch(forceRefresh = false, restoreSelectedIndex = restoredIndex)
         }
     }
 
@@ -484,7 +501,7 @@ class RouteViewModel @Inject constructor(
     /** "רענן" — bypasses the routes cache. */
     fun refresh() = runSearch(forceRefresh = true)
 
-    private fun runSearch(forceRefresh: Boolean) {
+    private fun runSearch(forceRefresh: Boolean, restoreSelectedIndex: Int = 0) {
         val state = _uiState.value
         val origin = state.origin.trim()
         val destination = state.destination.trim()
@@ -510,7 +527,7 @@ class RouteViewModel @Inject constructor(
                 val curve = CurveBlender.blend(learned, fallback)
                 val fuelModel = FuelModel(
                     curve = curve,
-                    idleLitersPerHour = learned.idleLitersPerHour ?: overrides.effectiveIdleLphDefault,
+                    idleLitersPerHour = learned.blendedIdleLitersPerHour(overrides.effectiveIdleLphDefault),
                     overrides = overrides,
                     massKg = vehicle.massKg,
                     energyDensityMjPerL = when (vehicle.fuelType) {
@@ -537,7 +554,12 @@ class RouteViewModel @Inject constructor(
                 val coldStartStats = coldStartRepository.stats(vehicle.id)
                 val ranked = RouteRanker.rank(
                     routes.map {
-                        fuelModel.cost(it, fuelPrice, coldStartLiters = coldStartStats.effectiveExtraL)
+                        val cost = fuelModel.cost(
+                            it,
+                            fuelPrice,
+                            coldStartLiters = coldStartStats.effectiveExtraL(overrides.effectiveColdStartDefaultL),
+                        )
+                        cost.copy(learnedShare = RouteConfidence.learnedShare(cost, learned, fallback))
                     },
                     valuePerMinute = settings.valuePerMinute,
                 )
@@ -545,7 +567,7 @@ class RouteViewModel @Inject constructor(
                     it.copy(
                         isLoading = false,
                         results = ranked,
-                        selectedIndex = 0,
+                        selectedIndex = restoreSelectedIndex.coerceIn(0, (ranked.size - 1).coerceAtLeast(0)),
                         departureTimeMs = state.departureTimeMs,
                         learnedKm = learned.totalDistanceKm,
                         hasManualCurve = vehicle.manualCurve?.size?.let { it >= 2 } ?: false,
@@ -591,6 +613,7 @@ class RouteViewModel @Inject constructor(
                                 destinationPlaceId = state.destinationPlaceId,
                                 destinationLat = state.destinationLocation?.latitude,
                                 destinationLng = state.destinationLocation?.longitude,
+                                fuelCorrectionAtSearch = overrides.effectiveFuelCorrection,
                             ),
                         )
                     }
@@ -649,4 +672,48 @@ class RouteViewModel @Inject constructor(
     private fun manualCurveOf(manualCurve: List<SpeedPoint>?): ConsumptionCurve? = manualCurve
         ?.takeIf { it.size >= 2 }
         ?.let { runCatching { ConsumptionCurve(it) }.getOrNull() }
+}
+private const val KEY_ORIGIN = "origin"
+private const val KEY_DESTINATION = "destination"
+private const val KEY_ORIGIN_PLACE_ID = "originPlaceId"
+private const val KEY_DESTINATION_PLACE_ID = "destinationPlaceId"
+private const val KEY_ORIGIN_LAT = "originLat"
+private const val KEY_ORIGIN_LNG = "originLng"
+private const val KEY_DESTINATION_LAT = "destinationLat"
+private const val KEY_DESTINATION_LNG = "destinationLng"
+private const val KEY_ORIGIN_IS_CURRENT = "originIsCurrentLocation"
+private const val KEY_ORIGIN_ADDRESS = "originAddress"
+private const val KEY_SELECTED_INDEX = "selectedIndex"
+
+private fun coordinatesOf(handle: SavedStateHandle, latKey: String, lngKey: String): Coordinates? {
+    val lat = handle.get<Double>(latKey) ?: return null
+    val lng = handle.get<Double>(lngKey) ?: return null
+    return Coordinates(lat, lng)
+}
+
+/** The search inputs stored by [saveInputs] (all defaults on a fresh start). */
+internal fun restoreInputs(handle: SavedStateHandle): RouteUiState = RouteUiState(
+    origin = handle.get<String>(KEY_ORIGIN).orEmpty(),
+    destination = handle.get<String>(KEY_DESTINATION).orEmpty(),
+    originPlaceId = handle.get<String>(KEY_ORIGIN_PLACE_ID),
+    destinationPlaceId = handle.get<String>(KEY_DESTINATION_PLACE_ID),
+    originLocation = coordinatesOf(handle, KEY_ORIGIN_LAT, KEY_ORIGIN_LNG),
+    destinationLocation = coordinatesOf(handle, KEY_DESTINATION_LAT, KEY_DESTINATION_LNG),
+    originIsCurrentLocation = handle.get<Boolean>(KEY_ORIGIN_IS_CURRENT) ?: false,
+    originAddress = handle.get<String>(KEY_ORIGIN_ADDRESS),
+    selectedIndex = handle.get<Int>(KEY_SELECTED_INDEX) ?: 0,
+)
+
+internal fun saveInputs(handle: SavedStateHandle, state: RouteUiState) {
+    handle[KEY_ORIGIN] = state.origin
+    handle[KEY_DESTINATION] = state.destination
+    handle[KEY_ORIGIN_PLACE_ID] = state.originPlaceId
+    handle[KEY_DESTINATION_PLACE_ID] = state.destinationPlaceId
+    handle[KEY_ORIGIN_LAT] = state.originLocation?.latitude
+    handle[KEY_ORIGIN_LNG] = state.originLocation?.longitude
+    handle[KEY_DESTINATION_LAT] = state.destinationLocation?.latitude
+    handle[KEY_DESTINATION_LNG] = state.destinationLocation?.longitude
+    handle[KEY_ORIGIN_IS_CURRENT] = state.originIsCurrentLocation
+    handle[KEY_ORIGIN_ADDRESS] = state.originAddress
+    handle[KEY_SELECTED_INDEX] = state.selectedIndex
 }

@@ -15,8 +15,10 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.fuelroute.MainActivity
 import com.fuelroute.R
+import com.fuelroute.data.obd.ObdDongleSession
 import com.fuelroute.data.obd.ObdEngine
 import com.fuelroute.data.obd.ObdPresenceProbe
+import com.fuelroute.data.settings.ObdLinkStore
 import com.fuelroute.data.settings.SettingsRepository
 import com.fuelroute.domain.obd.ObdProbePolicy
 import dagger.hilt.EntryPoint
@@ -41,6 +43,7 @@ import javax.inject.Singleton
 class ObdProbeRunner @Inject constructor(
     @ApplicationContext private val context: Context,
     private val settingsRepository: SettingsRepository,
+    private val linkStore: ObdLinkStore,
     private val engine: ObdEngine,
     private val probe: ObdPresenceProbe,
 ) {
@@ -56,17 +59,29 @@ class ObdProbeRunner @Inject constructor(
             hasDevice = !address.isNullOrBlank(),
             hasPermission = BluetoothAclReceiver.hasBluetoothPermission(context),
             bluetoothOn = bluetoothOn,
-            loggingActive = ObdLoggingService.isLogging || engine.isRunning,
+            loggingActive = ObdLoggingService.isLogging || engine.isRunning || ObdDongleSession.isEngineActive,
         )
         if (skip != null || address == null) {
             Log.d(TAG, "OBD probe skipped: $skip")
             settingsRepository.saveProbeResult(nowMs, skip?.name ?: "NO_DEVICE", settings.probeAbsentSinceMs)
+            // A drive is being logged: the next probe after it starts from the normal interval.
+            if (skip == ObdProbePolicy.Skip.ALREADY_LOGGING) linkStore.saveProbeStreaks(ObdLinkStore.ProbeStreaks())
             return
         }
 
-        val outcome = probe.probe(address)
+        val streaks = linkStore.probeStreaks()
+        val knownProtocol = linkStore.protocols()[address.uppercase()]
+        val outcome = probe.probe(address, knownProtocol, streaks.off)
+        linkStore.saveProbeStreaks(
+            ObdLinkStore.ProbeStreaks(
+                quiet = ObdProbePolicy.nextQuietStreak(streaks.quiet, outcome),
+                off = ObdProbePolicy.nextOffStreak(streaks.off, outcome),
+            ),
+        )
         val absentSinceMs = if (outcome == ObdProbePolicy.Outcome.ABSENT) settings.probeAbsentSinceMs ?: nowMs else null
-        settingsRepository.saveProbeResult(nowMs, outcome.name, absentSinceMs)
+        // A probe that yielded to the engine means logging took over (shown as such in Settings).
+        val recorded = if (outcome == ObdProbePolicy.Outcome.YIELDED) ObdProbePolicy.Skip.ALREADY_LOGGING.name else outcome.name
+        settingsRepository.saveProbeResult(nowMs, recorded, absentSinceMs)
 
         val action = ObdProbePolicy.afterProbe(
             outcome = outcome,
@@ -86,7 +101,7 @@ class ObdProbeRunner @Inject constructor(
     /**
      * Starts the logging service. Android only lets a background app start a foreground service
      * in exempt cases (here: the battery-optimization exemption Settings offers). When that is
-     * missing, a silent notification lets the user start it with one tap instead.
+     * missing, a heads-up notification lets the user start it with one tap instead.
      */
     private fun startLogging(address: String) {
         try {
@@ -99,16 +114,24 @@ class ObdProbeRunner @Inject constructor(
         }
     }
 
+    /**
+     * "Drive detected — tap to start logging" on a dedicated high-importance channel. The tap (and
+     * the action button) opens [MainActivity] with [EXTRA_START_ADDRESS]; the activity is then in
+     * the foreground, so it may start the logging service.
+     */
     private fun notifyDriveDetected(address: String) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        runCatching { manager.deleteNotificationChannel(ObdProbePolicy.LEGACY_FALLBACK_CHANNEL_ID) }
         manager.createNotificationChannel(
             NotificationChannel(
-                CHANNEL_ID,
-                context.getString(R.string.probe_notification_channel),
-                NotificationManager.IMPORTANCE_LOW,
-            ),
+                ObdProbePolicy.FALLBACK_CHANNEL_ID,
+                context.getString(R.string.probe_alert_channel),
+                NotificationManager.IMPORTANCE_HIGH,
+            ).apply {
+                description = context.getString(R.string.probe_alert_channel_description)
+            },
         )
-        val tap = PendingIntent.getActivity(
+        val start = PendingIntent.getActivity(
             context,
             REQUEST_START,
             Intent(context, MainActivity::class.java)
@@ -117,11 +140,16 @@ class ObdProbeRunner @Inject constructor(
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+        val notification = NotificationCompat.Builder(context, ObdProbePolicy.FALLBACK_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(context.getString(R.string.probe_notification_title))
             .setContentText(context.getString(R.string.probe_notification_text))
-            .setContentIntent(tap)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setContentIntent(start)
+            .addAction(0, context.getString(R.string.probe_notification_action_start), start)
+            .setOnlyAlertOnce(true)
+            .setTimeoutAfter(ObdProbePolicy.FALLBACK_NOTIFICATION_TIMEOUT_MS)
             .setAutoCancel(true)
             .build()
         runCatching { manager.notify(NOTIFICATION_ID, notification) }
@@ -129,7 +157,6 @@ class ObdProbeRunner @Inject constructor(
 
     companion object {
         private const val TAG = "FuelRoute"
-        private const val CHANNEL_ID = "obd_drive_detected"
         const val NOTIFICATION_ID = 2
         private const val REQUEST_START = 3
 
@@ -141,8 +168,9 @@ class ObdProbeRunner @Inject constructor(
 /**
  * Runs [ObdProbeRunner] and queues the next run. WorkManager's periodic work cannot repeat faster
  * than every 15 minutes, so the probe is a chain of one-time works, each appending the next with
- * the configured delay. The chain survives reboots and app updates with the rest of WorkManager's
- * queue; [ObdProbeScheduler.ensureScheduled] restarts it after a force-stop.
+ * the configured delay (stretched by [ObdProbePolicy.nextDelayMin] while the car stays parked or
+ * away). The chain survives reboots and app updates with the rest of WorkManager's queue;
+ * [ObdProbeScheduler.ensureScheduled] restarts it after a force-stop.
  */
 class ObdProbeWorker(
     appContext: Context,
@@ -180,13 +208,35 @@ interface ObdProbeEntryPoint {
 class ObdProbeScheduler @Inject constructor(
     private val workManager: WorkManager,
     private val settingsRepository: SettingsRepository,
+    private val linkStore: ObdLinkStore,
 ) {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** App start: make sure a chain exists (keeps a pending one untouched). */
     fun ensureScheduled() {
-        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+        scope.launch {
             runCatching { apply(ExistingWorkPolicy.KEEP) }
                 .onFailure { Log.e("FuelRoute", "OBD probe scheduling failed", it) }
+        }
+    }
+
+    /**
+     * The user is around (the app was opened, or the dongle's ACL link came up outside a probe):
+     * end the quiet-probe backoff, and when it had stretched the interval, restart the chain with
+     * the normal one so a drive starting now is not missed for up to 30 minutes.
+     */
+    fun resetBackoff() {
+        scope.launch {
+            runCatching {
+                val streaks = linkStore.probeStreaks()
+                if (streaks.quiet == 0) return@runCatching
+                linkStore.saveProbeStreaks(streaks.copy(quiet = 0))
+                val interval = settingsRepository.settings.first().obdProbeIntervalMin
+                if (ObdProbePolicy.isBackedOff(interval, streaks.quiet)) {
+                    Log.i("FuelRoute", "OBD probe: backoff reset after ${streaks.quiet} quiet probes")
+                    apply(ExistingWorkPolicy.REPLACE)
+                }
+            }.onFailure { Log.e("FuelRoute", "OBD probe backoff reset failed", it) }
         }
     }
 
@@ -202,8 +252,9 @@ class ObdProbeScheduler @Inject constructor(
             workManager.cancelUniqueWork(ObdProbeWorker.WORK_NAME)
             return
         }
+        val delayMin = ObdProbePolicy.nextDelayMin(settings.obdProbeIntervalMin, linkStore.probeStreaks().quiet)
         val request = OneTimeWorkRequestBuilder<ObdProbeWorker>()
-            .setInitialDelay(ObdProbePolicy.clampIntervalMin(settings.obdProbeIntervalMin).toLong(), TimeUnit.MINUTES)
+            .setInitialDelay(delayMin.toLong(), TimeUnit.MINUTES)
             .build()
         workManager.enqueueUniqueWork(ObdProbeWorker.WORK_NAME, policy, request)
     }

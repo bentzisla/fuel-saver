@@ -1,6 +1,7 @@
 package com.fuelroute.data.backup
 
 import com.fuelroute.data.db.FavoriteDestinationEntity
+import com.fuelroute.data.db.FavoriteObdDeviceEntity
 import com.fuelroute.data.db.LearningExtrasEntity
 import com.fuelroute.data.db.RefuelEntity
 import com.fuelroute.data.db.RouteSearchEntity
@@ -38,6 +39,7 @@ data class BackupPayload(
      */
     val modelOverrides: FuelModelOverrides? = null,
     val prices: List<PriceSnapshot> = emptyList(),
+    val favoriteObdDevices: List<FavoriteObdDeviceSnapshot> = emptyList(),
 )
 
 @Serializable
@@ -107,6 +109,7 @@ data class RefuelSnapshot(
     val isFull: Boolean,
     val pricePerLiter: Double = 0.0,
     val grade: String = "95",
+    val obdCorrectionAtFill: Double? = null,
 )
 
 @Serializable
@@ -130,6 +133,7 @@ data class RouteSearchSnapshot(
     val destinationPlaceId: String? = null,
     val destinationLat: Double? = null,
     val destinationLng: Double? = null,
+    val fuelCorrectionAtSearch: Double? = null,
 )
 
 @Serializable
@@ -146,6 +150,14 @@ data class FavoriteSnapshot(
     val placeId: String? = null,
     val latitude: Double? = null,
     val longitude: Double? = null,
+    val sortOrder: Int = 0,
+    val createdAtMs: Long,
+)
+
+@Serializable
+data class FavoriteObdDeviceSnapshot(
+    val address: String,
+    val name: String,
     val sortOrder: Int = 0,
     val createdAtMs: Long,
 )
@@ -272,6 +284,7 @@ fun RefuelEntity.toSnapshot() = RefuelSnapshot(
     isFull = isFull,
     pricePerLiter = pricePerLiter,
     grade = grade,
+    obdCorrectionAtFill = obdCorrectionAtFill,
 )
 
 fun RefuelSnapshot.toEntity() = RefuelEntity(
@@ -283,6 +296,7 @@ fun RefuelSnapshot.toEntity() = RefuelEntity(
     isFull = isFull,
     pricePerLiter = pricePerLiter,
     grade = grade,
+    obdCorrectionAtFill = obdCorrectionAtFill,
 )
 
 fun RouteSearchEntity.toSnapshot() = RouteSearchSnapshot(
@@ -305,6 +319,7 @@ fun RouteSearchEntity.toSnapshot() = RouteSearchSnapshot(
     destinationPlaceId = destinationPlaceId,
     destinationLat = destinationLat,
     destinationLng = destinationLng,
+    fuelCorrectionAtSearch = fuelCorrectionAtSearch,
 )
 
 fun RouteSearchSnapshot.toEntity() = RouteSearchEntity(
@@ -328,6 +343,7 @@ fun RouteSearchSnapshot.toEntity() = RouteSearchEntity(
     destinationPlaceId = destinationPlaceId,
     destinationLat = destinationLat,
     destinationLng = destinationLng,
+    fuelCorrectionAtSearch = fuelCorrectionAtSearch,
 )
 
 fun LearningExtrasEntity.toSnapshot() = LearningExtrasSnapshot(
@@ -360,6 +376,21 @@ fun FavoriteSnapshot.toEntity() = FavoriteDestinationEntity(
     placeId = placeId,
     latitude = latitude,
     longitude = longitude,
+    sortOrder = sortOrder,
+    createdAtMs = createdAtMs,
+)
+
+fun FavoriteObdDeviceEntity.toSnapshot() = FavoriteObdDeviceSnapshot(
+    address = address,
+    name = name,
+    sortOrder = sortOrder,
+    createdAtMs = createdAtMs,
+)
+
+/** Imported OBD devices use address as the primary key; dedupe happens by device address. */
+fun FavoriteObdDeviceSnapshot.toEntity() = FavoriteObdDeviceEntity(
+    address = address,
+    name = name,
     sortOrder = sortOrder,
     createdAtMs = createdAtMs,
 )

@@ -18,6 +18,26 @@ interface ElevationRepository {
 
     companion object {
         const val DEFAULT_SAMPLES = 32
+
+        /** Target spacing between elevation samples along the route. */
+        const val SAMPLE_SPACING_M = 250.0
+
+        /** Minimum samples per route, so short routes still resolve their step boundaries. */
+        const val MIN_SAMPLES = 16
+
+        /**
+         * Google's per-request cap on `samples` for a path request. One request at this cap is
+         * enough (routes over ~128 km get coarser than [SAMPLE_SPACING_M]), so no request split
+         * is needed; the elevation API bills per request, not per sample.
+         */
+        const val MAX_SAMPLES = 512
+
+        /** About one sample per [SAMPLE_SPACING_M] of [distanceMeters], in [MIN_SAMPLES]..[MAX_SAMPLES]. */
+        fun samplesFor(distanceMeters: Double): Int {
+            if (!distanceMeters.isFinite() || distanceMeters <= 0.0) return MIN_SAMPLES
+            val wanted = kotlin.math.ceil(distanceMeters / SAMPLE_SPACING_M) + 1.0
+            return wanted.coerceIn(MIN_SAMPLES.toDouble(), MAX_SAMPLES.toDouble()).toInt()
+        }
     }
 }
 
@@ -32,10 +52,11 @@ class GoogleElevationRepository @Inject constructor(
 
     override suspend fun profile(encodedPolyline: String, samples: Int): List<Double>? {
         if (encodedPolyline.isBlank() || samples < 2) return null
+        val requested = samples.coerceAtMost(ElevationRepository.MAX_SAMPLES)
         return try {
             val response = service.elevation(
                 path = "enc:$encodedPolyline",
-                samples = samples,
+                samples = requested,
                 apiKey = BuildConfig.ELEVATION_API_KEY,
             )
             if (response.status != "OK") {

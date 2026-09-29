@@ -6,6 +6,7 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket
 import android.os.SystemClock
 import android.util.Log
+import com.fuelroute.BuildConfig
 import com.fuelroute.domain.obd.ElmLinkFailure
 import com.fuelroute.domain.obd.ObdConnectionPolicy
 import com.fuelroute.domain.obd.ObdProbePolicy
@@ -47,8 +48,8 @@ internal class ObdConnectException(
  *  - [disconnect] also aborts a connect that is still in flight.
  *
  * Exchanges go through [ElmLink], whose per-command deadline really fires (it closes the
- * socket to unblock the read). Every connect step and raw command/reply is logged under the
- * `FuelRoute` tag: `adb logcat -s FuelRoute:*`.
+ * socket to unblock the read). Every connect step and link failure is logged under the
+ * `FuelRoute` tag (`adb logcat -s FuelRoute:*`); the raw command/reply traffic only in debug builds.
  *
  * [probe] mode is the background presence check ([ObdProbePolicy]): a single pass, the socket type
  * that worked last time first, a shorter deadline, and no further variants once a failure looks
@@ -87,7 +88,7 @@ class BluetoothClassicTransport(
             device.address
         }
 
-    private val address: String
+    override val address: String
         get() = device.address
 
     /**
@@ -114,6 +115,10 @@ class BluetoothClassicTransport(
             lastLinkFailure = old.lastFailure
         }
         link = null
+
+        // The logging engine owns the dongle from its connect until its disconnect: a background
+        // probe holding the socket right now is aborted and must let go first (the probe yields).
+        if (!probe) ObdDongleSession.claimForEngine(this)
 
         val gate = connectLock(address)
         if (gate.isLocked) Log.i(TAG, "connect $address: waiting for another in-flight connect")
@@ -147,6 +152,7 @@ class BluetoothClassicTransport(
             }
             val reason = classifyConnectError(lastError)
             Log.e(TAG, "connect $address: failed after $attempt attempt(s): $reason", lastError)
+            if (!probe) ObdDongleSession.releaseEngine(this@BluetoothClassicTransport)
             Result.failure(ObdConnectException(reason, lastError))
         }
     }
@@ -201,7 +207,9 @@ class BluetoothClassicTransport(
                         output = socket.outputStream,
                         label = "$address/$variant",
                         closeAction = { closeSocket(socket, null) },
-                        log = { Log.d(TAG, it) },
+                        log = { Log.i(TAG, it) },
+                        // Every command/reply only in debug builds; failures stay on `log`.
+                        trace = ElmLink.traceSink(BuildConfig.DEBUG) { Log.d(TAG, it) },
                     )
                     lastLinkFailure = null
                     Result.success(Unit)
@@ -322,10 +330,20 @@ class BluetoothClassicTransport(
      * connect lock: closing the socket is exactly what unblocks them.
      */
     override suspend fun disconnect() {
+        abort("disconnect()")
+        if (!probe) ObdDongleSession.releaseEngine(this)
+    }
+
+    /**
+     * Non-suspending [disconnect] core, callable from any thread: aborts an in-flight connect and
+     * closes the link (which makes a pending exchange return `""` at once). Used by the probe to
+     * yield the dongle to the engine ([ObdDongleSession]).
+     */
+    fun abort(reason: String) {
         epoch.incrementAndGet()
-        pendingSocket?.let { closeSocket(it, "disconnect() while connecting") }
+        pendingSocket?.let { closeSocket(it, "$reason while connecting") }
         link?.let { current ->
-            current.close("disconnect()")
+            current.close(reason)
             lastLinkFailure = current.lastFailure
         }
         link = null

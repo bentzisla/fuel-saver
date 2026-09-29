@@ -17,8 +17,20 @@ enum class TrafficResolution {
 data class RouteSegment(
     val distanceMeters: Double,
     val staticDurationSeconds: Double,
+    /**
+     * Time-equivalent (harmonic) speed factor of the whole step. [FuelModel] only uses it when
+     * the step carries no per-level breakdown ([slowMeters]/[jamMeters] both 0).
+     */
     val congestionFactor: Double = 1.0,
     val congestion: CongestionLevel = CongestionLevel.NORMAL,
+    /**
+     * Metres of this step Google reports as SLOW / TRAFFIC_JAM (the rest is NORMAL or uncovered),
+     * scaled to [distanceMeters]. When either is > 0, [FuelModel] costs the step as up to three
+     * sub-segments, each with its own speed, time and fuel, instead of one averaged speed, and
+     * the debug slow/jam overrides apply to exactly these lengths.
+     */
+    val slowMeters: Double = 0.0,
+    val jamMeters: Double = 0.0,
     /**
      * Net elevation change over this segment in meters (end minus start; positive = climb),
      * from the Google Elevation API sampled along the route polyline. Null when elevation data

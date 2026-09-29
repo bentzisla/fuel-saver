@@ -7,6 +7,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,6 +37,8 @@ import com.fuelroute.ui.curve.CurveScreen
 import com.fuelroute.ui.debug.CalibrationScreen
 import com.fuelroute.ui.history.HistoryScreen
 import com.fuelroute.ui.history.HistoryViewModel
+import com.fuelroute.ui.messages.rememberUserMessages
+import com.fuelroute.ui.messages.resolve
 import com.fuelroute.ui.onboarding.OnboardingScreen
 import com.fuelroute.ui.refuel.RefuelScreen
 import com.fuelroute.ui.route.RouteScreen
@@ -120,7 +124,19 @@ fun FuelRouteNavHost(openStats: Boolean = false) {
 
     val back: () -> Unit = { navController.popBackStack() }
 
+    // One app-wide Snackbar: screens post to UserMessages instead of showing their own Toasts.
+    val userMessages = rememberUserMessages()
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(userMessages) {
+        userMessages.messages.collect { message ->
+            // Newest message replaces the one on screen rather than queueing behind it.
+            snackbarHostState.currentSnackbarData?.dismiss()
+            launch { snackbarHostState.showSnackbar(message.resolve(context)) }
+        }
+    }
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             NavigationBar {
                 TopDestination.entries.forEach { destination ->
@@ -190,3 +206,4 @@ private fun NavHostController.navigateToTab(route: String) {
 interface OnboardingEntryPoint {
     fun settingsRepository(): SettingsRepository
 }
+

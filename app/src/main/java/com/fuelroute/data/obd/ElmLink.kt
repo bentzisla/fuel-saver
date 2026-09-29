@@ -39,7 +39,10 @@ import kotlin.coroutines.resume
  * exactly like a Bluetooth socket.
  *
  * @param closeAction closes the underlying socket (called once, from [close]).
- * @param log sink for raw traffic / diagnostics (`FuelRoute` logcat tag in production).
+ * @param log sink for link events worth keeping in every build: the link closing, failed or
+ *   timed-out exchanges (`FuelRoute` logcat tag in production).
+ * @param trace sink for the verbose per-exchange traffic (every command, reply and drained stale
+ *   byte). Production passes a no-op outside debug builds (see [traceSink]); defaults to [log].
  */
 class ElmLink(
     private val input: InputStream,
@@ -47,6 +50,7 @@ class ElmLink(
     private val label: String,
     private val closeAction: () -> Unit = {},
     private val log: (String) -> Unit = {},
+    private val trace: (String) -> Unit = log,
 ) {
     private val closed = AtomicBoolean(false)
 
@@ -90,13 +94,13 @@ class ElmLink(
         return exchangeMutex.withLock {
             if (!isOpen) return@withLock failed(ElmLinkFailure.LINK_CLOSED, command)
             val startedNs = System.nanoTime()
-            log("ELM>> ${printable(command)}")
+            trace("ELM>> ${printable(command)}")
             val outcome = withTimeoutOrNull(timeoutMs) { runOnIoThread(command, timeoutMs) }
             val elapsedMs = (System.nanoTime() - startedNs) / 1_000_000
             when {
                 outcome is Outcome.Reply -> {
                     lastFailure = null
-                    log("ELM<< ${printable(outcome.text)} (${elapsedMs}ms)")
+                    trace("ELM<< ${printable(outcome.text)} (${elapsedMs}ms)")
                     outcome.text
                 }
                 outcome is Outcome.Failed -> {
@@ -126,7 +130,7 @@ class ElmLink(
         if (!isOpen) return failed(ElmLinkFailure.LINK_CLOSED, command)
         return exchangeMutex.withLock {
             if (!isOpen) return@withLock failed(ElmLinkFailure.LINK_CLOSED, command)
-            log("ELM>> ${printable(command)} (soft, ${timeoutMs}ms)")
+            trace("ELM>> ${printable(command)} (soft, ${timeoutMs}ms)")
             val startedNs = System.nanoTime()
             val buffer = StringBuilder()
             var promptSeen = false
@@ -168,7 +172,7 @@ class ElmLink(
             if (failure != null) return@withLock failed(failure, command)
             lastFailure = null
             val suffix = if (promptSeen) "" else " [no prompt — soft timeout, link kept]"
-            log("ELM<< ${printable(buffer.toString())} (${elapsedMs}ms)$suffix")
+            trace("ELM<< ${printable(buffer.toString())} (${elapsedMs}ms)$suffix")
             if (promptSeen) buffer.append('>')
             buffer.toString()
         }
@@ -260,12 +264,22 @@ class ElmLink(
             if (b < 0) break
             stale.append(b.toChar())
         }
-        if (stale.isNotEmpty()) log("ELM drained stale bytes: ${printable(stale.toString())}")
+        if (stale.isNotEmpty()) trace("ELM drained stale bytes: ${printable(stale.toString())}")
     }
 
     companion object {
         private const val MAX_LOG_CHARS = 200
         private const val SOFT_POLL_MS = 10L
+
+        /**
+         * The per-exchange [trace] sink for a build: [sink] when verbose traffic logging is
+         * [enabled] (debug builds), else a no-op, so release builds do not write every ELM
+         * command and reply to logcat. Link failures still go through `log`.
+         */
+        fun traceSink(enabled: Boolean, sink: (String) -> Unit): (String) -> Unit =
+            if (enabled) sink else NO_TRACE
+
+        private val NO_TRACE: (String) -> Unit = {}
 
         /** Makes CR/LF and control bytes visible in logcat (raw replies are the diagnosis). */
         fun printable(raw: String): String {

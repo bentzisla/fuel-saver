@@ -9,15 +9,18 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Fuel pumped and OBD-measured between the two most recent full refuels. [pumpedLitres] is
- * the amount added at the latest full refuel (tank-to-tank method); [obdLitres] is the sum
- * of the trip fuel recorded in between.
+ * Fuel pumped and OBD-measured between the two most recent full refuels (tank-to-tank method).
+ * [pumpedLitres] is every fill after the previous full one up to and including the latest full
+ * one (partial top-ups in between were burned too); [obdLitres] is the trip fuel recorded in
+ * between. [activeCorrection] is the OBD fuel-rate correction those trips were logged with, when
+ * the latest fill recorded it (null for fills from before v11).
  */
 data class FullRefuelInterval(
     val pumpedLitres: Double,
     val obdLitres: Double,
     val fromTimestampMs: Long,
     val toTimestampMs: Long,
+    val activeCorrection: Double? = null,
 )
 
 interface RefuelRepository {
@@ -25,9 +28,17 @@ interface RefuelRepository {
 
     /**
      * Records one refuel. [pricePerLiter] is derived from [totalPrice] / [liters]; [grade] is the
-     * active vehicle's fuel grade at the time of the fill.
+     * active vehicle's fuel grade at the time of the fill; [obdCorrection] the vehicle's OBD
+     * fuel-rate correction at that time (see [FullRefuelInterval.activeCorrection]).
      */
-    suspend fun add(liters: Double, totalPrice: Double, isFull: Boolean, vehicleId: String, grade: String)
+    suspend fun add(
+        liters: Double,
+        totalPrice: Double,
+        isFull: Boolean,
+        vehicleId: String,
+        grade: String,
+        obdCorrection: Double? = null,
+    )
     suspend fun totalFullLiters(vehicleId: String): Double
     suspend fun totalObdFuel(vehicleId: String): Double
 
@@ -51,6 +62,7 @@ class DefaultRefuelRepository @Inject constructor(
         isFull: Boolean,
         vehicleId: String,
         grade: String,
+        obdCorrection: Double?,
     ) {
         refuelDao.insert(
             RefuelEntity(
@@ -61,6 +73,7 @@ class DefaultRefuelRepository @Inject constructor(
                 isFull = isFull,
                 pricePerLiter = if (liters > 0.0) totalPrice / liters else 0.0,
                 grade = grade,
+                obdCorrectionAtFill = obdCorrection,
             ),
         )
     }
@@ -77,10 +90,13 @@ class DefaultRefuelRepository @Inject constructor(
         val previous = fulls[fulls.size - 2]
         val latest = fulls[fulls.size - 1]
         return FullRefuelInterval(
-            pumpedLitres = latest.liters,
+            // Not just the latest fill: partial top-ups since the previous full fill were burned
+            // in this interval too, and the OBD litres below include their fuel.
+            pumpedLitres = refuelDao.litersBetween(vehicleId, previous.timestampMs, latest.timestampMs),
             obdLitres = tripDao.fuelBetween(vehicleId, previous.timestampMs, latest.timestampMs),
             fromTimestampMs = previous.timestampMs,
             toTimestampMs = latest.timestampMs,
+            activeCorrection = latest.obdCorrectionAtFill,
         )
     }
 
@@ -91,5 +107,6 @@ class DefaultRefuelRepository @Inject constructor(
         liters = liters,
         totalPrice = totalPrice,
         isFull = isFull,
+        grade = grade,
     )
 }

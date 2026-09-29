@@ -5,7 +5,6 @@ import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Context
 import android.content.pm.PackageManager
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
@@ -107,6 +106,8 @@ import com.fuelroute.ui.components.fmt
 import com.fuelroute.ui.components.formatTime
 import com.fuelroute.ui.components.money
 import com.fuelroute.ui.favorites.FavoritesScreen
+import com.fuelroute.ui.messages.UserMessages
+import com.fuelroute.ui.messages.rememberUserMessages
 import com.fuelroute.ui.theme.FuelTheme
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -134,6 +135,7 @@ fun RouteScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val userMessages = rememberUserMessages()
     var showDetail by rememberSaveable { mutableStateOf(false) }
     var showManageDestinations by rememberSaveable { mutableStateOf(false) }
     var editingSearch by rememberSaveable { mutableStateOf(false) }
@@ -155,7 +157,7 @@ fun RouteScreen(
     val departLinkFeedback = state.departLinkFeedback
     LaunchedEffect(departLinkFeedback) {
         departLinkFeedback?.let { resId ->
-            Toast.makeText(context, context.getString(resId), Toast.LENGTH_SHORT).show()
+            userMessages.show(resId)
             viewModel.clearDepartLinkFeedback()
         }
     }
@@ -200,7 +202,7 @@ fun RouteScreen(
         val needsPlanning = cost.route.id != DEFAULT_ROUTE_ID
         if (needsPlanning) {
             navPreparing = true
-            Toast.makeText(context, R.string.route_nav_preparing, Toast.LENGTH_SHORT).show()
+            userMessages.show(R.string.route_nav_preparing)
         }
         navScope.launch {
             val plan = if (needsPlanning) viewModel.planNavigation(cost) else NavPlan(emptyList(), exact = true)
@@ -210,7 +212,7 @@ fun RouteScreen(
                 // navigating a different route than the one that was recommended.
                 wazePrompt = PendingWazeHandOff(state, plan)
             } else {
-                launchNavigation(context, state, plan)
+                launchNavigation(context, userMessages, state, plan)
             }
         }
     }
@@ -223,13 +225,13 @@ fun RouteScreen(
             confirmButton = {
                 TextButton(onClick = {
                     wazePrompt = null
-                    launchNavigation(context, pending.state.copy(navigationApp = NAV_GOOGLE), pending.plan)
+                    launchNavigation(context, userMessages, pending.state.copy(navigationApp = NAV_GOOGLE), pending.plan)
                 }) { Text(stringResource(R.string.route_waze_prompt_google)) }
             },
             dismissButton = {
                 TextButton(onClick = {
                     wazePrompt = null
-                    launchNavigation(context, pending.state, NavPlan(emptyList(), exact = true))
+                    launchNavigation(context, userMessages, pending.state, NavPlan(emptyList(), exact = true))
                 }) { Text(stringResource(R.string.route_waze_prompt_waze)) }
             },
         )
@@ -386,7 +388,7 @@ private data class PendingWazeHandOff(val state: RouteUiState, val plan: NavPlan
  * Hands the chosen route to Google Maps (the planned waypoints, usually none or one) or Waze
  * (destination only, Waze picks its own route).
  */
-private fun launchNavigation(context: Context, state: RouteUiState, plan: NavPlan) {
+private fun launchNavigation(context: Context, userMessages: UserMessages, state: RouteUiState, plan: NavPlan) {
     val originLocation = state.originLocation
     val origin = if (state.originIsCurrentLocation && originLocation != null) {
         NavDestination(
@@ -420,12 +422,8 @@ private fun launchNavigation(context: Context, state: RouteUiState, plan: NavPla
             waypoints = plan.waypoints.map { it.lat to it.lng },
         )
         when {
-            !plan.exact -> Toast.makeText(context, R.string.route_nav_approx, Toast.LENGTH_LONG).show()
-            plan.waypoints.isNotEmpty() -> Toast.makeText(
-                context,
-                context.getString(R.string.route_nav_via_points, plan.waypoints.size),
-                Toast.LENGTH_LONG,
-            ).show()
+            !plan.exact -> userMessages.show(R.string.route_nav_approx)
+            plan.waypoints.isNotEmpty() -> userMessages.show(R.string.route_nav_via_points, plan.waypoints.size)
         }
     }
 }
@@ -826,7 +824,11 @@ internal fun RouteHeadline(cost: RouteCost, comparison: RouteComparison?, etaMs:
     Column(verticalArrangement = Arrangement.spacedBy(Dimens.xs)) {
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(Dimens.m)) {
             Text(
-                text = money(cost.totalCost),
+                text = if (cost.route.tollUnknown) {
+                    stringResource(R.string.route_money_plus_toll, money(cost.totalCost))
+                } else {
+                    money(cost.totalCost)
+                },
                 style = MaterialTheme.typography.displaySmall,
             )
             Text(
@@ -843,10 +845,12 @@ internal fun RouteHeadline(cost: RouteCost, comparison: RouteComparison?, etaMs:
         )
         comparison?.let { TradeOffLine(it) }
         when {
+            // Prominent: the big number above leaves out a toll we cannot price.
             cost.route.tollUnknown -> Text(
-                text = stringResource(R.string.route_toll_unknown),
+                text = stringResource(R.string.route_cost_excludes_toll),
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.tertiary,
+                color = MaterialTheme.colorScheme.error,
+                fontWeight = FontWeight.SemiBold,
             )
             cost.tollCost > RouteHighlights.MONEY_EPSILON -> Text(
                 text = stringResource(R.string.route_total_includes_toll, fmt(cost.tollCost, 2)),
@@ -860,6 +864,14 @@ internal fun RouteHeadline(cost: RouteCost, comparison: RouteComparison?, etaMs:
 @Composable
 private fun TradeOffLine(comparison: RouteComparison) {
     val (text, color) = when {
+        // Within the model's error margin: no firm "cheapest" claim.
+        comparison.costTie && comparison.isFastest ->
+            stringResource(R.string.route_reason_similar_fastest) to FuelTheme.colors.positive
+        comparison.costTie ->
+            stringResource(
+                R.string.route_reason_similar_slower,
+                fmt(comparison.extraMinutesVsFastest, 0),
+            ) to MaterialTheme.colorScheme.onSurface
         comparison.noTradeOff ->
             stringResource(R.string.route_reason_both) to FuelTheme.colors.positive
         comparison.isCheapest && comparison.savingsVsFastest > RouteHighlights.MONEY_EPSILON ->
@@ -899,11 +911,16 @@ internal fun RoutePills(comparison: RouteComparison?, recommended: Boolean) {
         if (recommended) {
             StatusPill(text = stringResource(R.string.route_recommended), tone = PillTone.Positive)
         }
-        if (comparison?.isCheapest == true && !recommended) {
+        if (comparison?.costTie == true) {
+            StatusPill(text = stringResource(R.string.route_similar_cost), tone = PillTone.Neutral)
+        } else if (comparison?.isCheapest == true && !recommended) {
             StatusPill(text = stringResource(R.string.route_cheapest), tone = PillTone.Positive)
         }
         if (comparison?.isFastest == true) {
             StatusPill(text = stringResource(R.string.route_fastest), tone = PillTone.Accent)
+        }
+        if (comparison?.excludesToll == true) {
+            StatusPill(text = stringResource(R.string.route_toll_unknown), tone = PillTone.Caution)
         }
     }
 }
@@ -949,7 +966,14 @@ private fun AllRoutesCard(
                         )
                     }
                     Column(horizontalAlignment = Alignment.End) {
-                        Text(text = money(cost.totalCost), style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            text = if (cost.route.tollUnknown) {
+                                stringResource(R.string.route_money_plus_toll, money(cost.totalCost))
+                            } else {
+                                money(cost.totalCost)
+                            },
+                            style = MaterialTheme.typography.titleMedium,
+                        )
                         Text(
                             text = stringResource(R.string.route_duration_minutes, fmt(cost.durationMinutes, 0)),
                             style = MaterialTheme.typography.bodyMedium,
@@ -966,7 +990,9 @@ private fun AllRoutesCard(
 @Composable
 private fun compactDelta(comparison: RouteComparison?): String {
     if (comparison == null) return ""
-    val cost = if (comparison.isCheapest) {
+    val cost = if (comparison.costTie) {
+        stringResource(R.string.route_similar_cost)
+    } else if (comparison.isCheapest) {
         stringResource(R.string.route_cheapest)
     } else {
         stringResource(R.string.route_delta_cost_short, fmt(comparison.premiumVsCheapest, 2))

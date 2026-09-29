@@ -1,5 +1,6 @@
 package com.fuelroute.service
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -8,6 +9,8 @@ import android.app.Service
 import android.bluetooth.BluetoothAdapter
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.provider.Settings
@@ -21,6 +24,7 @@ import com.fuelroute.data.obd.LiveObdState
 import com.fuelroute.data.obd.ObdConnectStage
 import com.fuelroute.data.obd.ObdEngine
 import com.fuelroute.data.obd.ObdStatus
+import com.fuelroute.data.obd.ObdStopReason
 import com.fuelroute.data.obd.ObdTransport
 import com.fuelroute.data.obd.SimulatedObdTransport
 import com.fuelroute.data.settings.AppSettings
@@ -106,7 +110,15 @@ class ObdLoggingService : Service() {
             // consume this start so the system does not redeliver it.
             stopped = true
             logging = false
+            if (intent.getBooleanExtra(EXTRA_USER_STOP, false)) persistManualDisconnect()
             stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
+        // Every other start came through startForegroundService(): Android kills the app unless
+        // startForeground() is called before the service stops, so do that FIRST, whatever
+        // happens next (ignored redelivery, missing permission, unusable address).
+        if (!enterForeground()) {
             stopSelf(startId)
             return START_NOT_STICKY
         }
@@ -117,6 +129,7 @@ class ObdLoggingService : Service() {
             // must not re-arm logging. A fresh user connect calls start(), which sets
             // [freshStart] and lets this through.
             Log.i(TAG, "ignoring start intent after explicit stop")
+            if (!logging) stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf(startId)
             return START_NOT_STICKY
         }
@@ -130,6 +143,13 @@ class ObdLoggingService : Service() {
 
     private fun startLogging(address: String?, auto: Boolean) {
         if (logging) return
+        if (address != null && !hasBluetoothConnectPermission()) {
+            // Checked here, not only by the callers: the grant can be revoked at any time.
+            Log.w(TAG, "BLUETOOTH_CONNECT not granted — stopping logging service")
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return
+        }
         val transport: ObdTransport? = if (address == null) {
             SimulatedObdTransport()
         } else {
@@ -146,6 +166,7 @@ class ObdLoggingService : Service() {
         }
         if (transport == null) {
             Log.w(TAG, "no usable OBD transport — stopping logging service")
+            if (!logging) stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return
         }
@@ -170,7 +191,9 @@ class ObdLoggingService : Service() {
         activeVehicle = null
         acquireWakeLock()
 
-        startForeground(NOTIFICATION_ID, buildNotification(null, stale = false))
+        // Foreground was already entered in onStartCommand; reset the notification text.
+        getSystemService(NotificationManager::class.java)
+            .notify(NOTIFICATION_ID, buildNotification(null, stale = false))
 
         if (auto) {
             scope.launch { settingsRepository.saveLastAutoStart(System.currentTimeMillis()) }
@@ -206,9 +229,10 @@ class ObdLoggingService : Service() {
                 if (state.status == ObdStatus.Connecting || state.status == ObdStatus.Connected) {
                     sawData = true
                 }
-                if (state.status == ObdStatus.Connected) {
-                    // A successful connect clears the auto-reconnect budget so one long-running
-                    // session can recover from many separate drops.
+                if (ObdConnectionPolicy.shouldResetReconnectBudget(state.validSampleCount)) {
+                    // Real engine data (not a bare socket connect, which also happens with the
+                    // ignition off) clears the auto-reconnect budget, so one long drive can
+                    // recover from many separate drops while a parked car cannot re-arm forever.
                     reconnectAttempt = 0
                 }
                 if (ObdConnectionPolicy.shouldAutoStop(
@@ -224,11 +248,14 @@ class ObdLoggingService : Service() {
                     if (state.status == ObdStatus.Error) {
                         settingsRepository.saveLastObdError(state.lastError ?: "ERROR")
                     }
-                    if (canAutoReconnect()) {
+                    if (canAutoReconnect(state)) {
                         scheduleReconnect()
                         return@collect
                     }
-                    Log.i(TAG, "engine finished (${state.status}) — stopping logging service")
+                    Log.i(
+                        TAG,
+                        "engine finished (${state.status}, reason=${state.stopReason}) — stopping logging service",
+                    )
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
                     return@collect
@@ -281,7 +308,7 @@ class ObdLoggingService : Service() {
      * transport whose ACL link is up and a remembered last device address. The simulated
      * demo transport is never auto-reconnected.
      */
-    private fun canAutoReconnect(): Boolean {
+    private fun canAutoReconnect(state: LiveObdState): Boolean {
         val settings = latestSettings ?: return false
         val transport = activeTransport as? BluetoothClassicTransport ?: return false
         val deviceConnected = settings.lastDeviceAddress != null && transport.isDeviceAclConnected
@@ -290,7 +317,42 @@ class ObdLoggingService : Service() {
             autoConnect = settings.autoConnect,
             manualDisconnect = settings.manualDisconnect,
             deviceConnected = deviceConnected,
+            // Ignition off is terminal: the background probe starts the next drive.
+            ignitionOff = state.stopReason == ObdStopReason.IGNITION_OFF,
         )
+    }
+
+    /**
+     * Enters the foreground with the ongoing notification. Returns false (after logging) when
+     * Android refuses: on API 34+ a `connectedDevice` foreground service needs BLUETOOTH_CONNECT,
+     * and a revoked permission used to crash the service with a SecurityException here.
+     */
+    private fun enterForeground(): Boolean {
+        return try {
+            startForeground(NOTIFICATION_ID, buildNotification(latestState, stale = false))
+            true
+        } catch (e: Exception) {
+            // SecurityException (missing permission) or ForegroundServiceStartNotAllowedException.
+            Log.e(TAG, "cannot enter the foreground — stopping logging service", e)
+            false
+        }
+    }
+
+    private fun hasBluetoothConnectPermission(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+
+    /**
+     * The notification's "Stop" is the same explicit user choice as the in-app disconnect, so it
+     * sets the same sticky latch: otherwise the background probe restarts logging a few minutes
+     * later, mid-drive. The probe clears the latch once that drive is over. Runs on its own
+     * short-lived scope because the service scope is cancelled in onDestroy right after.
+     */
+    private fun persistManualDisconnect() {
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            runCatching { settingsRepository.saveManualDisconnect(true) }
+                .onFailure { Log.w(TAG, "could not persist the manual disconnect", it) }
+        }
     }
 
     /**
@@ -397,8 +459,11 @@ class ObdLoggingService : Service() {
         val stopIntent = PendingIntent.getService(
             this,
             1,
-            Intent(this, ObdLoggingService::class.java).setAction(ACTION_STOP),
-            PendingIntent.FLAG_IMMUTABLE,
+            Intent(this, ObdLoggingService::class.java)
+                .setAction(ACTION_STOP)
+                .putExtra(EXTRA_USER_STOP, true),
+            // UPDATE_CURRENT: a cached PendingIntent from an older build lacks the extra.
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val text = when {
             state?.status == ObdStatus.Connecting -> getString(R.string.notification_connecting)
@@ -438,6 +503,9 @@ class ObdLoggingService : Service() {
         const val ACTION_STOP = "com.fuelroute.action.STOP"
         const val EXTRA_ADDRESS = "device_address"
         const val EXTRA_AUTO = "auto_started"
+
+        /** Set on the notification's Stop action only (not on the ACL-disconnect stop). */
+        const val EXTRA_USER_STOP = "user_stop"
         const val EXTRA_OPEN_STATS = "open_stats"
 
         private const val WAKE_LOCK_TAG = "FuelRoute:obd"

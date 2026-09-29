@@ -7,6 +7,8 @@ import androidx.datastore.preferences.preferencesDataStore
 import androidx.work.WorkManager
 import com.fuelroute.data.backup.BackupRepository
 import com.fuelroute.data.backup.DefaultBackupRepository
+import com.fuelroute.data.export.CsvExportRepository
+import com.fuelroute.data.export.DefaultCsvExportRepository
 import com.fuelroute.data.learning.ColdStartRepository
 import com.fuelroute.data.learning.DefaultColdStartRepository
 import com.fuelroute.data.location.FusedLocationRepository
@@ -152,4 +154,8 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindBackupRepository(impl: DefaultBackupRepository): BackupRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindCsvExportRepository(impl: DefaultCsvExportRepository): CsvExportRepository
 }

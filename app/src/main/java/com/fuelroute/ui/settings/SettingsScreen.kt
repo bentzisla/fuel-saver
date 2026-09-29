@@ -6,7 +6,6 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -77,6 +76,7 @@ import com.fuelroute.ui.components.SectionCard
 import com.fuelroute.ui.components.SectionTitle
 import com.fuelroute.ui.components.SwitchRow
 import com.fuelroute.ui.components.formatDateTime
+import com.fuelroute.ui.messages.rememberUserMessages
 import com.fuelroute.ui.theme.FuelTheme
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -240,7 +240,18 @@ private fun PricesAndNavigation(state: SettingsUiState, viewModel: SettingsViewM
             onValueChange = viewModel::onValuePerMinuteChange,
             label = { Text(stringResource(R.string.settings_value_per_minute_label)) },
             suffix = { Text(stringResource(R.string.settings_unit_per_minute)) },
-            supportingText = { Text(stringResource(R.string.settings_value_per_minute_help)) },
+            isError = state.valuePerMinuteInvalid,
+            supportingText = {
+                Text(
+                    stringResource(
+                        if (state.valuePerMinuteInvalid) {
+                            R.string.settings_value_per_minute_invalid
+                        } else {
+                            R.string.settings_value_per_minute_help
+                        },
+                    ),
+                )
+            },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             modifier = Modifier.fillMaxWidth(),
@@ -432,6 +443,7 @@ private fun probeResultText(result: String?): String = stringResource(
 @Composable
 private fun BackupRows(viewModel: SettingsViewModel) {
     val context = LocalContext.current
+    val userMessages = rememberUserMessages()
     val scope = rememberCoroutineScope()
     var pendingImport by remember { mutableStateOf<Uri?>(null) }
 
@@ -445,16 +457,34 @@ private fun BackupRows(viewModel: SettingsViewModel) {
                 context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) }
                     ?: error("cannot open $uri for writing")
             }.isSuccess
-            Toast.makeText(
-                context,
+            userMessages.show(
                 if (ok) R.string.settings_backup_export_success else R.string.settings_backup_export_failed,
-                Toast.LENGTH_SHORT,
-            ).show()
+            )
         }
     }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) pendingImport = uri
     }
+
+    fun launchCsvExport(csv: suspend () -> String, uri: Uri?) {
+        if (uri == null) return
+        scope.launch {
+            val ok = runCatching {
+                val text = csv()
+                context.contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray(Charsets.UTF_8)) }
+                    ?: error("cannot open $uri for writing")
+            }.isSuccess
+            userMessages.show(
+                if (ok) R.string.settings_export_csv_success else R.string.settings_export_csv_failed,
+            )
+        }
+    }
+    val exportTripsCsvLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/csv"),
+    ) { uri -> launchCsvExport(viewModel::exportTripsCsv, uri) }
+    val exportRefuelsCsvLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/csv"),
+    ) { uri -> launchCsvExport(viewModel::exportRefuelsCsv, uri) }
 
     ListRow(
         title = stringResource(R.string.settings_backup_export),
@@ -466,6 +496,18 @@ private fun BackupRows(viewModel: SettingsViewModel) {
         title = stringResource(R.string.settings_backup_import),
         subtitle = stringResource(R.string.settings_backup_import_hint),
         onClick = { importLauncher.launch(arrayOf("application/json")) },
+    )
+    Divider()
+    ListRow(
+        title = stringResource(R.string.settings_export_trips_csv),
+        subtitle = stringResource(R.string.settings_export_trips_csv_hint),
+        onClick = { exportTripsCsvLauncher.launch(defaultCsvFileName("trips")) },
+    )
+    Divider()
+    ListRow(
+        title = stringResource(R.string.settings_export_refuels_csv),
+        subtitle = stringResource(R.string.settings_export_refuels_csv_hint),
+        onClick = { exportRefuelsCsvLauncher.launch(defaultCsvFileName("refuels")) },
     )
 
     val target = pendingImport
@@ -495,7 +537,7 @@ private fun BackupRows(viewModel: SettingsViewModel) {
                             } else {
                                 context.getString(R.string.settings_backup_import_failed)
                             }
-                            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                            userMessages.show(message)
                         }
                     },
                 ) {
@@ -694,6 +736,11 @@ private val RETENTION_OPTIONS = listOf(30, 60, 90, 180, 365)
 private fun defaultBackupFileName(): String {
     val stamp = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
     return "fuelroute-backup-$stamp.json"
+}
+
+private fun defaultCsvFileName(kind: String): String {
+    val stamp = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
+    return "fuelroute-$kind-$stamp.csv"
 }
 
 private fun gradeLabelRes(grade: String): Int = when (grade) {
