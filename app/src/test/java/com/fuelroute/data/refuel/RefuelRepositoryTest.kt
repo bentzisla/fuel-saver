@@ -68,4 +68,48 @@ class RefuelRepositoryTest {
 
         assertEquals(0.0, inserted.captured.pricePerLiter, 1e-9)
     }
+
+    @Test
+    fun `add records the obd correction active at the fill`() = runTest {
+        val inserted = slot<RefuelEntity>()
+        coEvery { refuelDao.insert(capture(inserted)) } just Runs
+
+        repository.add(liters = 40.0, totalPrice = 280.0, isFull = true, vehicleId = "v1", grade = "95", obdCorrection = 1.2)
+
+        assertEquals(1.2, inserted.captured.obdCorrectionAtFill!!, 1e-9)
+    }
+
+    @Test
+    fun `the interval pumps every fill since the previous full one`() = runTest {
+        val previous = RefuelEntity(id = 1, vehicleId = "v1", timestampMs = 1_000, liters = 45.0, totalPrice = 300.0, isFull = true)
+        val latest = RefuelEntity(
+            id = 3,
+            vehicleId = "v1",
+            timestampMs = 3_000,
+            liters = 30.0,
+            totalPrice = 210.0,
+            isFull = true,
+            obdCorrectionAtFill = 1.1,
+        )
+        coEvery { refuelDao.fullRefuelsSince("v1", 0L) } returns listOf(previous, latest)
+        // A 15 L partial top-up at t=2000 plus the 30 L closing fill.
+        coEvery { refuelDao.litersBetween("v1", 1_000, 3_000) } returns 45.0
+        coEvery { tripDao.fuelBetween("v1", 1_000, 3_000) } returns 41.0
+
+        val interval = repository.lastFullInterval("v1")!!
+
+        assertEquals(45.0, interval.pumpedLitres, 1e-9)
+        assertEquals(41.0, interval.obdLitres, 1e-9)
+        assertEquals(1.1, interval.activeCorrection!!, 1e-9)
+        assertEquals(1_000L, interval.fromTimestampMs)
+        assertEquals(3_000L, interval.toTimestampMs)
+    }
+
+    @Test
+    fun `no interval until two full fills exist`() = runTest {
+        coEvery { refuelDao.fullRefuelsSince("v1", 0L) } returns listOf(
+            RefuelEntity(id = 1, vehicleId = "v1", timestampMs = 1_000, liters = 45.0, totalPrice = 300.0, isFull = true),
+        )
+        assertEquals(null, repository.lastFullInterval("v1"))
+    }
 }

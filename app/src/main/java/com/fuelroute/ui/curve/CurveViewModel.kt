@@ -28,8 +28,8 @@ data class LearnedPoint(
     val litersPer100Km: Double,
     val distanceKm: Double,
     /**
-     * False when the blend ignores this measurement as implausible against the fallback curve
-     * ([CurveBlender.usesLearnedValue]); the chart draws it hollow so a dot the curve does not
+     * False when the blend ignores this measurement: implausible against the fallback curve, or
+     * outside the 10..130 km/h model range ([CurveBlender.usesLearnedPoint]); the chart draws it hollow so a dot the curve does not
      * follow is not mistaken for data the recommendation is based on.
      */
     val usedInCurve: Boolean = true,
@@ -149,7 +149,7 @@ class CurveViewModel @Inject constructor(
                     speedKmh = it.speedKmh,
                     litersPer100Km = it.litersPer100Km,
                     distanceKm = it.distanceKm,
-                    usedInCurve = CurveBlender.usesLearnedValue(it.litersPer100Km, fallback.litersPer100Km(it.speedKmh)),
+                    usedInCurve = CurveBlender.usesLearnedPoint(it.speedKmh, it.litersPer100Km, fallback),
                     curveL100 = effective.litersPer100Km(it.speedKmh),
                 )
             }
@@ -169,7 +169,7 @@ class CurveViewModel @Inject constructor(
             efficient = EfficientSpeed.analyze(effective, learned, fallback, levelReference = manual ?: default),
             baseLevelFactor = levelFactor,
             calibrationFactor = vehicle.fuelRateCorrection,
-            learnedShare = CurveBasis.learnedShare(learned, effectiveSamples.map { it.speedKmh }),
+            learnedShare = CurveBasis.learnedShare(learned, fallback),
             quality = CurveBasis.quality(learned.totalDistanceKm),
             hasManualCurve = manual != null,
             hasLearnedData = learned.totalDistanceKm > 0.0,

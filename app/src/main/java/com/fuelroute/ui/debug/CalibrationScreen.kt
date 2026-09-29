@@ -462,6 +462,11 @@ private fun RefuelCalibrationCard(state: CalibrationUiState) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
+                    is Calibration.LowCoverage -> Text(
+                        text = stringResource(R.string.calibration_refuel_low_coverage),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
                     Calibration.Insufficient -> Text(
                         text = stringResource(R.string.calibration_refuel_insufficient),
                         style = MaterialTheme.typography.bodySmall,
