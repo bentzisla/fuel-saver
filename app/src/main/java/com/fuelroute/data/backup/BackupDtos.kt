@@ -109,6 +109,7 @@ data class RefuelSnapshot(
     val isFull: Boolean,
     val pricePerLiter: Double = 0.0,
     val grade: String = "95",
+    val obdCorrectionAtFill: Double? = null,
 )
 
 @Serializable
@@ -132,6 +133,7 @@ data class RouteSearchSnapshot(
     val destinationPlaceId: String? = null,
     val destinationLat: Double? = null,
     val destinationLng: Double? = null,
+    val fuelCorrectionAtSearch: Double? = null,
 )
 
 @Serializable
@@ -282,6 +284,7 @@ fun RefuelEntity.toSnapshot() = RefuelSnapshot(
     isFull = isFull,
     pricePerLiter = pricePerLiter,
     grade = grade,
+    obdCorrectionAtFill = obdCorrectionAtFill,
 )
 
 fun RefuelSnapshot.toEntity() = RefuelEntity(
@@ -293,6 +296,7 @@ fun RefuelSnapshot.toEntity() = RefuelEntity(
     isFull = isFull,
     pricePerLiter = pricePerLiter,
     grade = grade,
+    obdCorrectionAtFill = obdCorrectionAtFill,
 )
 
 fun RouteSearchEntity.toSnapshot() = RouteSearchSnapshot(
@@ -315,6 +319,7 @@ fun RouteSearchEntity.toSnapshot() = RouteSearchSnapshot(
     destinationPlaceId = destinationPlaceId,
     destinationLat = destinationLat,
     destinationLng = destinationLng,
+    fuelCorrectionAtSearch = fuelCorrectionAtSearch,
 )
 
 fun RouteSearchSnapshot.toEntity() = RouteSearchEntity(
@@ -338,6 +343,7 @@ fun RouteSearchSnapshot.toEntity() = RouteSearchEntity(
     destinationPlaceId = destinationPlaceId,
     destinationLat = destinationLat,
     destinationLng = destinationLng,
+    fuelCorrectionAtSearch = fuelCorrectionAtSearch,
 )
 
 fun LearningExtrasEntity.toSnapshot() = LearningExtrasSnapshot(
