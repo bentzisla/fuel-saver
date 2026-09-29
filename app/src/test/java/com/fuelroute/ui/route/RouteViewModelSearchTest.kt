@@ -1,5 +1,6 @@
 package com.fuelroute.ui.route
 
+import androidx.lifecycle.SavedStateHandle
 import com.fuelroute.data.history.TripLinker
 import com.fuelroute.data.learning.ColdStartRepository
 import com.fuelroute.data.location.LocationRepository
@@ -89,6 +90,7 @@ class RouteViewModelSearchTest {
             tripLinker = mockk<TripLinker>(relaxed = true),
             coldStartRepository = coldStart,
             navigationPlanner = mockk(relaxed = true),
+            savedStateHandle = SavedStateHandle(),
         )
     }
 
