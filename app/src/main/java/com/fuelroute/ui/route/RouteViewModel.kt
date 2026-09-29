@@ -510,7 +510,7 @@ class RouteViewModel @Inject constructor(
                 val curve = CurveBlender.blend(learned, fallback)
                 val fuelModel = FuelModel(
                     curve = curve,
-                    idleLitersPerHour = learned.idleLitersPerHour ?: overrides.effectiveIdleLphDefault,
+                    idleLitersPerHour = learned.blendedIdleLitersPerHour(overrides.effectiveIdleLphDefault),
                     overrides = overrides,
                     massKg = vehicle.massKg,
                     energyDensityMjPerL = when (vehicle.fuelType) {

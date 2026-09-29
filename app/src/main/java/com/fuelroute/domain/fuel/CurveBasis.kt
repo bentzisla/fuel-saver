@@ -27,19 +27,26 @@ object CurveBasis {
         else -> CurveDataQuality.HIGH
     }
 
+    /** Every whole km/h of the blend range: the default sampling for [learnedShare]. */
+    val UNIFORM_SPEEDS: List<Double> =
+        generateSequence(CurveBlender.MIN_SPEED_KMH) { it + 1.0 }
+            .takeWhile { it <= CurveBlender.MAX_SPEED_KMH + 1e-9 }
+            .toList()
+
     /**
-     * Mean learned confidence weight across [speedsKmh], in `0..1`.
-     *
-     * Each speed contributes `w = km/(km+20)` of its nearest measured bin; speeds with
-     * no learned coverage contribute 0. The result approximates the fraction of the
-     * effective curve that currently comes from learning rather than the fallback.
+     * Mean learned weight across [speedsKmh], in `0..1`: exactly the `w` [CurveBlender.blend]
+     * gives each speed against [fallback] (per-bin `km/(km+20)`, interpolated between bin centres,
+     * 0 where nothing usable was measured). With the default uniform sampling the result is the
+     * fraction of the effective curve that currently comes from learning rather than the fallback;
+     * pass a uniform sampling, not the effective curve's vertices (those cluster around the data).
      */
-    fun learnedShare(learned: LearnedCurve?, speedsKmh: List<Double>): Double {
+    fun learnedShare(
+        learned: LearnedCurve?,
+        fallback: ConsumptionCurve,
+        speedsKmh: List<Double> = UNIFORM_SPEEDS,
+    ): Double {
         if (learned == null || learned.isEmpty || speedsKmh.isEmpty()) return 0.0
-        val total = speedsKmh.sumOf { speed ->
-            val value = learned.litersPer100Km(speed) ?: return@sumOf 0.0
-            if (value.isFinite()) CurveBlender.weight(learned.confidenceKm(speed)) else 0.0
-        }
+        val total = speedsKmh.sumOf { CurveBlender.weightAt(learned, fallback, it) }
         return (total / speedsKmh.size).coerceIn(0.0, 1.0)
     }
 }

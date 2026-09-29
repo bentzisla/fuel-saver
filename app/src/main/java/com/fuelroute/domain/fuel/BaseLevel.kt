@@ -26,9 +26,21 @@ object BaseLevel {
     const val MIN_FACTOR = 0.6
     const val MAX_FACTOR = 1.5
 
+    /** Measured/default ratios the blend can use at some factor in [MIN_FACTOR]..[MAX_FACTOR]. */
+    const val MIN_USABLE_RATIO = CurveBlender.MIN_PLAUSIBLE_RATIO * MIN_FACTOR
+    const val MAX_USABLE_RATIO = CurveBlender.MAX_PLAUSIBLE_RATIO * MAX_FACTOR
+
     /** The level factor for [base] given [learned], or 1.0 when there is nothing to anchor to. */
     fun factor(learned: LearnedCurve?, base: ConsumptionCurve): Double {
-        val points = learned?.points.orEmpty().filter { base.litersPer100Km(it.speedKmh) > 0.0 }
+        val points = learned?.points.orEmpty().filter { point ->
+            val reference = base.litersPer100Km(point.speedKmh)
+            // Only speeds the blend works in: below 10 km/h the default is clamped to its 10 km/h
+            // value while crawl bins measure far more, which biased the level upwards. And only
+            // points the blend could use at some admissible level (its plausibility band widened by
+            // the factor bounds); anything else is bad data the blend will never trust either.
+            CurveBlender.inBlendRange(point.speedKmh) && reference > 0.0 && reference.isFinite() &&
+                point.litersPer100Km / reference in MIN_USABLE_RATIO..MAX_USABLE_RATIO
+        }
         val km = points.sumOf { it.distanceKm }
         if (km <= 0.0) return 1.0
         val ratio = points.sumOf { it.distanceKm * it.litersPer100Km / base.litersPer100Km(it.speedKmh) } / km

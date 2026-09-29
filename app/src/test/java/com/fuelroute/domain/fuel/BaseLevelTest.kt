@@ -46,7 +46,7 @@ class BaseLevelTest {
 
     @Test
     fun `the factor is bounded whatever the data says`() {
-        assertEquals(BaseLevel.MIN_FACTOR, BaseLevel.factor(learnedAt(0.2, kmEach = 1_000.0), default), 1e-9)
+        assertEquals(BaseLevel.MIN_FACTOR, BaseLevel.factor(learnedAt(0.35, kmEach = 1_000.0), default), 1e-9)
         assertEquals(BaseLevel.MAX_FACTOR, BaseLevel.factor(learnedAt(3.0, kmEach = 1_000.0), default), 1e-9)
     }
 
@@ -81,5 +81,21 @@ class BaseLevelTest {
 
         assertTrue("before: $unanchored", unanchored > 7.0)
         assertTrue("after: $anchored", anchored < 6.2)
+    }
+
+    @Test
+    fun `crawl bins below 10 km per h do not bias the level`() {
+        // Crawl bins legitimately burn far more than the default's clamped 10 km/h value.
+        val cruise = listOf(62.5, 82.5).map { bin(it, 50.0, default.litersPer100Km(it)) }
+        val withCrawl = LearnedCurve(cruise + listOf(bin(2.5, 1.0, 60.0), bin(7.5, 20.0, 40.0)))
+        assertEquals(1.0, BaseLevel.factor(withCrawl, default), 1e-9)
+    }
+
+    @Test
+    fun `points the blend can never use do not move the level`() {
+        // 0.25x the default is below the blend's band at any admissible factor (0.5 x 0.6 = 0.3).
+        val cruise = listOf(62.5, 82.5).map { bin(it, 50.0, default.litersPer100Km(it)) }
+        val poisoned = LearnedCurve(cruise + bin(97.5, 400.0, default.litersPer100Km(97.5) * 0.25))
+        assertEquals(1.0, BaseLevel.factor(poisoned, default), 1e-9)
     }
 }

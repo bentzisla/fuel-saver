@@ -14,8 +14,8 @@ import kotlin.math.roundToLong
  *   that minimum. Real curves have a flat bottom, and a single number hides that 60 and 80 km/h
  *   can cost practically the same; the chart shades this band;
  * - [learnedWeight]: how much measured data backs the curve at [speedKmh] (0..1, the blender's
- *   `w = km/(km+20)`). Near 0 the recommendation is the default/manual curve's shape, not yet the
- *   car's own;
+ *   per-bin `w = km/(km+20)`, interpolated between bin centres; [CurveBlender.weightAt]). Near 0
+ *   the recommendation is the default/manual curve's shape, not yet the car's own;
  * - [measuredSpeedKmh]/[measuredL100]: the lowest well-measured learned point, shown only when it
  *   sits noticeably elsewhere, which is what the user sees when their dots slope another way than
  *   the effective line (little data there, so the blend still leans on the fallback);
@@ -92,7 +92,10 @@ object EfficientSpeed {
         val to = effective.maxSpeedKmh
         if (!from.isFinite() || !to.isFinite() || to <= from) return null
 
-        val speeds = generateSequence(from) { it + STEP_KMH }.takeWhile { it <= to + 1e-9 }.toList()
+        // The whole-km/h scan plus the curve's own vertices: a piecewise-linear curve has its
+        // minimum at a vertex, and the blended curve has vertices at bin centres (72.5, 97.5, ...).
+        val speeds = (generateSequence(from) { it + STEP_KMH }.takeWhile { it <= to + 1e-9 } +
+            effective.samples().map { it.speedKmh }).distinct().sorted().toList()
         val values = speeds.map { effective.litersPer100Km(it) }
         val bestIndex = values.indices.minByOrNull { values[it] } ?: return null
         val best = values[bestIndex]
@@ -107,14 +110,14 @@ object EfficientSpeed {
 
         val bestSpeed = speeds[bestIndex]
         val baseValue = fallback.litersPer100Km(bestSpeed)
-        // Mirrors CurveBlender.blend: a missing or rejected learned value contributes nothing.
-        val learnedValue = learned?.litersPer100Km(bestSpeed)
-            ?.takeIf { CurveBlender.usesLearnedValue(it, baseValue) }
-        val weight = if (learnedValue != null) CurveBlender.weight(learned.confidenceKm(bestSpeed)) else 0.0
+        // The blend's own weight at the optimum (a missing or rejected learned value contributes
+        // nothing), and the measured value that, mixed with that weight, gives the number shown.
+        val weight = CurveBlender.weightAt(learned, fallback, bestSpeed)
+        val learnedValue = if (weight > 0.0) baseValue + (best - baseValue) / weight else null
 
         val measured = learned?.points
             ?.filter { it.distanceKm >= MIN_MEASURED_KM }
-            ?.filter { CurveBlender.usesLearnedValue(it.litersPer100Km, fallback.litersPer100Km(it.speedKmh)) }
+            ?.filter { CurveBlender.usesLearnedPoint(it.speedKmh, it.litersPer100Km, fallback) }
             ?.minByOrNull { it.litersPer100Km }
             ?.takeIf { abs(it.speedKmh - bestSpeed) >= MEASURED_DIFFERENCE_KMH }
 
