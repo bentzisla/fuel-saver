@@ -1,6 +1,8 @@
 package com.fuelroute.domain.learning
 
+import com.fuelroute.domain.fuel.BaseLevel
 import com.fuelroute.domain.fuel.ConsumptionCurve
+import com.fuelroute.domain.fuel.CurveBlender
 import com.fuelroute.domain.fuel.ModelConstants
 
 /**
@@ -72,6 +74,18 @@ class ColdStartLearner(
 
     companion object {
         const val COLD_THRESHOLD_C = 60.0
+
+        /**
+         * The warm baseline the cold-start extra is measured against: the same effective curve
+         * routing uses (learned blended over the manual curve, else the default anchored to the
+         * measured level via [BaseLevel.fallback]). The raw rated default is off by the
+         * vehicle's level error, which used to leak into every learned cold-start extra.
+         */
+        fun warmBaseline(
+            learned: LearnedCurve,
+            manual: ConsumptionCurve?,
+            default: ConsumptionCurve,
+        ): ConsumptionCurve = CurveBlender.blend(learned, BaseLevel.fallback(learned, manual, default))
     }
 }
 
@@ -80,9 +94,16 @@ data class ColdStartStats(
     val meanExtraL: Double,
     val count: Int,
 ) {
-    /** The value to use for routing: the learned mean once trusted, else the default. */
+    /** The value to use for routing with the built-in default; see [effectiveExtraL]. */
     val effectiveExtraL: Double
-        get() = if (count >= MIN_COLD_STARTS) meanExtraL else ModelConstants.COLD_START_DEFAULT_L
+        get() = effectiveExtraL(ModelConstants.COLD_START_DEFAULT_L)
+
+    /**
+     * The value to use for routing: the learned mean once trusted, else [defaultL] — pass
+     * `FuelModelOverrides.effectiveColdStartDefaultL` so a calibrated default is honored.
+     */
+    fun effectiveExtraL(defaultL: Double): Double =
+        if (count >= MIN_COLD_STARTS) meanExtraL else defaultL
 
     companion object {
         /** How many cold starts are needed before the learned mean replaces the default. */

@@ -2,12 +2,11 @@ package com.fuelroute.data.obd
 
 import android.content.Context
 import android.util.Log
-import androidx.room.withTransaction
 import com.fuelroute.data.backup.SpeedBinSnapshot
+import com.fuelroute.data.backup.TransactionRunner
 import com.fuelroute.data.backup.TripSnapshot
 import com.fuelroute.data.backup.VehicleSnapshot
 import com.fuelroute.data.backup.toSnapshot
-import com.fuelroute.data.db.AppDatabase
 import com.fuelroute.data.db.ObdSampleDao
 import com.fuelroute.data.db.ObdSampleEntity
 import com.fuelroute.data.db.SpeedBinDao
@@ -27,6 +26,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
@@ -55,15 +55,22 @@ import javax.inject.Singleton
  *
  * Plausible rows are never touched unless the displacement was wrong (then rows the samples
  * cover are recomputed, because they may be partially inflated while still looking plausible).
+ *
+ * Never runs concurrently with a live OBD session ([ObdEngine.isRunning]): the rebuild reads the
+ * bins, recomputes them and overwrites them absolutely, which would erase the increments a
+ * running session adds meanwhile. The start-up run waits for the session to end, and the
+ * transaction is skipped if one started while rebuilding. Only the repaired columns are written
+ * (trip fuel/cost, the vehicle's displacement), never a stale full-row snapshot.
  */
 @Singleton
 class LearnedDataRepair @Inject constructor(
-    private val db: AppDatabase,
+    private val transaction: TransactionRunner,
     private val vehicleDao: VehicleDao,
     private val speedBinDao: SpeedBinDao,
     private val sampleDao: ObdSampleDao,
     private val tripDao: TripDao,
     @ApplicationContext private val context: Context,
+    private val engine: ObdEngine,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val json = Json { prettyPrint = true }
@@ -72,6 +79,8 @@ class LearnedDataRepair @Inject constructor(
     fun launch() {
         scope.launch {
             try {
+                // Defer until no OBD session is live (e.g. the app was opened mid-drive).
+                while (engine.isRunning) delay(SESSION_POLL_MS)
                 repairAll()
             } catch (e: Exception) {
                 Log.e(TAG, "learned-data repair failed; data left unchanged", e)
@@ -81,6 +90,10 @@ class LearnedDataRepair @Inject constructor(
 
     suspend fun repairAll() {
         for (vehicle in vehicleDao.getAll().first()) {
+            if (engine.isRunning) {
+                Log.i(TAG, "learned-data repair skipped: an OBD session is live")
+                return
+            }
             repairVehicle(vehicle)
         }
     }
@@ -149,20 +162,26 @@ class LearnedDataRepair @Inject constructor(
             return
         }
 
-        db.withTransaction {
+        if (engine.isRunning) {
+            // A session started while we were rebuilding: its increments would be overwritten.
+            Log.i(TAG, "learned-data repair for ${vehicle.id} deferred: an OBD session started")
+            return
+        }
+        transaction.run {
             if (plan.replaceBins.isNotEmpty()) speedBinDao.overwrite(plan.replaceBins.map { it.toEntity() })
             plan.deleteBins.forEach { speedBinDao.deleteBin(vehicle.id, it) }
             for (trip in realTrips) {
                 val fuel = plan.tripFuel[trip.id] ?: continue
-                tripDao.update(
-                    trip.copy(
-                        fuelL = fuel,
-                        actualCost = if (trip.pricePerLiterAtTrip > 0.0) fuel * trip.pricePerLiterAtTrip else trip.actualCost,
-                    ),
+                tripDao.updateFuelAndCost(
+                    id = trip.id,
+                    fuelL = fuel,
+                    actualCost = if (trip.pricePerLiterAtTrip > 0.0) fuel * trip.pricePerLiterAtTrip else trip.actualCost,
                 )
             }
             if (displacementWasWrong) {
-                vehicleDao.upsert(listOf(vehicle.copy(engineDisplacementL = displacement)))
+                // Targeted: a full-row upsert of this start-up snapshot used to clobber a
+                // fuelRateCorrection (refuel calibration) or profile edit made meanwhile.
+                vehicleDao.updateEngineDisplacement(vehicle.id, displacement)
             }
         }
         Log.w(
@@ -217,5 +236,6 @@ class LearnedDataRepair @Inject constructor(
     private companion object {
         const val TAG = "FuelRoute"
         const val PAGE_SIZE = 2_000
+        const val SESSION_POLL_MS = 30_000L
     }
 }

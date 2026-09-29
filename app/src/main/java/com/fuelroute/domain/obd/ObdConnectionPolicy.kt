@@ -325,14 +325,46 @@ object ObdConnectionPolicy {
         rpmNullSinceMs: Long?,
         nowMs: Long,
         batteryVoltage: Double?,
+        rpmTimeoutMs: Long = IGNITION_OFF_RPM_TIMEOUT_MS,
     ): Boolean {
         val rpmMissingLongEnough =
-            rpmNullSinceMs != null && nowMs - rpmNullSinceMs >= IGNITION_OFF_RPM_TIMEOUT_MS
+            rpmNullSinceMs != null && nowMs - rpmNullSinceMs >= rpmTimeoutMs
         val plausibleLowVoltage = batteryVoltage != null &&
             batteryVoltage in MIN_PLAUSIBLE_BATTERY_VOLTS..MAX_PLAUSIBLE_BATTERY_VOLTS &&
             batteryVoltage < LOW_BATTERY_VOLTS
         return rpmMissingLongEnough || plausibleLowVoltage
     }
+
+    // --- Run-level engine-off cap ------------------------------------------------------------
+
+    /**
+     * Run-level cap: no evidence of a running engine (RPM missing or 0 while stationary) for this
+     * long ends the run as ignition-off, even when RPM keeps answering 0 (key on, engine off) or
+     * the link keeps being rebuilt. Generous so a hybrid idling with the engine off in a long jam
+     * is not cut off; the 60 s [IGNITION_OFF_RPM_TIMEOUT_MS] still handles the common case.
+     */
+    const val ENGINE_OFF_RUN_CAP_MS = 10L * 60_000L
+
+    /**
+     * In-run reconnect cycles allowed without a single valid speed/RPM reply in between. A link
+     * that keeps coming back at the socket level but never yields data is not worth rebuilding
+     * all night; the run then ends and the service's (non-refilling) budget takes over.
+     */
+    const val MAX_RECONNECT_CYCLES_WITHOUT_DATA = 3
+
+    /** Machine error code for a run ended by [MAX_RECONNECT_CYCLES_WITHOUT_DATA]. */
+    const val ERROR_RECONNECT_LIMIT = "RECONNECT LIMIT"
+
+    /** Machine error code published when the engine loop dies of an unexpected exception. */
+    const val ERROR_ENGINE_CRASH = "ENGINE ERROR"
+
+    /**
+     * True when the run must end because it used up its [MAX_RECONNECT_CYCLES_WITHOUT_DATA].
+     *
+     * @param cyclesWithoutData in-run reconnects since the last valid speed/RPM reply.
+     */
+    fun reconnectCyclesExhausted(cyclesWithoutData: Int): Boolean =
+        cyclesWithoutData >= MAX_RECONNECT_CYCLES_WITHOUT_DATA
 
     // --- Logging-service lifecycle ---------------------------------------------------------
 
@@ -401,16 +433,28 @@ object ObdConnectionPolicy {
      *  - the bounded attempt budget has not been exhausted ([attempt] is 0-based).
      *
      * @param attempt number of automatic re-arms already made in this logging session.
+     * @param ignitionOff the run ended because the engine was detected off. That is terminal:
+     *   re-arming cannot wake a sleeping ECU and would only reconnect/search/stop all night
+     *   (wake lock held, car battery drained). The next drive is left to the background probe.
      */
     fun shouldAutoReconnect(
         attempt: Int,
         autoConnect: Boolean,
         manualDisconnect: Boolean,
         deviceConnected: Boolean,
+        ignitionOff: Boolean = false,
     ): Boolean = autoConnect &&
         !manualDisconnect &&
+        !ignitionOff &&
         deviceConnected &&
         attempt < MAX_AUTO_RECONNECT_ATTEMPTS
+
+    /**
+     * True when the service's auto-reconnect budget may be refilled. Only real engine data (at
+     * least one valid speed/RPM reply in the run) counts: a bare socket connect, or a run that
+     * only ever saw `NO DATA`, must not refill it, or the budget never limits anything.
+     */
+    fun shouldResetReconnectBudget(validSamples: Int): Boolean = validSamples > 0
 
     // --- Machine error codes ---------------------------------------------------------------
 

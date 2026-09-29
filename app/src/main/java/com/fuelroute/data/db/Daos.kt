@@ -25,6 +25,10 @@ interface VehicleDao {
     @Upsert
     suspend fun upsert(vehicles: List<VehicleEntity>)
 
+    /** Data repair: stores only the normalized displacement (never a stale full-row snapshot). */
+    @Query("UPDATE vehicle SET engineDisplacementL = :displacementL WHERE id = :id")
+    suspend fun updateEngineDisplacement(id: String, displacementL: Double?)
+
     @Delete
     suspend fun delete(vehicle: VehicleEntity)
 
@@ -194,6 +198,52 @@ interface TripDao {
 
     @Update
     suspend fun update(trip: TripEntity)
+
+    /**
+     * Checkpoint of the open trip: only the columns the OBD recorder owns. A full-row `@Update`
+     * used to reset routeSearchId/linkedAtMs/manual entry/coldStartFuelL written meanwhile.
+     */
+    @Query(
+        "UPDATE trip SET endedAtMs = :endedAtMs, distanceKm = :distanceKm, fuelL = :fuelL, " +
+            "avgSpeedKmh = :avgSpeedKmh, maxSpeedKmh = :maxSpeedKmh, idleSeconds = :idleSeconds " +
+            "WHERE id = :id"
+    )
+    suspend fun updateRecordedProgress(
+        id: Long,
+        endedAtMs: Long,
+        distanceKm: Double,
+        fuelL: Double,
+        avgSpeedKmh: Double,
+        maxSpeedKmh: Double,
+        idleSeconds: Double,
+    )
+
+    /** Closes the recorder's trip with its final totals and cost snapshot (recorder columns only). */
+    @Query(
+        "UPDATE trip SET endedAtMs = :endedAtMs, distanceKm = :distanceKm, fuelL = :fuelL, " +
+            "avgSpeedKmh = :avgSpeedKmh, maxSpeedKmh = :maxSpeedKmh, idleSeconds = :idleSeconds, " +
+            "isOpen = 0, actualCost = :actualCost, pricePerLiterAtTrip = :pricePerLiterAtTrip " +
+            "WHERE id = :id"
+    )
+    suspend fun closeRecorded(
+        id: Long,
+        endedAtMs: Long,
+        distanceKm: Double,
+        fuelL: Double,
+        avgSpeedKmh: Double,
+        maxSpeedKmh: Double,
+        idleSeconds: Double,
+        actualCost: Double,
+        pricePerLiterAtTrip: Double,
+    )
+
+    /** Reopens a just-closed trip so the same drive continues in it (PLAN.md 5.5). */
+    @Query("UPDATE trip SET isOpen = 1 WHERE id = :id")
+    suspend fun reopen(id: Long)
+
+    /** Data repair: rewrites only a trip's re-integrated fuel and its cost. */
+    @Query("UPDATE trip SET fuelL = :fuelL, actualCost = :actualCost WHERE id = :id")
+    suspend fun updateFuelAndCost(id: Long, fuelL: Double, actualCost: Double)
 
     @Query("SELECT * FROM trip ORDER BY startedAtMs DESC LIMIT :limit")
     suspend fun recent(limit: Int): List<TripEntity>

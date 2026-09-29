@@ -554,7 +554,11 @@ class RouteViewModel @Inject constructor(
                 val coldStartStats = coldStartRepository.stats(vehicle.id)
                 val ranked = RouteRanker.rank(
                     routes.map {
-                        val cost = fuelModel.cost(it, fuelPrice, coldStartLiters = coldStartStats.effectiveExtraL)
+                        val cost = fuelModel.cost(
+                            it,
+                            fuelPrice,
+                            coldStartLiters = coldStartStats.effectiveExtraL(overrides.effectiveColdStartDefaultL),
+                        )
                         cost.copy(learnedShare = RouteConfidence.learnedShare(cost, learned, fallback))
                     },
                     valuePerMinute = settings.valuePerMinute,

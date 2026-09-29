@@ -10,8 +10,10 @@ import com.fuelroute.data.db.TripSource
 import com.fuelroute.data.history.TripLinker
 import com.fuelroute.data.learning.ColdStartRepository
 import com.fuelroute.data.price.FuelPriceRepository
+import com.fuelroute.domain.fuel.ConsumptionCurve
 import com.fuelroute.domain.fuel.DefaultCurve
 import com.fuelroute.domain.learning.ColdStartLearner
+import com.fuelroute.domain.learning.LearnedCurve
 import com.fuelroute.domain.learning.ObdSampleProcessor
 import com.fuelroute.domain.learning.TripDetector
 import com.fuelroute.domain.model.ObdSample
@@ -19,9 +21,13 @@ import com.fuelroute.domain.model.SpeedBinStats
 import com.fuelroute.domain.model.VehicleProfile
 import com.fuelroute.domain.model.mergeSpeedBins
 import com.fuelroute.domain.obd.ElmProtocol
+import com.fuelroute.domain.obd.EngineOffTracker
+import com.fuelroute.domain.obd.FuelRateHold
 import com.fuelroute.domain.obd.ObdConnectionPolicy
 import com.fuelroute.domain.obd.ObdRunGeneration
+import com.fuelroute.domain.obd.PidScheduler
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -49,6 +55,15 @@ enum class ObdStatus { Disconnected, Connecting, Connected, Error }
  */
 enum class ObdConnectStage { ConnectingSocket, InitializingElm, SettlingProtocol, NegotiatingPids, ReadingVin }
 
+/**
+ * Why a run ended by itself, published with the terminal [ObdStatus.Disconnected]. A run ended
+ * for a stop reason is final for the logging service: it must not auto-reconnect.
+ */
+enum class ObdStopReason {
+    /** No running engine (RPM missing/0 while stationary, or low battery voltage) for long enough. */
+    IGNITION_OFF,
+}
+
 data class LiveObdState(
     val status: ObdStatus = ObdStatus.Disconnected,
     val deviceName: String? = null,
@@ -74,6 +89,10 @@ data class LiveObdState(
     val connectionStage: ObdConnectStage? = null,
     /** Wall-clock start (epoch ms) of the current connect attempt, for the elapsed counter. */
     val connectingSinceMs: Long? = null,
+    /** Set on the terminal state of a run that ended by itself (e.g. ignition off); else null. */
+    val stopReason: ObdStopReason? = null,
+    /** Polls in the current run that returned a valid speed or RPM (real engine data). */
+    val validSampleCount: Int = 0,
 )
 
 @Singleton
@@ -86,7 +105,28 @@ class ObdEngine @Inject constructor(
     private val coldStartRepository: ColdStartRepository,
 ) {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    /**
+     * Last line of defence: an exception escaping a run (a DB error nobody guarded, a parser bug)
+     * must surface as [ObdStatus.Error] instead of killing the process mid-drive. Only published
+     * when no newer run owns the engine.
+     */
+    private val crashHandler = CoroutineExceptionHandler { context, error ->
+        Log.e(TAG, "OBD engine coroutine crashed", error)
+        val failed = context[Job]
+        val current = job
+        if (current == null || current === failed || !current.isActive) {
+            mutableLive.update {
+                it.copy(
+                    status = ObdStatus.Error,
+                    lastError = ObdConnectionPolicy.ERROR_ENGINE_CRASH,
+                    connectionStage = null,
+                    connectingSinceMs = null,
+                )
+            }
+        }
+    }
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default + crashHandler)
     private val mutableLive = MutableStateFlow(LiveObdState())
     val live: StateFlow<LiveObdState> = mutableLive.asStateFlow()
 
@@ -165,6 +205,8 @@ class ObdEngine @Inject constructor(
                             supportedPids = emptySet(),
                             connectionStage = ObdConnectStage.ConnectingSocket,
                             connectingSinceMs = System.currentTimeMillis(),
+                            stopReason = null,
+                            validSampleCount = 0,
                         )
                     }
                     Log.i(TAG, "OBD run #$runId: connecting to ${transport.deviceName}")
@@ -174,6 +216,11 @@ class ObdEngine @Inject constructor(
                     // stage is visible; `runLoop` flips to `Connected` once it finishes.
                     settleProtocol(transport, runId)
                     runLoop(transport, vehicle, vehicleId, runId)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(TAG, "OBD run #$runId failed unexpectedly", e)
+                    publishError(runId, ObdConnectionPolicy.ERROR_ENGINE_CRASH)
                 } finally {
                     // Covers every exit that bypasses runLoop's own cleanup (stop during
                     // connect/init/settle, init failure): the socket must never be left open,
@@ -548,27 +595,70 @@ class ObdEngine @Inject constructor(
 
     /**
      * Adds the bin increments collected since the last flush to the DB (additive, in one
-     * transaction) and clears them only once that succeeded, then re-reads the totals so a
-     * reset/import done meanwhile is reflected in the live display. Returns the fresh snapshot,
-     * or null when the write failed (the deltas are kept and retried on the next flush).
+     * transaction), then re-reads the totals so a reset/import done meanwhile is reflected in the
+     * live display. The deltas are snapshotted and cleared before the write, which runs
+     * non-cancellable ([PendingFlush]), so a stop can never make the final flush write them twice.
+     * Returns the fresh snapshot, or null when the write failed (the deltas are merged back and
+     * retried on the next flush).
      */
     private suspend fun flushBinDeltas(
         vehicleId: String,
         deltas: MutableMap<Int, SpeedBinStats>,
     ): List<SpeedBinStats>? {
-        return try {
-            if (deltas.isNotEmpty()) {
-                speedBinDao.addDeltas(deltas.values.map { it.toEntity() })
-                deltas.clear()
-            }
-            loadBinSnapshot(vehicleId)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.w(TAG, "speed-bin delta flush failed; keeping ${deltas.size} pending bin(s)", e)
-            null
-        }
+        val written = PendingFlush.bins(
+            deltas = deltas,
+            write = { batch -> speedBinDao.addDeltas(batch.map { it.toEntity() }) },
+            onFailure = { Log.w(TAG, "speed-bin delta flush failed; keeping ${deltas.size} pending bin(s)", it) },
+        )
+        if (!written) return null
+        return guarded("reload speed bins") { loadBinSnapshot(vehicleId) }
     }
+
+    /** Inserts the buffered raw samples in one batch ([PendingFlush]: never twice, retried on failure). */
+    private suspend fun flushSamples(buffer: MutableList<ObdSampleEntity>) {
+        PendingFlush.batch(
+            buffer = buffer,
+            write = { batch -> sampleDao.insertAll(batch) },
+            onFailure = { Log.w(TAG, "raw sample flush failed; keeping ${buffer.size} buffered sample(s)", it) },
+        )
+    }
+
+    /**
+     * Runs one persistence step of the loop and logs instead of throwing: a SQLite error (disk
+     * full, a locked DB during a backup import, …) must cost that one write, not the whole
+     * drive. Cancellation still propagates.
+     */
+    private inline fun <T> guarded(what: String, block: () -> T): T? = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "$what failed", e)
+        null
+    }
+
+    /**
+     * The warm baseline for the cold-start learner: the same effective curve routing uses (see
+     * [ColdStartLearner.warmBaseline]), falling back to the plain default if it cannot be built.
+     */
+    private fun warmBaseline(vehicle: VehicleProfile, bins: List<SpeedBinStats>): ConsumptionCurve {
+        val default = DefaultCurve.forVehicle(vehicle.ratedCombinedL100, vehicle.fuelType)
+        val manual = vehicle.manualCurve
+            ?.takeIf { it.size >= 2 }
+            ?.let { runCatching { ConsumptionCurve(it) }.getOrNull() }
+        return runCatching { ColdStartLearner.warmBaseline(LearnedCurve(bins), manual, default) }
+            .getOrElse {
+                Log.w(TAG, "effective curve for the cold-start baseline failed; using the default", it)
+                default
+            }
+    }
+
+    /**
+     * Factory for the run's ignition-off detector. A test hook (production always uses the
+     * policy timeouts); the detector deliberately lives for the whole run, across reconnects.
+     */
+    @Volatile
+    internal var engineOffTrackerFactory: () -> EngineOffTracker = { EngineOffTracker() }
 
     private suspend fun runLoop(
         transport: ObdTransport,
@@ -580,10 +670,11 @@ class ObdEngine @Inject constructor(
         // *increments* (`binDeltas`) and adds them with an additive upsert, so a reset, an
         // "adopt learned" or a backup import done while logging is never overwritten by a stale
         // in-memory snapshot. `binSnapshot` is only a read-only view for the live display.
-        var binSnapshot: List<SpeedBinStats> = loadBinSnapshot(vehicleId)
+        var binSnapshot: List<SpeedBinStats> = guarded("load speed bins") { loadBinSnapshot(vehicleId) }.orEmpty()
         val binDeltas = mutableMapOf<Int, SpeedBinStats>()
 
-        // A simulated drive must never teach the real vehicle's curve nor pollute its raw samples.
+        // A simulated drive must never teach the real vehicle's curve, its cold-start mean nor
+        // pollute its raw samples.
         val simulated = transport.isSimulated
         val processor = ObdSampleProcessor(
             fuelType = vehicle.fuelType,
@@ -592,11 +683,10 @@ class ObdEngine @Inject constructor(
             learningEnabled = !simulated,
         )
         val tripDetector = TripDetector()
-        val coldStartLearner = ColdStartLearner(
-            warmCurve = DefaultCurve.forVehicle(vehicle.ratedCombinedL100, vehicle.fuelType),
-        )
+        val coldStartLearner: ColdStartLearner? =
+            if (simulated) null else ColdStartLearner(warmCurve = warmBaseline(vehicle, binSnapshot))
         val tripRecorder = TripRecorder(tripDao)
-        tripRecorder.closeLeftovers(System.currentTimeMillis())
+        guarded("close leftover trips") { tripRecorder.closeLeftovers(System.currentTimeMillis()) }
         // Provenance for every trip this run records: the demo transport must never look real.
         val source = if (simulated) TripSource.DEMO else TripSource.REAL
 
@@ -607,6 +697,8 @@ class ObdEngine @Inject constructor(
         var tripSeconds = 0.0
         var tripIdleSeconds = 0.0
         var tripMaxSpeed = 0.0
+        // True while the open trip continues a row closed moments ago (PLAN.md 5.5).
+        var tripContinued = false
         // Price snapshot used for actualCost at trip close; refreshed with the 30 s bin flush.
         var pricePerLiter = try {
             fuelPriceRepository.current(vehicle.grade).pricePerLiter
@@ -619,7 +711,16 @@ class ObdEngine @Inject constructor(
         var lastSamplePersistMs = 0L
         var lastVoltageMs = 0L
         var batteryVoltage: Double? = null
-        var rpmNullSinceMs: Long? = null
+        // Ignition-off clocks for the WHOLE run: an in-run reconnect must not reset them, or a
+        // parked car whose link keeps dropping never reaches the timeout.
+        val engineOff = engineOffTrackerFactory()
+        val fuelRateHold = FuelRateHold()
+        var validSamples = 0
+        // `Connected` is only published once the ECU actually answered (a valid speed/RPM):
+        // with the ignition off the adapter still completes init and answers NO DATA.
+        var connectedPublished = false
+        var reconnectCyclesWithoutData = 0
+        var stopReason: ObdStopReason? = null
         var consecutiveBad = 0
         // NO DATA (ECU quiet, bus up) tracked separately — see the comment at its use below.
         var consecutiveNoData = 0
@@ -636,21 +737,54 @@ class ObdEngine @Inject constructor(
         val sampleBuffer = mutableListOf<ObdSampleEntity>()
         val loopStartMs = System.currentTimeMillis()
 
+        /** Closes the open trip with the current totals and auto-links a real one. */
+        suspend fun closeOpenTrip(endedAtMs: Long) {
+            // Anchor the link on the start the recorder actually wrote, not the detector
+            // transition, so a divergence can never mis-window the match.
+            val startedAtMs = tripRecorder.tripStartedAtMs
+            val alreadyLinked = tripRecorder.continuedLinkedTrip
+            val closedTripId = guarded("close trip") {
+                tripRecorder.end(
+                    vehicleId = vehicleId,
+                    endedAtMs = endedAtMs,
+                    distanceKm = tripDistance,
+                    fuelL = tripFuel,
+                    maxSpeedKmh = tripMaxSpeed,
+                    idleSeconds = tripIdleSeconds,
+                    pricePerLiter = pricePerLiter,
+                )
+            }
+            // A continued trip that already owns a route search keeps it; re-running the matcher
+            // would exclude that search as "taken" and could link a different one.
+            if (closedTripId != null && source == TripSource.REAL && !alreadyLinked) {
+                guarded("auto-link trip") { tripLinker.autoLink(closedTripId, startedAtMs, endedAtMs) }
+            }
+        }
+
+        /** Hands the finished trip's cold-start extra to the repository (never for the demo). */
+        suspend fun finishColdStart() {
+            val learner = coldStartLearner ?: return
+            // A continued trip is the same cold start as its first part, already recorded when
+            // that part closed: counting the remainder again would add a bogus second start.
+            val record = learner.hasColdSamples && !tripContinued
+            val extra = learner.endTrip()
+            if (record) guarded("record cold start") { coldStartRepository.record(vehicleId, extra) }
+        }
+
         try {
             val negotiation = negotiatePids(transport, runId)
             supportedPids = negotiation.pids
             pidNegotiationFailed = negotiation.negotiationFailed
+            var scheduler = PidScheduler(supportedPids, pidNegotiationFailed)
             val vin = readVin(transport, runId)
-            // The whole connect pipeline (init -> settle -> negotiate -> VIN) is done: flip to
-            // Connected and clear the progress stage in the same update.
+            // The connect pipeline (init -> settle -> negotiate -> VIN) is done, but the status
+            // stays Connecting (negotiating stage) until the first valid speed/RPM reply below.
             publish(runId) {
                 it.copy(
-                    status = ObdStatus.Connected,
                     deviceName = transport.deviceName,
                     supportedPids = supportedPids,
                     vin = vin,
-                    connectionStage = null,
-                    connectingSinceMs = null,
+                    connectionStage = ObdConnectStage.NegotiatingPids,
                 )
             }
 
@@ -660,31 +794,50 @@ class ObdEngine @Inject constructor(
                 if (stopRequested || !runGeneration.isCurrent(runId)) return
                 val now = System.currentTimeMillis()
 
-                val rawSpeed = transport.sendCommand(ElmProtocol.command(ElmProtocol.PID_SPEED))
-                val rawRpm = transport.sendCommand(ElmProtocol.command(ElmProtocol.PID_RPM))
-                // Coolant is always polled: the cold-engine exclusion in the aggregator
-                // depends on it and it is not part of the optional negotiation set.
-                val rawCoolant = transport.sendCommand(ElmProtocol.command(ElmProtocol.PID_COOLANT_TEMP))
-                val rawMaf = pollIf(transport, ElmProtocol.PID_MAF, supportedPids, pidNegotiationFailed)
-                val rawFuelRate = pollIf(transport, ElmProtocol.PID_FUEL_RATE, supportedPids, pidNegotiationFailed)
-                val rawMap = pollIf(transport, ElmProtocol.PID_MAP, supportedPids, pidNegotiationFailed)
-                val rawIat = pollIf(transport, ElmProtocol.PID_INTAKE_TEMP, supportedPids, pidNegotiationFailed)
-                val rawLoad = pollIf(transport, ElmProtocol.PID_ENGINE_LOAD, supportedPids, pidNegotiationFailed)
-                val rawFuelLevel = pollIf(transport, ElmProtocol.PID_FUEL_LEVEL, supportedPids, pidNegotiationFailed)
+                // Rate-based polling: speed, RPM and the best fuel source every loop, the slow
+                // PIDs on their own interval (held in between) — see PidScheduler.
+                val polled = LinkedHashMap<Int, String>()
+                for (pid in scheduler.pidsDue(now)) {
+                    polled[pid] = transport.sendCommand(ElmProtocol.command(pid))
+                }
+                val rawSpeed = polled[ElmProtocol.PID_SPEED].orEmpty()
+                val rawRpm = polled[ElmProtocol.PID_RPM].orEmpty()
+                val parsedSpeed = ElmProtocol.speed(rawSpeed)
+                val parsedRpm = ElmProtocol.rpm(rawRpm)
+                val busAlive = parsedSpeed != null || parsedRpm != null
+                for ((pid, reply) in polled) scheduler.record(pid, reply, now, busAlive)
+                val rawCoolant = scheduler.reply(ElmProtocol.PID_COOLANT_TEMP, now)
 
                 // Raw parsed values: persisted as-is so learned data can be rebuilt later.
                 val rawSample = ObdSample(
                     timestampMs = now,
-                    speedKmh = ElmProtocol.speed(rawSpeed),
-                    rpm = ElmProtocol.rpm(rawRpm),
-                    mafGps = ElmProtocol.mafGps(rawMaf),
-                    fuelRateLph = ElmProtocol.fuelRateLph(rawFuelRate),
-                    mapKpa = ElmProtocol.mapKpa(rawMap),
-                    intakeTempC = ElmProtocol.intakeTempC(rawIat),
+                    speedKmh = parsedSpeed,
+                    rpm = parsedRpm,
+                    mafGps = ElmProtocol.mafGps(scheduler.reply(ElmProtocol.PID_MAF, now)),
+                    fuelRateLph = ElmProtocol.fuelRateLph(scheduler.reply(ElmProtocol.PID_FUEL_RATE, now)),
+                    mapKpa = ElmProtocol.mapKpa(scheduler.reply(ElmProtocol.PID_MAP, now)),
+                    intakeTempC = ElmProtocol.intakeTempC(scheduler.reply(ElmProtocol.PID_INTAKE_TEMP, now)),
                     coolantTempC = ElmProtocol.coolantTempC(rawCoolant),
-                    engineLoadPct = ElmProtocol.engineLoadPct(rawLoad),
-                    fuelLevelPct = ElmProtocol.fuelLevelPct(rawFuelLevel),
+                    engineLoadPct = ElmProtocol.engineLoadPct(scheduler.reply(ElmProtocol.PID_ENGINE_LOAD, now)),
+                    fuelLevelPct = ElmProtocol.fuelLevelPct(scheduler.reply(ElmProtocol.PID_FUEL_LEVEL, now)),
                 )
+
+                if (busAlive) {
+                    validSamples++
+                    reconnectCyclesWithoutData = 0
+                    if (!connectedPublished) {
+                        connectedPublished = true
+                        publish(runId) {
+                            it.copy(
+                                status = ObdStatus.Connected,
+                                deviceName = transport.deviceName,
+                                supportedPids = supportedPids,
+                                connectionStage = null,
+                                connectingSinceMs = null,
+                            )
+                        }
+                    }
+                }
 
                 // Sanitize -> bounded fuel rate -> learnable deltas -> smoothed live consumption.
                 // The same processor rebuilds learned data from stored samples (LearnedDataRepair).
@@ -698,7 +851,7 @@ class ObdEngine @Inject constructor(
                 // totals need the true wall-clock delta.
                 val dtSec = processed.dtSec
 
-                coldStartLearner.onSample(
+                coldStartLearner?.onSample(
                     speedKmh = sample.speedKmh,
                     fuelRateLph = fuelRate,
                     dtSec = dtSec,
@@ -706,7 +859,9 @@ class ObdEngine @Inject constructor(
                 )
 
                 if (sample.engineRunning) {
-                    val rate = fuelRate ?: 0.0
+                    // A dropped fuel-rate reply holds the last rate for a few seconds instead
+                    // of counting as 0 L/h.
+                    val rate = fuelRateHold.resolve(now, fuelRate)
                     tripFuel += rate * dtSec / 3600.0
                     tripDistance += (speed ?: 0.0) * dtSec / 3600.0
                     tripSeconds += dtSec
@@ -716,40 +871,32 @@ class ObdEngine @Inject constructor(
 
                 when (val transition = tripDetector.onSample(sample)) {
                     is TripDetector.TripTransition.Started -> {
-                        tripRecorder.start(
-                            vehicleId,
-                            tripDetector.startedAtMs ?: sample.timestampMs,
-                            source,
-                        )
+                        val continued = guarded("start trip") {
+                            tripRecorder.startOrContinue(
+                                vehicleId,
+                                tripDetector.startedAtMs ?: sample.timestampMs,
+                                source,
+                            )
+                        }
+                        tripContinued = continued != null
+                        if (continued != null) {
+                            Log.i(TAG, "continuing the trip that closed moments ago (same drive)")
+                            tripDistance += continued.distanceKm
+                            tripFuel += continued.fuelL
+                            tripSeconds += continued.seconds
+                            tripIdleSeconds += continued.idleSeconds
+                            tripMaxSpeed = maxOf(tripMaxSpeed, continued.maxSpeedKmh)
+                        }
                     }
                     is TripDetector.TripTransition.Ended -> {
-                        // Anchor the link on the start the recorder actually wrote, not the
-                        // detector transition, so a divergence can never mis-window the match.
-                        val startedAtMs = tripRecorder.tripStartedAtMs
-                        val closedTripId = tripRecorder.end(
-                            vehicleId = vehicleId,
-                            endedAtMs = transition.endedAtMs,
-                            distanceKm = tripDistance,
-                            fuelL = tripFuel,
-                            maxSpeedKmh = tripMaxSpeed,
-                            idleSeconds = tripIdleSeconds,
-                            pricePerLiter = pricePerLiter,
-                        )
-                        closedTripId?.let {
-                            if (source == TripSource.REAL) {
-                                tripLinker.autoLink(it, startedAtMs, transition.endedAtMs)
-                            }
-                        }
+                        closeOpenTrip(transition.endedAtMs)
                         tripDistance = 0.0
                         tripFuel = 0.0
                         tripSeconds = 0.0
                         tripIdleSeconds = 0.0
                         tripMaxSpeed = 0.0
-                        if (coldStartLearner.hasColdSamples) {
-                            coldStartRepository.record(vehicleId, coldStartLearner.endTrip())
-                        } else {
-                            coldStartLearner.endTrip()
-                        }
+                        finishColdStart()
+                        tripContinued = false
                     }
                     else -> Unit
                 }
@@ -757,10 +904,7 @@ class ObdEngine @Inject constructor(
                 sampleCount++
                 if (!simulated) sampleBuffer += rawSample.toEntity(vehicleId)
                 if (now - lastSamplePersistMs >= SAMPLE_PERSIST_INTERVAL_MS) {
-                    if (sampleBuffer.isNotEmpty()) {
-                        sampleDao.insertAll(sampleBuffer.toList())
-                        sampleBuffer.clear()
-                    }
+                    flushSamples(sampleBuffer)
                     lastSamplePersistMs = now
                 }
 
@@ -774,14 +918,16 @@ class ObdEngine @Inject constructor(
                         pricePerLiter
                     }
                     if (tripRecorder.isOpen) {
-                        tripRecorder.checkpoint(
-                            vehicleId = vehicleId,
-                            nowMs = now,
-                            distanceKm = tripDistance,
-                            fuelL = tripFuel,
-                            maxSpeedKmh = tripMaxSpeed,
-                            idleSeconds = tripIdleSeconds,
-                        )
+                        guarded("trip checkpoint") {
+                            tripRecorder.checkpoint(
+                                vehicleId = vehicleId,
+                                nowMs = now,
+                                distanceKm = tripDistance,
+                                fuelL = tripFuel,
+                                maxSpeedKmh = tripMaxSpeed,
+                                idleSeconds = tripIdleSeconds,
+                            )
+                        }
                     }
                     lastBinPersistMs = now
                 }
@@ -799,13 +945,7 @@ class ObdEngine @Inject constructor(
                 val rpmPidSupported = supportedPids.isEmpty() ||
                     supportedPids.contains(ElmProtocol.PID_RPM)
                 // Connection logic keys on the raw parse, as before sanitizing existed.
-                if (rawSample.rpm == null &&
-                    ObdConnectionPolicy.shouldTrackRpmAbsence(rpmPidSupported, rawSample.speedKmh)
-                ) {
-                    if (rpmNullSinceMs == null) rpmNullSinceMs = now
-                } else {
-                    rpmNullSinceMs = null
-                }
+                engineOff.onSample(now, rawSample.rpm, rawSample.speedKmh, rpmPidSupported)
 
                 // Bug A fix: trip-computer style smoothing (fuel sum / distance sum over a ~8 s
                 // window), L/100 km only while moving, L/h otherwise — see LiveConsumptionWindow.
@@ -817,10 +957,10 @@ class ObdEngine @Inject constructor(
                 // OBD port. That is NOT a link failure: reconnecting cannot make a sleeping ECU
                 // answer, and doing it anyway used to (a) tear down/rebuild the RFCOMM link
                 // every ~1.25 s, draining the battery and hammering a single-link clone, and
-                // (b) reset `rpmNullSinceMs` on every such reconnect, so the 60 s ignition-off
-                // timeout could never accumulate and the loop never stopped itself. It is
-                // tracked with its own counter so it can still surface to the UI, just without
-                // ever counting toward `consecutiveBad` / the [ObdConnectionPolicy.
+                // (b) reset the RPM-absence clock on every such reconnect, so the 60 s
+                // ignition-off timeout could never accumulate and the loop never stopped itself.
+                // It is tracked with its own counter so it can still surface to the UI, just
+                // without ever counting toward `consecutiveBad` / the [ObdConnectionPolicy.
                 // nextBadStreakAction] escalation ladder below.
                 val noDataNow = rawSpeed.contains("NO DATA", ignoreCase = true) ||
                     rawSpeed.contains("NODATA", ignoreCase = true) ||
@@ -909,6 +1049,7 @@ class ObdEngine @Inject constructor(
                         supportedPids = supportedPids,
                         lastRawReply = rawSpeed.take(MAX_RAW_REPLY_CHARS),
                         lastError = diagError,
+                        validSampleCount = validSamples,
                     )
                 }
 
@@ -949,6 +1090,18 @@ class ObdEngine @Inject constructor(
                         }
 
                         ObdConnectionPolicy.BadStreakAction.RECONNECT -> {
+                            if (ObdConnectionPolicy.reconnectCyclesExhausted(reconnectCyclesWithoutData)) {
+                                // The link keeps coming back at the socket level but never
+                                // yields data: stop rebuilding it for this run.
+                                Log.e(
+                                    TAG,
+                                    "giving up: $reconnectCyclesWithoutData reconnect(s) in a row without a " +
+                                        "valid speed/RPM reply",
+                                )
+                                publishError(runId, ObdConnectionPolicy.ERROR_RECONNECT_LIMIT)
+                                return
+                            }
+                            reconnectCyclesWithoutData++
                             Log.w(
                                 TAG,
                                 "reconnecting: bad-reply streak ${badStreakMs}ms, linkOpen=$linkOpen, " +
@@ -1002,27 +1155,30 @@ class ObdEngine @Inject constructor(
                             val renegotiation = negotiatePids(transport, runId)
                             supportedPids = renegotiation.pids
                             pidNegotiationFailed = renegotiation.negotiationFailed
+                            scheduler = PidScheduler(supportedPids, pidNegotiationFailed)
+                            // Back to Connected only once the ECU answers again.
+                            connectedPublished = false
                             publish(runId) {
                                 it.copy(
-                                    status = ObdStatus.Connected,
+                                    status = ObdStatus.Connecting,
                                     supportedPids = supportedPids,
-                                    connectionStage = null,
-                                    connectingSinceMs = null,
+                                    connectionStage = ObdConnectStage.NegotiatingPids,
                                 )
                             }
                             consecutiveBad = 0
                             consecutiveNoData = 0
                             badStreakStartedMs = null
                             softResyncAttemptedForStreak = false
-                            rpmNullSinceMs = null
+                            // The ignition-off clocks (engineOff) are deliberately kept.
                             lastSample = null
                             processor.resetTiming()
                         }
                     }
                 }
 
-                if (ObdConnectionPolicy.shouldStopForIgnitionOff(rpmNullSinceMs, now, batteryVoltage)) {
+                if (engineOff.shouldStop(now, batteryVoltage)) {
                     Log.i(TAG, "ignition off detected — stopping OBD loop")
+                    stopReason = ObdStopReason.IGNITION_OFF
                     return
                 }
 
@@ -1034,43 +1190,22 @@ class ObdEngine @Inject constructor(
             // leaving the trip open and dropping the buffered samples/bins. Each step is also
             // shielded so one failure cannot abort the remaining cleanup.
             withContext(NonCancellable) {
-                if (sampleBuffer.isNotEmpty()) {
-                    runCatching { sampleDao.insertAll(sampleBuffer.toList()) }
-                        .onFailure { Log.w(TAG, "flush samples on stop failed", it) }
-                }
+                flushSamples(sampleBuffer)
                 // Additive delta flush (never an absolute snapshot); logs and keeps going on failure.
                 flushBinDeltas(vehicleId, binDeltas)
-                runCatching {
-                    val end = tripDetector.forceEnd(lastSample?.timestampMs ?: System.currentTimeMillis())
-                    if (end is TripDetector.TripTransition.Ended) {
-                        val startedAtMs = tripRecorder.tripStartedAtMs
-                        val closedTripId = tripRecorder.end(
-                            vehicleId = vehicleId,
-                            endedAtMs = end.endedAtMs,
-                            distanceKm = tripDistance,
-                            fuelL = tripFuel,
-                            maxSpeedKmh = tripMaxSpeed,
-                            idleSeconds = tripIdleSeconds,
-                            pricePerLiter = pricePerLiter,
-                        )
-                        closedTripId?.let {
-                            if (source == TripSource.REAL) {
-                                tripLinker.autoLink(it, startedAtMs, end.endedAtMs)
-                            }
-                        }
-                    }
-                }.onFailure { Log.w(TAG, "close trip on stop failed", it) }
-                runCatching {
-                    if (coldStartLearner.hasColdSamples) {
-                        coldStartRepository.record(vehicleId, coldStartLearner.endTrip())
-                    } else {
-                        coldStartLearner.endTrip()
-                    }
-                }.onFailure { Log.w(TAG, "record cold start on stop failed", it) }
+                guarded("close trip on stop") {
+                    // End at the last moment the engine ran / the car moved, not after the
+                    // ignition-off wait, so a continuing run can pick the same trip up.
+                    val endAt = tripDetector.lastActiveMs ?: lastSample?.timestampMs ?: System.currentTimeMillis()
+                    val end = tripDetector.forceEnd(endAt)
+                    if (end is TripDetector.TripTransition.Ended) closeOpenTrip(end.endedAtMs)
+                }
+                guarded("record cold start on stop") { finishColdStart() }
                 closeTransport(transport, runId, "run loop ended")
                 publish(runId) {
                     it.copy(
                         status = if (it.status == ObdStatus.Error) it.status else ObdStatus.Disconnected,
+                        stopReason = stopReason,
                         connectionStage = null,
                         connectingSinceMs = null,
                     )
@@ -1078,24 +1213,6 @@ class ObdEngine @Inject constructor(
             }
         }
     }
-
-    /**
-     * Sends an optional PID. When negotiation failed we fall back to the mandatory trio
-     * (speed/RPM/coolant, always polled) only, instead of blasting 8 possibly-unsupported PIDs
-     * that each wait the full socket timeout; when negotiation succeeded, poll only what the
-     * bitmap advertises.
-     */
-    private suspend fun pollIf(
-        transport: ObdTransport,
-        pid: Int,
-        supported: Set<Int>,
-        negotiationFailed: Boolean,
-    ): String =
-        if (!negotiationFailed && supported.contains(pid)) {
-            transport.sendCommand(ElmProtocol.command(pid))
-        } else {
-            ""
-        }
 
     /**
      * Retries `connect()` with 2, 4, 8 s backoff, capped at
