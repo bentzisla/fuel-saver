@@ -71,6 +71,13 @@ object PidParser {
 
     /** Status text an adapter may print on the same line in front of real data. */
     private val NOISE_PREFIX = Regex("^(SEARCHING\\.*|BUS INIT:?\\s*(\\.\\.\\.)?\\s*(OK)?)\\s*")
+    /**
+     * 11-bit CAN header (`7E8 `) in front of a spaced reply when headers are on (`ATH1`). It is
+     * stripped so the rest of the line tokenizes; the PCI length byte that follows is kept and
+     * only interpreted by [parseMode01Replies] (the strict [parseMode01Bytes] still rejects it,
+     * since the message then does not start with the service byte).
+     */
+    private val CAN11_HEADER = Regex("^[0-9A-F]{3} +(?=[0-9A-F]{2}( |$))")
     private val SPACED_HEX = Regex("^[0-9A-F]{2}( [0-9A-F]{2})*$")
     private val PACKED_HEX = Regex("^([0-9A-F]{2})+$")
 
@@ -100,6 +107,7 @@ object PidParser {
                 line = match.groupValues[2].trim()
             }
             line = line.replace(NOISE_PREFIX, "").trim()
+            line = line.replace(CAN11_HEADER, "")
             val bytes = hexBytes(line) ?: continue
 
             when (frameIndex) {
@@ -151,16 +159,62 @@ object PidParser {
     }
 
     /**
-     * Decodes a 32-bit supported-PID bitmap (e.g. PID 0x00, 0x20, 0x40).
+     * Data bytes of EVERY ECU's answer to Mode 01 [pid], in reply order (unlike
+     * [parseMode01Bytes], which keeps only the first). Used where the answers must be combined
+     * rather than picked from, i.e. the supported-PID bitmaps.
+     *
+     * Besides the plain `41 <pid> ...` message (headers off), a message is accepted when the
+     * `41 <pid>` sits right behind a header the adapter printed with `ATH1`:
+     *  - CAN 11-bit `7E8 06 41 00 ...`: the `7E8` is stripped by [messages]; the `06` PCI byte
+     *    must equal the number of bytes that follow it;
+     *  - CAN 29-bit `18 DA F1 10 06 41 00 ...`: four header bytes plus the PCI byte (checked);
+     *  - J1850 / ISO 9141 / KWP `48 6B 10 41 00 ... <checksum>`: three header bytes.
+     * A message that itself starts with `41` never gets the header treatment, so the data bytes
+     * of a stale reply to another PID cannot be mistaken for this one.
+     */
+    fun parseMode01Replies(raw: String, pid: Int, minDataBytes: Int = 1): List<List<Int>> {
+        val wantedPid = pid and 0xFF
+        val result = mutableListOf<List<Int>>()
+        for (message in messages(raw)) {
+            val offset = mode01Offset(message, wantedPid) ?: continue
+            val data = message.subList(offset + 2, message.size)
+            if (data.size >= minDataBytes) result += data.toList()
+        }
+        return result
+    }
+
+    /** Index of the `41 <pid>` service/PID pair in [message] (0 without headers), or null. */
+    private fun mode01Offset(message: List<Int>, wantedPid: Int): Int? {
+        fun pairAt(i: Int) = message.size >= i + 2 && message[i] == MODE01_REPLY && message[i + 1] == wantedPid
+        if (pairAt(0)) return 0
+        if (message.isEmpty() || message[0] == MODE01_REPLY) return null
+        // CAN 11-bit (header already stripped): PCI length byte first.
+        if (pairAt(1) && message[0] == message.size - 1) return 1
+        // CAN 29-bit: 4 header bytes, then the PCI length byte.
+        if (pairAt(5) && message[4] == message.size - 5) return 5
+        // J1850 / ISO 9141-2 / KWP2000: 3 header bytes (a trailing checksum byte may follow).
+        if (pairAt(3)) return 3
+        return null
+    }
+
+    /**
+     * Decodes a 32-bit supported-PID bitmap (e.g. PID 0x00, 0x20, 0x40). When several ECUs answer
+     * (on CAN the engine ECU `7E8` and the transmission `7E9` both answer `0100`, in either order)
+     * their bitmaps are OR-ed: a PID is supported when any ECU supports it. Keeping only the first
+     * reply lost MAF / `5E` / MAP whenever the transmission happened to answer first. Returns null
+     * when no ECU sent a complete (4-byte) bitmap.
      */
     fun parseSupportedPids(raw: String, basePid: Int): Set<Int>? {
-        val data = parseMode01Bytes(raw, basePid, minDataBytes = 4) ?: return null
+        val bitmaps = parseMode01Replies(raw, basePid, minDataBytes = 4)
+        if (bitmaps.isEmpty()) return null
 
-        val result = mutableSetOf<Int>()
-        for (i in 0 until 32) {
-            val byte = data[i / 8]
-            val bit = 7 - (i % 8)
-            if ((byte shr bit) and 1 == 1) result.add(basePid + 1 + i)
+        val result = sortedSetOf<Int>()
+        for (data in bitmaps) {
+            for (i in 0 until 32) {
+                val byte = data[i / 8]
+                val bit = 7 - (i % 8)
+                if ((byte shr bit) and 1 == 1) result.add(basePid + 1 + i)
+            }
         }
         return result
     }
@@ -231,6 +285,7 @@ object PidParser {
         return vin.toString()
     }
 
+    private const val MODE01_REPLY = 0x41
     private const val MODE09_PID_VIN = 0x02
     private const val VIN_LENGTH = 17
 }
