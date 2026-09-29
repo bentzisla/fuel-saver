@@ -64,6 +64,42 @@ class ObdConnectionPolicyLifecycleTest {
     }
 
     @Test
+    fun `an ignition-off stop is never auto-reconnected`() {
+        // The overnight re-arm loop: parked car in range, dongle still bonded/ACL-visible.
+        assertFalse(
+            ObdConnectionPolicy.shouldAutoReconnect(
+                attempt = 0,
+                autoConnect = true,
+                manualDisconnect = false,
+                deviceConnected = true,
+                ignitionOff = true,
+            ),
+        )
+        assertTrue(
+            ObdConnectionPolicy.shouldAutoReconnect(
+                attempt = 0,
+                autoConnect = true,
+                manualDisconnect = false,
+                deviceConnected = true,
+                ignitionOff = false,
+            ),
+        )
+    }
+
+    @Test
+    fun `the reconnect budget refills only after real engine data`() {
+        assertFalse(ObdConnectionPolicy.shouldResetReconnectBudget(validSamples = 0))
+        assertTrue(ObdConnectionPolicy.shouldResetReconnectBudget(validSamples = 1))
+    }
+
+    @Test
+    fun `in-run reconnect cycles without data are capped`() {
+        assertFalse(ObdConnectionPolicy.reconnectCyclesExhausted(0))
+        assertFalse(ObdConnectionPolicy.reconnectCyclesExhausted(ObdConnectionPolicy.MAX_RECONNECT_CYCLES_WITHOUT_DATA - 1))
+        assertTrue(ObdConnectionPolicy.reconnectCyclesExhausted(ObdConnectionPolicy.MAX_RECONNECT_CYCLES_WITHOUT_DATA))
+    }
+
+    @Test
     fun `reconnect loop continues only while no stop was requested`() {
         assertTrue(ObdConnectionPolicy.shouldContinueReconnect(stopRequested = false))
         assertFalse(ObdConnectionPolicy.shouldContinueReconnect(stopRequested = true))
