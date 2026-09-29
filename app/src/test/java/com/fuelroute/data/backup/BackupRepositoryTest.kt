@@ -2,6 +2,8 @@ package com.fuelroute.data.backup
 
 import com.fuelroute.data.db.FavoriteDestinationDao
 import com.fuelroute.data.db.FavoriteDestinationEntity
+import com.fuelroute.data.db.FavoriteObdDeviceDao
+import com.fuelroute.data.db.FavoriteObdDeviceEntity
 import com.fuelroute.data.db.LearningExtrasDao
 import com.fuelroute.data.db.LearningExtrasEntity
 import com.fuelroute.data.db.RefuelDao
@@ -73,6 +75,10 @@ class BackupRepositoryTest {
         )
         assertEquals(a.learningExtras.sortedBy { it.vehicleId }, b.learningExtras.sortedBy { it.vehicleId })
         assertEquals(a.favorites.sortedBy { it.createdAtMs }, b.favorites.sortedBy { it.createdAtMs })
+        assertEquals(
+            a.favoriteObdDevices.sortedBy { it.address },
+            b.favoriteObdDevices.sortedBy { it.address },
+        )
         assertEquals(a.settings, b.settings)
         assertEquals(a.modelOverrides, b.modelOverrides)
         assertEquals(source.settings.overrides, dest.settings.overrides)
@@ -96,6 +102,8 @@ class BackupRepositoryTest {
         assertEquals(expected.refuels.size, second.refuelsSkipped)
         assertEquals(0, second.favoritesAdded)
         assertEquals(expected.favorites.size, second.favoritesSkipped)
+        assertEquals(0, second.favoriteObdDevicesAdded)
+        assertEquals(expected.favoriteObdDevices.size, second.favoriteObdDevicesSkipped)
         // Re-importing the same file finds value-identical bins and skips them.
         assertEquals(0, second.binsMerged)
 
@@ -105,6 +113,7 @@ class BackupRepositoryTest {
         assertEquals(expected.refuels.size, dest.refuels.size)
         assertEquals(expected.routeSearches.size, dest.searches.size)
         assertEquals(expected.favorites.size, dest.favorites.size)
+        assertEquals(expected.favoriteObdDevices.size, dest.favoriteObdDevices.size)
 
         // Bins are NOT summed a second time (would double-count the learned curve).
         assertEquals(expected.speedBins.size, dest.bins.size)
@@ -226,6 +235,7 @@ class BackupRepositoryTest {
         assertTrue(harness.searches.isEmpty())
         assertTrue(harness.extras.isEmpty())
         assertTrue(harness.favorites.isEmpty())
+        assertTrue(harness.favoriteObdDevices.isEmpty())
         assertEquals(AppSettings(), harness.settings.value)
     }
 
@@ -244,6 +254,7 @@ class BackupRepositoryTest {
         val searches = mutableListOf<RouteSearchEntity>()
         val extras = mutableListOf<LearningExtrasEntity>()
         val favorites = mutableListOf<FavoriteDestinationEntity>()
+        val favoriteObdDevices = mutableListOf<FavoriteObdDeviceEntity>()
 
         private var nextTripId = 1L
         private var nextRefuelId = 1L
@@ -324,6 +335,14 @@ class BackupRepositoryTest {
                     val stored = if (entity.id == 0L) entity.copy(id = nextFavoriteId++) else entity
                     favorites.removeAll { it.id == stored.id }
                     favorites.add(stored)
+                }
+            },
+            favoriteObdDeviceDao = mockk<FavoriteObdDeviceDao>(relaxed = true).also { dao ->
+                every { dao.observeAll() } answers { flowOf(favoriteObdDevices.toList()) }
+                coEvery { dao.upsert(any()) } coAnswers {
+                    val device = args[0] as FavoriteObdDeviceEntity
+                    favoriteObdDevices.removeAll { it.address == device.address }
+                    favoriteObdDevices.add(device)
                 }
             },
             settingsRepository = settings,
@@ -431,6 +450,18 @@ class BackupRepositoryTest {
                 longitude = 34.9,
                 sortOrder = 1,
                 createdAtMs = 9_000L,
+            )
+            favoriteObdDevices += FavoriteObdDeviceEntity(
+                address = "AA:BB:CC:DD:EE:FF",
+                name = "ELM327 Clone",
+                sortOrder = 0,
+                createdAtMs = 10_000L,
+            )
+            favoriteObdDevices += FavoriteObdDeviceEntity(
+                address = "11:22:33:44:55:66",
+                name = "OBDLink MX",
+                sortOrder = 1,
+                createdAtMs = 11_000L,
             )
             settings.set(
                 AppSettings(

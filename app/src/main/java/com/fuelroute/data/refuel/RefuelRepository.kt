@@ -91,5 +91,6 @@ class DefaultRefuelRepository @Inject constructor(
         liters = liters,
         totalPrice = totalPrice,
         isFull = isFull,
+        grade = grade,
     )
 }

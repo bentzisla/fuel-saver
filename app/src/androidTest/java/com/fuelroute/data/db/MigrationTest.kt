@@ -26,6 +26,18 @@ class MigrationTest {
     )
 
     @Test
+    fun migrate4To5() {
+        helper.createDatabase(DB_4_TO_5, 4).close()
+        helper.runMigrationsAndValidate(DB_4_TO_5, 5, true, Migrations.MIGRATION_4_5)
+    }
+
+    @Test
+    fun migrate5To6() {
+        helper.createDatabase(DB_5_TO_6, 5).close()
+        helper.runMigrationsAndValidate(DB_5_TO_6, 6, true, Migrations.MIGRATION_5_6)
+    }
+
+    @Test
     fun migrate6Through9() {
         helper.createDatabase(DB_6_TO_9, 6).close()
         helper.runMigrationsAndValidate(DB_6_TO_9, 7, true, Migrations.MIGRATION_6_7)
@@ -54,6 +66,8 @@ class MigrationTest {
     }
 
     private companion object {
+        const val DB_4_TO_5 = "migration-test-4-5"
+        const val DB_5_TO_6 = "migration-test-5-6"
         const val DB_6_TO_9 = "migration-test-6-9"
         const val DB_9_TO_10 = "migration-test-9-10"
         const val DB_8_TO_9 = "migration-test-8-9"
